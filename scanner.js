@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { spawn } = require("child_process");
 const https = require("https");
 
@@ -5,18 +6,27 @@ const https = require("https");
 // CONFIG
 // =========================
 
-const DEVICE = "/dev/input/event4";
+// =========================
+// CONFIG (from .env via systemd)
+// =========================
+
+const SCANNER_DEVICE_NAME =
+  process.env.SCANNER_DEVICE_NAME || "BF SCAN SCAN KEYBOARD";
 
 const ENDPOINT_URL =
+  process.env.ENDPOINT_URL ||
   "https://us-central1-alfarero-478ad.cloudfunctions.net/receiveRoomScanEvent";
 
-const SHARED_SECRET = "xyz123";
+const SHARED_SECRET = process.env.SHARED_SECRET || "";
 
-// REQUIRED by your function
-const ROOM_ID = "reg_room_1";
+const ROOM_ID = process.env.ROOM_ID || "reg_room_1";
+const STATION_ID = process.env.STATION_ID || "reg";
+const DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
 
-const STATION_ID = "reg";
-const DEVICE_ID = "scanner_pi_01";
+// Fail fast if secret is missing
+if (!SHARED_SECRET) {
+  throw new Error("Missing SHARED_SECRET environment variable");
+}
 
 // =========================
 // KEY MAPS
@@ -41,6 +51,60 @@ const punctuationMap = {
   KEY_SLASH: "/",
   KEY_SPACE: " ",
 };
+
+// =========================
+// DEVICE DISCOVERY
+// =========================
+
+function findInputDeviceByName(targetName) {
+  const inputDevicesPath = "/proc/bus/input/devices";
+
+  if (!fs.existsSync(inputDevicesPath)) {
+    throw new Error(`Input devices file not found: ${inputDevicesPath}`);
+  }
+
+  const content = fs.readFileSync(inputDevicesPath, "utf8");
+  const blocks = content.split(/\n\s*\n/);
+
+  for (const block of blocks) {
+    const nameMatch = block.match(/N:\s+Name="([^"]+)"/);
+    if (!nameMatch) continue;
+
+    const deviceName = nameMatch[1];
+    if (deviceName !== targetName) continue;
+
+    const handlersMatch = block.match(/H:\s+Handlers=([^\n]+)/);
+    if (!handlersMatch) {
+      throw new Error(
+        `Found device "${targetName}" but no Handlers line was present.`
+      );
+    }
+
+    const handlers = handlersMatch[1];
+    const eventMatch = handlers.match(/\b(event\d+)\b/);
+
+    if (!eventMatch) {
+      throw new Error(
+        `Found device "${targetName}" but no event handler was present.`
+      );
+    }
+
+    return `/dev/input/${eventMatch[1]}`;
+  }
+
+  throw new Error(`Could not find input device with name "${targetName}"`);
+}
+
+function resolveScannerDevicePath() {
+  const devicePath = findInputDeviceByName(SCANNER_DEVICE_NAME);
+  console.log(`Scanner device name: ${SCANNER_DEVICE_NAME}`);
+  console.log(`Resolved device path: ${devicePath}`);
+  return devicePath;
+}
+
+// =========================
+// KEY PARSING
+// =========================
 
 function keyToCharacter(key, shiftActive) {
   if (/^KEY_[A-Z]$/.test(key)) {
@@ -137,67 +201,84 @@ function postScan(scanValue) {
 // MAIN
 // =========================
 
-const evtest = spawn("sudo", ["evtest", DEVICE]);
+function startScannerListener() {
+  const devicePath = resolveScannerDevicePath();
 
-let scanBuffer = "";
-let lineRemainder = "";
-let shiftActive = false;
+  let scanBuffer = "";
+  let lineRemainder = "";
+  let shiftActive = false;
 
-function handleLine(line) {
-  if (!line.includes("EV_KEY")) return;
+  const evtest = spawn("sudo", ["evtest", devicePath]);
 
-  const match = line.match(/\((KEY_[A-Z0-9_]+)\), value ([012])/);
-  if (!match) return;
+  function handleLine(line) {
+    if (!line.includes("EV_KEY")) return;
 
-  const key = match[1];
-  const value = Number(match[2]);
+    const match = line.match(/\((KEY_[A-Z0-9_]+)\), value ([012])/);
+    if (!match) return;
 
-  if (key === "KEY_LEFTSHIFT" || key === "KEY_RIGHTSHIFT") {
-    shiftActive = value === 1;
-    return;
-  }
+    const key = match[1];
+    const value = Number(match[2]);
 
-  if (value !== 1) return;
-
-  if (key === "KEY_ENTER") {
-    if (scanBuffer.length > 0) {
-      console.log("SCAN:", scanBuffer);
-      postScan(scanBuffer);
-      scanBuffer = "";
+    if (key === "KEY_LEFTSHIFT" || key === "KEY_RIGHTSHIFT") {
+      shiftActive = value === 1;
+      return;
     }
-    return;
+
+    if (value !== 1) return;
+
+    if (key === "KEY_ENTER") {
+      if (scanBuffer.length > 0) {
+        console.log("SCAN:", scanBuffer);
+        postScan(scanBuffer);
+        scanBuffer = "";
+      }
+      return;
+    }
+
+    const character = keyToCharacter(key, shiftActive);
+
+    if (character !== null) {
+      scanBuffer += character;
+      return;
+    }
+
+    console.log("UNMAPPED:", key);
   }
 
-  const character = keyToCharacter(key, shiftActive);
+  evtest.stdout.on("data", (data) => {
+    lineRemainder += data.toString();
 
-  if (character !== null) {
-    scanBuffer += character;
-    return;
-  }
+    const lines = lineRemainder.split("\n");
+    lineRemainder = lines.pop() || "";
 
-  console.log("UNMAPPED:", key);
+    lines.forEach(handleLine);
+  });
+
+  evtest.stderr.on("data", (data) => {
+    const text = data.toString().trim();
+    if (text) {
+      console.log("EVTEST:", text);
+    }
+  });
+
+  evtest.on("close", (code) => {
+    console.error(`evtest exited with code ${code}`);
+  });
+
+  evtest.on("error", (err) => {
+    console.error("Failed to start evtest:", err);
+  });
+
+  console.log("Listening for scans...");
+  console.log(`POST target: ${ENDPOINT_URL}`);
 }
 
-evtest.stdout.on("data", (data) => {
-  lineRemainder += data.toString();
-
-  const lines = lineRemainder.split("\n");
-  lineRemainder = lines.pop() || "";
-
-  lines.forEach(handleLine);
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
 });
 
-evtest.stderr.on("data", (data) => {
-  const text = data.toString().trim();
-  if (text) {
-    console.log("EVTEST:", text);
-  }
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
 });
 
-evtest.on("close", (code) => {
-  console.error(`evtest exited with code ${code}`);
-});
-
-console.log("Listening for scans...");
-console.log(`Device: ${DEVICE}`);
-console.log(`POST target: ${ENDPOINT_URL}`);
+startScannerListener();
