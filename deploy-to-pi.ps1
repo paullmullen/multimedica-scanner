@@ -35,6 +35,7 @@ ssh $PiHost "mkdir -p $RemoteAppDir"
 Write-Host "Copying files..." -ForegroundColor Cyan
 scp `
     "$LocalProjectDir\scanner.js" `
+    "$LocalProjectDir\configQr.js" `
     "$LocalProjectDir\install-scanner.sh" `
     "$LocalProjectDir\update-scanner.sh" `
     "$LocalProjectDir\package.json" `

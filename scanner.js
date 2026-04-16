@@ -2,9 +2,8 @@ const fs = require("fs");
 const { spawn } = require("child_process");
 const https = require("https");
 
-// =========================
-// CONFIG
-// =========================
+// ✅ NEW: config QR handler
+const { isConfigQr, handleConfigQr } = require("./configQr");
 
 // =========================
 // CONFIG (from .env via systemd)
@@ -19,9 +18,10 @@ const ENDPOINT_URL =
 
 const SHARED_SECRET = process.env.SHARED_SECRET || "";
 
-const ROOM_ID = process.env.ROOM_ID || "reg_room_1";
-const STATION_ID = process.env.STATION_ID || "reg";
-const DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
+// ⚠️ CHANGE: make these let instead of const so we can update them at runtime
+let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
+let STATION_ID = process.env.STATION_ID || "reg";
+let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
 
 // Fail fast if secret is missing
 if (!SHARED_SECRET) {
@@ -116,15 +116,76 @@ function keyToCharacter(key, shiftActive) {
     return digitMap[key];
   }
 
-  if (key === "KEY_SEMICOLON") {
-    return shiftActive ? ":" : ";";
+  switch (key) {
+    case "KEY_SEMICOLON":
+      return shiftActive ? ":" : ";";
+
+    case "KEY_MINUS":
+      return shiftActive ? "_" : "-";
+
+    case "KEY_DOT":
+      return shiftActive ? ">" : ".";
+
+    case "KEY_SLASH":
+      return shiftActive ? "?" : "/";
+
+    case "KEY_SPACE":
+      return " ";
+
+    case "KEY_COMMA":
+      return shiftActive ? "<" : ",";
+
+    case "KEY_APOSTROPHE":
+      return shiftActive ? '"' : "'";
+
+    case "KEY_LEFTBRACE":
+      return shiftActive ? "{" : "[";
+
+    case "KEY_RIGHTBRACE":
+      return shiftActive ? "}" : "]";
+
+    case "KEY_EQUAL":
+      return shiftActive ? "+" : "=";
+
+    case "KEY_BACKSLASH":
+      return shiftActive ? "|" : "\\";
+
+    case "KEY_GRAVE":
+      return shiftActive ? "~" : "`";
+
+    default:
+      return null;
+  }
+}
+
+// =========================
+// CONFIG QR HANDLING
+// =========================
+
+function handleConfigScan(scanValue) {
+  const result = handleConfigQr(scanValue);
+
+  if (!result.ok) {
+    console.error("CONFIG QR ERROR:", result.error);
+    return true; // handled (do not continue)
   }
 
-  if (punctuationMap[key]) {
-    return punctuationMap[key];
-  }
+  console.log("CONFIG QR APPLIED:", result.applied);
 
-  return null;
+  // ✅ update runtime values
+  ROOM_ID = result.applied.ROOM_ID;
+  STATION_ID = result.applied.STATION_ID;
+  DEVICE_ID = result.applied.DEVICE_ID;
+
+  console.log("UPDATED CONFIG:");
+  console.log("ROOM_ID =", ROOM_ID);
+  console.log("STATION_ID =", STATION_ID);
+  console.log("DEVICE_ID =", DEVICE_ID);
+
+  // Optional: restart service (recommended later)
+  // setTimeout(() => process.exit(0), 1000);
+
+  return true;
 }
 
 // =========================
@@ -181,10 +242,7 @@ function postScan(scanValue) {
 
       res.on("end", () => {
         console.log("POST STATUS:", res.statusCode);
-
-        if (body) {
-          console.log("POST BODY:", body);
-        }
+        if (body) console.log("POST BODY:", body);
       });
     }
   );
@@ -229,7 +287,14 @@ function startScannerListener() {
     if (key === "KEY_ENTER") {
       if (scanBuffer.length > 0) {
         console.log("SCAN:", scanBuffer);
-        postScan(scanBuffer);
+
+        // ✅ NEW: intercept config QR
+        if (isConfigQr(scanBuffer)) {
+          handleConfigScan(scanBuffer);
+        } else {
+          postScan(scanBuffer);
+        }
+
         scanBuffer = "";
       }
       return;
@@ -256,9 +321,7 @@ function startScannerListener() {
 
   evtest.stderr.on("data", (data) => {
     const text = data.toString().trim();
-    if (text) {
-      console.log("EVTEST:", text);
-    }
+    if (text) console.log("EVTEST:", text);
   });
 
   evtest.on("close", (code) => {
