@@ -2,7 +2,6 @@ const fs = require("fs");
 const { spawn } = require("child_process");
 const https = require("https");
 
-// ✅ NEW: config QR handler
 const { isConfigQr, handleConfigQr } = require("./configQr");
 
 // =========================
@@ -18,7 +17,7 @@ const ENDPOINT_URL =
 
 const SHARED_SECRET = process.env.SHARED_SECRET || "";
 
-// ⚠️ CHANGE: make these let instead of const so we can update them at runtime
+// must be let so station config can update runtime values
 let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
 let STATION_ID = process.env.STATION_ID || "reg";
 let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
@@ -43,13 +42,6 @@ const digitMap = {
   KEY_8: "8",
   KEY_9: "9",
   KEY_0: "0",
-};
-
-const punctuationMap = {
-  KEY_MINUS: "-",
-  KEY_DOT: ".",
-  KEY_SLASH: "/",
-  KEY_SPACE: " ",
 };
 
 // =========================
@@ -167,24 +159,32 @@ function handleConfigScan(scanValue) {
 
   if (!result.ok) {
     console.error("CONFIG QR ERROR:", result.error);
-    return true; // handled (do not continue)
+    return true;
   }
 
-  console.log("CONFIG QR APPLIED:", result.applied);
+  if (result.kind === "station_config") {
+    console.log("CONFIG QR APPLIED:", result.applied);
 
-  // ✅ update runtime values
-  ROOM_ID = result.applied.ROOM_ID;
-  STATION_ID = result.applied.STATION_ID;
-  DEVICE_ID = result.applied.DEVICE_ID;
+    ROOM_ID = result.applied.ROOM_ID;
+    STATION_ID = result.applied.STATION_ID;
+    DEVICE_ID = result.applied.DEVICE_ID;
 
-  console.log("UPDATED CONFIG:");
-  console.log("ROOM_ID =", ROOM_ID);
-  console.log("STATION_ID =", STATION_ID);
-  console.log("DEVICE_ID =", DEVICE_ID);
+    console.log("UPDATED CONFIG:");
+    console.log("ROOM_ID =", ROOM_ID);
+    console.log("STATION_ID =", STATION_ID);
+    console.log("DEVICE_ID =", DEVICE_ID);
+    return true;
+  }
 
-  // Optional: restart service (recommended later)
-  // setTimeout(() => process.exit(0), 1000);
+  if (result.kind === "wifi_config") {
+    console.log("WIFI CONFIG APPLIED:", result.applied);
+    console.log(
+      "The scanner may briefly lose connectivity while switching networks."
+    );
+    return true;
+  }
 
+  console.error("CONFIG QR ERROR: Unknown result kind");
   return true;
 }
 
@@ -242,7 +242,10 @@ function postScan(scanValue) {
 
       res.on("end", () => {
         console.log("POST STATUS:", res.statusCode);
-        if (body) console.log("POST BODY:", body);
+
+        if (body) {
+          console.log("POST BODY:", body);
+        }
       });
     }
   );
@@ -288,10 +291,11 @@ function startScannerListener() {
       if (scanBuffer.length > 0) {
         console.log("SCAN:", scanBuffer);
 
-        // ✅ NEW: intercept config QR
         if (isConfigQr(scanBuffer)) {
+          console.log("==== CONFIG QR DETECTED ====");
           handleConfigScan(scanBuffer);
         } else {
+          console.log("==== NORMAL SCAN ====");
           postScan(scanBuffer);
         }
 
@@ -321,7 +325,9 @@ function startScannerListener() {
 
   evtest.stderr.on("data", (data) => {
     const text = data.toString().trim();
-    if (text) console.log("EVTEST:", text);
+    if (text) {
+      console.log("EVTEST:", text);
+    }
   });
 
   evtest.on("close", (code) => {

@@ -1,7 +1,10 @@
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 
 const ENV_PATH = path.join(__dirname, ".env");
+const WIFI_CONNECTION_NAME = "multimedica-scanner-wifi";
+const WIFI_INTERFACE = "wlan0";
 
 function isConfigQr(rawValue) {
   return typeof rawValue === "string" && rawValue.startsWith("MMCFG:");
@@ -44,6 +47,37 @@ function validateStationConfig(payload) {
 
   if (!payload.device_id || typeof payload.device_id !== "string") {
     return { ok: false, error: "device_id is required" };
+  }
+
+  return { ok: true };
+}
+
+function validateWifiConfig(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Missing payload object" };
+  }
+
+  if (payload.kind !== "wifi_config") {
+    return { ok: false, error: `Unsupported config kind: ${payload.kind}` };
+  }
+
+  if (payload.version !== 1) {
+    return { ok: false, error: `Unsupported config version: ${payload.version}` };
+  }
+
+  if (!payload.ssid || typeof payload.ssid !== "string") {
+    return { ok: false, error: "ssid is required" };
+  }
+
+  if (typeof payload.password !== "string") {
+    return { ok: false, error: "password is required" };
+  }
+
+  if (
+    payload.security !== undefined &&
+    payload.security !== "wpa-psk"
+  ) {
+    return { ok: false, error: "Only security='wpa-psk' is currently supported" };
   }
 
   return { ok: true };
@@ -101,12 +135,105 @@ function applyStationConfig(payload) {
 
   return {
     ok: true,
+    kind: "station_config",
     applied: {
       ROOM_ID: payload.room_id,
       STATION_ID: payload.station_id,
       DEVICE_ID: payload.device_id,
     },
   };
+}
+
+function runCommand(command) {
+  try {
+    const output = execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    console.log("CMD OK:", command);
+    if (output && output.trim()) {
+      console.log("CMD OUT:", output.trim());
+    }
+
+    return output;
+  } catch (err) {
+    console.error("CMD FAILED:", command);
+
+    if (err.stdout) {
+      console.error("CMD STDOUT:", String(err.stdout).trim());
+    }
+
+    if (err.stderr) {
+      console.error("CMD STDERR:", String(err.stderr).trim());
+    }
+
+    throw err;
+  }
+}
+
+function shellEscape(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function applyWifiConfig(payload) {
+  const validation = validateWifiConfig(payload);
+  if (!validation.ok) {
+    return validation;
+  }
+
+  const ssid = payload.ssid.trim();
+  const password = payload.password;
+  const security = payload.security || "wpa-psk";
+
+  try {
+    try {
+      runCommand(`sudo /usr/bin/nmcli connection delete ${shellEscape(WIFI_CONNECTION_NAME)}`);
+    } catch (err) {
+      // OK if it does not exist yet
+    }
+
+    runCommand(
+      [
+        "sudo /usr/bin/nmcli connection add",
+        "type wifi",
+        `ifname ${WIFI_INTERFACE}`,
+        `con-name ${shellEscape(WIFI_CONNECTION_NAME)}`,
+        `ssid ${shellEscape(ssid)}`
+      ].join(" ")
+    );
+
+    if (security === "wpa-psk") {
+      runCommand(
+        [
+          `sudo /usr/bin/nmcli connection modify ${shellEscape(WIFI_CONNECTION_NAME)}`,
+          "wifi-sec.key-mgmt wpa-psk",
+          `wifi-sec.psk ${shellEscape(password)}`,
+          "connection.autoconnect yes"
+        ].join(" ")
+      );
+    }
+
+    console.log("WIFI CONFIG APPLIED; network may disconnect briefly...");
+
+    runCommand(`sudo /usr/bin/nmcli connection up ${shellEscape(WIFI_CONNECTION_NAME)}`);
+
+    return {
+      ok: true,
+      kind: "wifi_config",
+      applied: {
+        ssid,
+        security,
+        connection_name: WIFI_CONNECTION_NAME,
+        interface: WIFI_INTERFACE,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Failed to apply WiFi config: ${err.message}`,
+    };
+  }
 }
 
 function handleConfigQr(rawValue) {
@@ -121,6 +248,10 @@ function handleConfigQr(rawValue) {
     return applyStationConfig(payload);
   }
 
+  if (payload.kind === "wifi_config") {
+    return applyWifiConfig(payload);
+  }
+
   return {
     ok: false,
     error: `Unsupported config kind: ${payload.kind}`,
@@ -131,6 +262,8 @@ module.exports = {
   isConfigQr,
   parseConfigQr,
   validateStationConfig,
+  validateWifiConfig,
   applyStationConfig,
+  applyWifiConfig,
   handleConfigQr,
 };
