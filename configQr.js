@@ -1,333 +1,238 @@
 const fs = require("fs");
-const path = require("path");
-const { execSync } = require("child_process");
+const { spawnSync } = require("child_process");
 
-const ENV_PATH = path.join(__dirname, ".env");
-const WIFI_CONNECTION_NAME = "multimedica-scanner-wifi";
-const WIFI_INTERFACE = "wlan0";
+const ADMIN_TOKEN = process.env.SCANNER_QR_ADMIN_TOKEN;
+const ENV_FILE_PATH = "/home/multimedica_edge/scanner/.env";
 
-function isConfigQr(rawValue) {
-  return typeof rawValue === "string" && rawValue.startsWith("MMCFG:");
+function isConfigQr(scanValue) {
+  return scanValue.startsWith("MMCFG:");
 }
 
-function parseConfigQr(rawValue) {
-  if (!isConfigQr(rawValue)) {
-    return { ok: false, error: "Not a config QR" };
+function readEnvFileLines() {
+  if (!fs.existsSync(ENV_FILE_PATH)) {
+    throw new Error(`Environment file not found: ${ENV_FILE_PATH}`);
   }
-
-  try {
-    const jsonText = rawValue.slice("MMCFG:".length);
-    const payload = JSON.parse(jsonText);
-    return { ok: true, payload };
-  } catch (err) {
-    return { ok: false, error: `Invalid config QR JSON: ${err.message}` };
-  }
+  return fs.readFileSync(ENV_FILE_PATH, "utf8").split(/\r?\n/);
 }
 
-function validateStationConfig(payload) {
-  if (!payload || typeof payload !== "object") {
-    return { ok: false, error: "Missing payload object" };
+function quoteIfNeeded(value) {
+  const stringValue = String(value);
+  if (/[ \t]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '\\"')}"`;
   }
-
-  if (payload.kind !== "station_config") {
-    return { ok: false, error: `Unsupported config kind: ${payload.kind}` };
-  }
-
-  if (payload.version !== 1) {
-    return { ok: false, error: `Unsupported config version: ${payload.version}` };
-  }
-
-  if (!payload.station_id || typeof payload.station_id !== "string") {
-    return { ok: false, error: "station_id is required" };
-  }
-
-  if (!payload.room_id || typeof payload.room_id !== "string") {
-    return { ok: false, error: "room_id is required" };
-  }
-
-  if (!payload.device_id || typeof payload.device_id !== "string") {
-    return { ok: false, error: "device_id is required" };
-  }
-
-  return { ok: true };
-}
-
-function validateWifiConfig(payload) {
-  if (!payload || typeof payload !== "object") {
-    return { ok: false, error: "Missing payload object" };
-  }
-
-  if (payload.kind !== "wifi_config") {
-    return { ok: false, error: `Unsupported config kind: ${payload.kind}` };
-  }
-
-  if (payload.version !== 1) {
-    return { ok: false, error: `Unsupported config version: ${payload.version}` };
-  }
-
-  if (!payload.ssid || typeof payload.ssid !== "string") {
-    return { ok: false, error: "ssid is required" };
-  }
-
-  if (typeof payload.password !== "string") {
-    return { ok: false, error: "password is required" };
-  }
-
-  if (payload.security !== undefined && payload.security !== "wpa-psk") {
-    return { ok: false, error: "Only security='wpa-psk' is currently supported" };
-  }
-
-  return { ok: true };
-}
-
-function validateCloudConfig(payload) {
-  if (!payload || typeof payload !== "object") {
-    return { ok: false, error: "Missing payload object" };
-  }
-
-  if (payload.kind !== "cloud_config") {
-    return { ok: false, error: `Unsupported config kind: ${payload.kind}` };
-  }
-
-  if (payload.version !== 1) {
-    return { ok: false, error: `Unsupported config version: ${payload.version}` };
-  }
-
-  if (!payload.endpoint_url || typeof payload.endpoint_url !== "string") {
-    return { ok: false, error: "endpoint_url is required" };
-  }
-
-  if (!payload.shared_secret || typeof payload.shared_secret !== "string") {
-    return { ok: false, error: "shared_secret is required" };
-  }
-
-  if (!payload.endpoint_url.startsWith("https://")) {
-    return { ok: false, error: "endpoint_url must use https://" };
-  }
-
-  return { ok: true };
+  return stringValue;
 }
 
 function updateEnvFile(updates) {
-  if (!fs.existsSync(ENV_PATH)) {
-    throw new Error(`.env file not found at ${ENV_PATH}`);
-  }
-
-  const original = fs.readFileSync(ENV_PATH, "utf8");
-  const lines = original.split(/\r?\n/);
-
+  const lines = readEnvFileLines();
   const keysToUpdate = Object.keys(updates);
   const seenKeys = new Set();
 
-  const newLines = lines.map((line) => {
-    const trimmed = line.trim();
+  const nextLines = lines.map((line) => {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) return line;
 
-    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
-      return line;
-    }
+    const key = match[1];
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) return line;
 
-    const eqIndex = line.indexOf("=");
-    const key = line.slice(0, eqIndex).trim();
-
-    if (keysToUpdate.includes(key)) {
-      seenKeys.add(key);
-      return `${key}=${updates[key]}`;
-    }
-
-    return line;
+    seenKeys.add(key);
+    return `${key}=${quoteIfNeeded(updates[key])}`;
   });
 
   for (const key of keysToUpdate) {
     if (!seenKeys.has(key)) {
-      newLines.push(`${key}=${updates[key]}`);
+      nextLines.push(`${key}=${quoteIfNeeded(updates[key])}`);
     }
   }
 
-  fs.writeFileSync(ENV_PATH, newLines.join("\n"), "utf8");
+  const output = nextLines.join("\n").replace(/\n+$/, "") + "\n";
+  fs.writeFileSync(ENV_FILE_PATH, output, "utf8");
 }
 
-function applyStationConfig(payload) {
-  const validation = validateStationConfig(payload);
-  if (!validation.ok) {
-    return validation;
+function requireAdminAuth(data) {
+  const scannedToken = data?.auth?.admin_token || "";
+
+  if (!ADMIN_TOKEN) {
+    return { ok: false, error: "Missing SCANNER_QR_ADMIN_TOKEN in environment" };
   }
+
+  if (!data.auth || scannedToken !== ADMIN_TOKEN) {
+    return { ok: false, error: "Invalid admin token" };
+  }
+
+  return { ok: true };
+}
+
+// ------------------
+// CLOUD CONFIG
+// ------------------
+
+function validateCloudConfigPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Missing cloud config payload" };
+  }
+
+  if (!payload.endpoint_url) {
+    return { ok: false, error: "Missing endpoint_url" };
+  }
+
+  if (!payload.shared_secret) {
+    return { ok: false, error: "Missing shared_secret" };
+  }
+
+  return { ok: true };
+}
+
+function handleCloudConfig(data) {
+  const p = data.payload || {};
+  const valid = validateCloudConfigPayload(p);
+  if (!valid.ok) return valid;
 
   updateEnvFile({
-    ROOM_ID: payload.room_id,
-    STATION_ID: payload.station_id,
-    DEVICE_ID: payload.device_id,
-  });
-
-  return {
-    ok: true,
-    kind: "station_config",
-    applied: {
-      ROOM_ID: payload.room_id,
-      STATION_ID: payload.station_id,
-      DEVICE_ID: payload.device_id,
-    },
-  };
-}
-
-function runCommand(command) {
-  try {
-    const output = execSync(command, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    console.log("CMD OK:", command);
-    if (output && output.trim()) {
-      console.log("CMD OUT:", output.trim());
-    }
-
-    return output;
-  } catch (err) {
-    console.error("CMD FAILED:", command);
-
-    if (err.stdout) {
-      console.error("CMD STDOUT:", String(err.stdout).trim());
-    }
-
-    if (err.stderr) {
-      console.error("CMD STDERR:", String(err.stderr).trim());
-    }
-
-    throw err;
-  }
-}
-
-function shellEscape(value) {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
-}
-
-function applyWifiConfig(payload) {
-  const validation = validateWifiConfig(payload);
-  if (!validation.ok) {
-    return validation;
-  }
-
-  const ssid = payload.ssid.trim();
-  const password = payload.password;
-  const security = payload.security || "wpa-psk";
-
-  try {
-    try {
-      runCommand(
-        `sudo /usr/bin/nmcli connection delete ${shellEscape(
-          WIFI_CONNECTION_NAME
-        )}`
-      );
-    } catch (err) {
-      // OK if it does not exist yet
-    }
-
-    runCommand(
-      [
-        "sudo /usr/bin/nmcli connection add",
-        "type wifi",
-        `ifname ${WIFI_INTERFACE}`,
-        `con-name ${shellEscape(WIFI_CONNECTION_NAME)}`,
-        `ssid ${shellEscape(ssid)}`,
-      ].join(" ")
-    );
-
-    if (security === "wpa-psk") {
-      runCommand(
-        [
-          `sudo /usr/bin/nmcli connection modify ${shellEscape(
-            WIFI_CONNECTION_NAME
-          )}`,
-          "wifi-sec.key-mgmt wpa-psk",
-          `wifi-sec.psk ${shellEscape(password)}`,
-          "connection.autoconnect yes",
-        ].join(" ")
-      );
-    }
-
-    console.log("WIFI CONFIG APPLIED; network may disconnect briefly...");
-
-    runCommand(
-      `sudo /usr/bin/nmcli connection up ${shellEscape(WIFI_CONNECTION_NAME)}`
-    );
-
-    return {
-      ok: true,
-      kind: "wifi_config",
-      applied: {
-        ssid,
-        security,
-        connection_name: WIFI_CONNECTION_NAME,
-        interface: WIFI_INTERFACE,
-      },
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Failed to apply WiFi config: ${err.message}`,
-    };
-  }
-}
-
-function applyCloudConfig(payload) {
-  const validation = validateCloudConfig(payload);
-  if (!validation.ok) {
-    return validation;
-  }
-
-  updateEnvFile({
-    ENDPOINT_URL: payload.endpoint_url,
-    SHARED_SECRET: payload.shared_secret,
+    ENDPOINT_URL: p.endpoint_url,
+    SHARED_SECRET: p.shared_secret,
   });
 
   return {
     ok: true,
     kind: "cloud_config",
     applied: {
-      ENDPOINT_URL: payload.endpoint_url,
-      SHARED_SECRET: payload.shared_secret,
+      ENDPOINT_URL: p.endpoint_url,
+      SHARED_SECRET: "[REDACTED]",
     },
     runtime: {
-      ENDPOINT_URL: payload.endpoint_url,
-      SHARED_SECRET: payload.shared_secret,
+      ENDPOINT_URL: p.endpoint_url,
+      SHARED_SECRET: p.shared_secret,
     },
   };
 }
 
-function handleConfigQr(rawValue) {
-  const parsed = parseConfigQr(rawValue);
-  if (!parsed.ok) {
-    return parsed;
+// ------------------
+// STATION CONFIG
+// ------------------
+
+function validateStationConfigPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Missing station config payload" };
   }
 
-  const payload = parsed.payload;
+  if (!payload.room_id) return { ok: false, error: "Missing room_id" };
+  if (!payload.station_id) return { ok: false, error: "Missing station_id" };
+  if (!payload.device_id) return { ok: false, error: "Missing device_id" };
 
-  if (payload.kind === "station_config") {
-    return applyStationConfig(payload);
+  return { ok: true };
+}
+
+function handleStationConfig(data) {
+  const p = data.payload || {};
+  const valid = validateStationConfigPayload(p);
+  if (!valid.ok) return valid;
+
+  updateEnvFile({
+    ROOM_ID: p.room_id,
+    STATION_ID: p.station_id,
+    DEVICE_ID: p.device_id,
+  });
+
+  return {
+    ok: true,
+    kind: "station_config",
+    applied: {
+      ROOM_ID: p.room_id,
+      STATION_ID: p.station_id,
+      DEVICE_ID: p.device_id,
+    },
+  };
+}
+
+// ------------------
+// WIFI CONFIG (NEW)
+// ------------------
+
+function validateWifiConfigPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Missing wifi payload" };
   }
 
-  if (payload.kind === "wifi_config") {
-    return applyWifiConfig(payload);
-  }
+  if (!payload.ssid) return { ok: false, error: "Missing ssid" };
+  if (payload.password === undefined)
+    return { ok: false, error: "Missing password" };
 
-  if (payload.kind === "cloud_config") {
-    return applyCloudConfig(payload);
+  return { ok: true };
+}
+
+function applyWifiConfig(ssid, password) {
+  try {
+    // Delete old connection if exists
+    spawnSync("nmcli", ["connection", "delete", ssid]);
+
+    // Add new connection
+    spawnSync("nmcli", [
+      "device",
+      "wifi",
+      "connect",
+      ssid,
+      "password",
+      password,
+    ]);
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function handleWifiConfig(data) {
+  const p = data.payload || {};
+  const valid = validateWifiConfigPayload(p);
+  if (!valid.ok) return valid;
+
+  const result = applyWifiConfig(p.ssid, p.password);
+
+  if (!result.ok) {
+    return { ok: false, error: result.error };
   }
 
   return {
-    ok: false,
-    error: `Unsupported config kind: ${payload.kind}`,
+    ok: true,
+    kind: "wifi_config",
+    applied: {
+      SSID: p.ssid,
+    },
   };
+}
+
+// ------------------
+// MAIN HANDLER
+// ------------------
+
+function handleConfigQr(scanValue) {
+  try {
+    const json = scanValue.replace(/^MMCFG:/, "");
+    const data = JSON.parse(json);
+
+    if (!data.kind || !data.version) {
+      return { ok: false, error: "Invalid config format" };
+    }
+
+    if (data.version !== 1) {
+      return { ok: false, error: `Unsupported version: ${data.version}` };
+    }
+
+    const authResult = requireAdminAuth(data);
+    if (!authResult.ok) return authResult;
+
+    if (data.kind === "cloud_config") return handleCloudConfig(data);
+    if (data.kind === "station_config") return handleStationConfig(data);
+    if (data.kind === "wifi_config") return handleWifiConfig(data);
+
+    return { ok: false, error: `Unknown config kind: ${data.kind}` };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 module.exports = {
   isConfigQr,
-  parseConfigQr,
-  validateStationConfig,
-  validateWifiConfig,
-  validateCloudConfig,
-  applyStationConfig,
-  applyWifiConfig,
-  applyCloudConfig,
   handleConfigQr,
 };

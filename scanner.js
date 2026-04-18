@@ -153,19 +153,38 @@ function keyToCharacter(key, shiftActive) {
 // =========================
 
 function handleConfigScan(scanValue) {
-  const result = handleConfigQr(scanValue);
+  let result;
 
-  if (!result.ok) {
-    console.error("CONFIG QR ERROR:", result.error);
+  try {
+    result = handleConfigQr(scanValue);
+  } catch (err) {
+    console.error("CONFIG QR ERROR: Exception while parsing config QR");
+    console.error(err);
+    return true;
+  }
+
+  if (!result || !result.ok) {
+    console.error(
+      "CONFIG QR ERROR:",
+      result && result.error ? result.error : "Unknown config QR failure"
+    );
     return true;
   }
 
   if (result.kind === "station_config") {
     console.log("CONFIG QR APPLIED:", result.applied);
 
-    ROOM_ID = result.applied.ROOM_ID;
-    STATION_ID = result.applied.STATION_ID;
-    DEVICE_ID = result.applied.DEVICE_ID;
+    if (result.applied.ROOM_ID) {
+      ROOM_ID = result.applied.ROOM_ID;
+    }
+
+    if (result.applied.STATION_ID) {
+      STATION_ID = result.applied.STATION_ID;
+    }
+
+    if (result.applied.DEVICE_ID) {
+      DEVICE_ID = result.applied.DEVICE_ID;
+    }
 
     console.log("UPDATED CONFIG:");
     console.log("ROOM_ID =", ROOM_ID);
@@ -185,8 +204,13 @@ function handleConfigScan(scanValue) {
   if (result.kind === "cloud_config") {
     console.log("CLOUD CONFIG APPLIED:", result.applied);
 
-    ENDPOINT_URL = result.runtime.ENDPOINT_URL;
-    SHARED_SECRET = result.runtime.SHARED_SECRET;
+    if (result.runtime && result.runtime.ENDPOINT_URL) {
+      ENDPOINT_URL = result.runtime.ENDPOINT_URL;
+    }
+
+    if (result.runtime && result.runtime.SHARED_SECRET) {
+      SHARED_SECRET = result.runtime.SHARED_SECRET;
+    }
 
     console.log("UPDATED CLOUD CONFIG:");
     console.log("ENDPOINT_URL =", ENDPOINT_URL);
