@@ -73,11 +73,36 @@ function validateWifiConfig(payload) {
     return { ok: false, error: "password is required" };
   }
 
-  if (
-    payload.security !== undefined &&
-    payload.security !== "wpa-psk"
-  ) {
+  if (payload.security !== undefined && payload.security !== "wpa-psk") {
     return { ok: false, error: "Only security='wpa-psk' is currently supported" };
+  }
+
+  return { ok: true };
+}
+
+function validateCloudConfig(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, error: "Missing payload object" };
+  }
+
+  if (payload.kind !== "cloud_config") {
+    return { ok: false, error: `Unsupported config kind: ${payload.kind}` };
+  }
+
+  if (payload.version !== 1) {
+    return { ok: false, error: `Unsupported config version: ${payload.version}` };
+  }
+
+  if (!payload.endpoint_url || typeof payload.endpoint_url !== "string") {
+    return { ok: false, error: "endpoint_url is required" };
+  }
+
+  if (!payload.shared_secret || typeof payload.shared_secret !== "string") {
+    return { ok: false, error: "shared_secret is required" };
+  }
+
+  if (!payload.endpoint_url.startsWith("https://")) {
+    return { ok: false, error: "endpoint_url must use https://" };
   }
 
   return { ok: true };
@@ -188,7 +213,11 @@ function applyWifiConfig(payload) {
 
   try {
     try {
-      runCommand(`sudo /usr/bin/nmcli connection delete ${shellEscape(WIFI_CONNECTION_NAME)}`);
+      runCommand(
+        `sudo /usr/bin/nmcli connection delete ${shellEscape(
+          WIFI_CONNECTION_NAME
+        )}`
+      );
     } catch (err) {
       // OK if it does not exist yet
     }
@@ -199,24 +228,28 @@ function applyWifiConfig(payload) {
         "type wifi",
         `ifname ${WIFI_INTERFACE}`,
         `con-name ${shellEscape(WIFI_CONNECTION_NAME)}`,
-        `ssid ${shellEscape(ssid)}`
+        `ssid ${shellEscape(ssid)}`,
       ].join(" ")
     );
 
     if (security === "wpa-psk") {
       runCommand(
         [
-          `sudo /usr/bin/nmcli connection modify ${shellEscape(WIFI_CONNECTION_NAME)}`,
+          `sudo /usr/bin/nmcli connection modify ${shellEscape(
+            WIFI_CONNECTION_NAME
+          )}`,
           "wifi-sec.key-mgmt wpa-psk",
           `wifi-sec.psk ${shellEscape(password)}`,
-          "connection.autoconnect yes"
+          "connection.autoconnect yes",
         ].join(" ")
       );
     }
 
     console.log("WIFI CONFIG APPLIED; network may disconnect briefly...");
 
-    runCommand(`sudo /usr/bin/nmcli connection up ${shellEscape(WIFI_CONNECTION_NAME)}`);
+    runCommand(
+      `sudo /usr/bin/nmcli connection up ${shellEscape(WIFI_CONNECTION_NAME)}`
+    );
 
     return {
       ok: true,
@@ -236,6 +269,31 @@ function applyWifiConfig(payload) {
   }
 }
 
+function applyCloudConfig(payload) {
+  const validation = validateCloudConfig(payload);
+  if (!validation.ok) {
+    return validation;
+  }
+
+  updateEnvFile({
+    ENDPOINT_URL: payload.endpoint_url,
+    SHARED_SECRET: payload.shared_secret,
+  });
+
+  return {
+    ok: true,
+    kind: "cloud_config",
+    applied: {
+      ENDPOINT_URL: payload.endpoint_url,
+      SHARED_SECRET: payload.shared_secret,
+    },
+    runtime: {
+      ENDPOINT_URL: payload.endpoint_url,
+      SHARED_SECRET: payload.shared_secret,
+    },
+  };
+}
+
 function handleConfigQr(rawValue) {
   const parsed = parseConfigQr(rawValue);
   if (!parsed.ok) {
@@ -252,6 +310,10 @@ function handleConfigQr(rawValue) {
     return applyWifiConfig(payload);
   }
 
+  if (payload.kind === "cloud_config") {
+    return applyCloudConfig(payload);
+  }
+
   return {
     ok: false,
     error: `Unsupported config kind: ${payload.kind}`,
@@ -263,7 +325,9 @@ module.exports = {
   parseConfigQr,
   validateStationConfig,
   validateWifiConfig,
+  validateCloudConfig,
   applyStationConfig,
   applyWifiConfig,
+  applyCloudConfig,
   handleConfigQr,
 };

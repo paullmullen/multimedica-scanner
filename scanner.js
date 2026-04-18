@@ -11,13 +11,11 @@ const { isConfigQr, handleConfigQr } = require("./configQr");
 const SCANNER_DEVICE_NAME =
   process.env.SCANNER_DEVICE_NAME || "BF SCAN SCAN KEYBOARD";
 
-const ENDPOINT_URL =
+let ENDPOINT_URL =
   process.env.ENDPOINT_URL ||
   "https://us-central1-alfarero-478ad.cloudfunctions.net/receiveRoomScanEvent";
 
-const SHARED_SECRET = process.env.SHARED_SECRET || "";
-
-// must be let so station config can update runtime values
+let SHARED_SECRET = process.env.SHARED_SECRET || "";
 let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
 let STATION_ID = process.env.STATION_ID || "reg";
 let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
@@ -32,16 +30,16 @@ if (!SHARED_SECRET) {
 // =========================
 
 const digitMap = {
-  KEY_1: "1",
-  KEY_2: "2",
-  KEY_3: "3",
-  KEY_4: "4",
-  KEY_5: "5",
-  KEY_6: "6",
-  KEY_7: "7",
-  KEY_8: "8",
-  KEY_9: "9",
-  KEY_0: "0",
+  KEY_1: { normal: "1", shifted: "!" },
+  KEY_2: { normal: "2", shifted: "@" },
+  KEY_3: { normal: "3", shifted: "#" },
+  KEY_4: { normal: "4", shifted: "$" },
+  KEY_5: { normal: "5", shifted: "%" },
+  KEY_6: { normal: "6", shifted: "^" },
+  KEY_7: { normal: "7", shifted: "&" },
+  KEY_8: { normal: "8", shifted: "*" },
+  KEY_9: { normal: "9", shifted: "(" },
+  KEY_0: { normal: "0", shifted: ")" },
 };
 
 // =========================
@@ -105,7 +103,7 @@ function keyToCharacter(key, shiftActive) {
   }
 
   if (digitMap[key]) {
-    return digitMap[key];
+    return shiftActive ? digitMap[key].shifted : digitMap[key].normal;
   }
 
   switch (key) {
@@ -181,6 +179,18 @@ function handleConfigScan(scanValue) {
     console.log(
       "The scanner may briefly lose connectivity while switching networks."
     );
+    return true;
+  }
+
+  if (result.kind === "cloud_config") {
+    console.log("CLOUD CONFIG APPLIED:", result.applied);
+
+    ENDPOINT_URL = result.runtime.ENDPOINT_URL;
+    SHARED_SECRET = result.runtime.SHARED_SECRET;
+
+    console.log("UPDATED CLOUD CONFIG:");
+    console.log("ENDPOINT_URL =", ENDPOINT_URL);
+    console.log("SHARED_SECRET = [REDACTED]");
     return true;
   }
 
