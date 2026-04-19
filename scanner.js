@@ -1,3 +1,4 @@
+require("dotenv").config();
 const fs = require("fs");
 const { spawn } = require("child_process");
 const https = require("https");
