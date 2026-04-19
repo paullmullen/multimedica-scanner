@@ -299,9 +299,6 @@ function postScan(scanValue) {
 
 function startScannerListener() {
 
-  console.log("DEPLOY TEST 2026-04-18 A");
-
-  
   const devicePath = resolveScannerDevicePath();
 
   let scanBuffer = "";
