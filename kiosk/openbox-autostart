@@ -1,0 +1,7 @@
+# Disable screen blanking
+xset s off
+xset -dpms
+xset s noblank
+
+# Hide mouse cursor
+unclutter &

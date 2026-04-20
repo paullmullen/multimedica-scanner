@@ -1,0 +1,14 @@
+[Unit]
+Description=Scanner Kiosk Display
+After=network.target
+
+[Service]
+User=multimedica_edge
+Environment=XAUTHORITY=/home/multimedica_edge/.Xauthority
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/startx /home/multimedica_edge/scanner/kiosk/start-kiosk.sh --
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
