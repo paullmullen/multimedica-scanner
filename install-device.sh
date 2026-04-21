@@ -22,7 +22,6 @@ sudo systemctl daemon-reload
 
 echo "Step 4: Enabling services..."
 sudo systemctl enable scanner.service
-sudo systemctl enable kiosk.service
 
 echo "=== Install complete ==="
 echo "Reboot recommended"

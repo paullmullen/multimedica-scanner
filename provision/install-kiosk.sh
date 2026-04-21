@@ -58,6 +58,5 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl restart kiosk.service
 
 echo "==> Kiosk installed"
