@@ -1,179 +1,249 @@
-const appEl=document.getElementById("app");
-const statusTextEl=document.getElementById("statusText");
-const patientNameEl=document.getElementById("patientName");
-const roomValueEl=document.getElementById("roomValue");
-const stationValueEl=document.getElementById("stationValue");
-const stationBadgeEl=document.getElementById("stationBadge");
-const elapsedValueEl=document.getElementById("elapsedValue");
-const updatedValueEl=document.getElementById("updatedValue");
-const dateTimeValueEl=document.getElementById("dateTimeValue");
+:root {
+    --clinic-teal: #2bb8b0;
+    --clinic-blue: #2d3192;
+    --clinic-orange: #f47c20;
+    --card-bg: rgba(255, 255, 255, 0.88);
+    --card-line: rgba(255, 255, 255, 0.35);
+    --text-dark: #17384a;
+    --text-muted: #4d6a79;
+    --white: #ffffff;
 
-let startedAtMs=null;
-let lastStatus=null;
-
-function pad2(value) {
-    return String(value).padStart(2, "0");
+    --vacant-bg: #2bb8b0;
+    --inprocess-bg: #f47c20;
+    --unavailable-bg: #5b6475;
 }
 
-function formatElapsed(ms) {
-    if ( !ms || ms < 0) return "00:00";
+* {
+    box-sizing: border-box;
+}
 
-    const totalSeconds=Math.floor(ms / 1000);
-    const minutes=Math.floor(totalSeconds / 60);
-    const seconds=totalSeconds % 60;
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    font-family: Arial, Helvetica, sans-serif;
+}
 
-    return `$ {
-        pad2(minutes)
+body {
+    background: var(--clinic-blue);
+}
+
+.screen {
+    width: 100vw;
+    height: 100vh;
+    padding: 18px;
+    transition: background-color 0.25s ease;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+}
+
+.screen.state-vacant {
+    background: var(--vacant-bg);
+}
+
+.screen.state-in-process {
+    background: var(--inprocess-bg);
+}
+
+.screen.state-unavailable {
+    background: var(--unavailable-bg);
+}
+
+.panel {
+    width: min(760px, 100%);
+    height: 100%;
+    background: var(--card-bg);
+    border-radius: 34px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 2px solid rgba(255, 255, 255, 0.28);
+}
+
+.header {
+    background: #f2f4f5;
+    padding: 20px 20px 18px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.logo-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.logo {
+    width: min(92%, 520px);
+    max-height: 130px;
+    object-fit: contain;
+    display: block;
+}
+
+.content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.status-section {
+    padding: 22px 24px 30px;
+    color: var(--white);
+}
+
+.screen.state-vacant .status-section {
+    background: var(--vacant-bg);
+}
+
+.screen.state-in-process .status-section {
+    background: var(--inprocess-bg);
+}
+
+.screen.state-unavailable .status-section {
+    background: var(--unavailable-bg);
+}
+
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 26px;
+}
+
+.section-label {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.station-badge {
+    min-width: 92px;
+    text-align: center;
+    padding: 10px 18px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.14);
+    color: var(--white);
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.status-text {
+    text-align: center;
+    font-size: clamp(3.2rem, 10vw, 6rem);
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.patient-section {
+    padding: 18px 24px 22px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    color: var(--text-dark);
+}
+
+.patient-section .section-label {
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.patient-name {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 700;
+    line-height: 1.1;
+    min-height: 3rem;
+}
+
+.info-grid {
+    padding: 22px 20px 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.info-card {
+    background: rgba(255, 255, 255, 0.42);
+    border: 1px solid var(--card-line);
+    border-radius: 22px;
+    padding: 18px 18px 16px;
+    min-height: 116px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.info-label {
+    color: #5d8190;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.info-value {
+    color: var(--text-dark);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    word-break: break-word;
+}
+
+.footer {
+    padding: 18px 24px 22px;
+    margin-top: auto;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.date-time {
+    text-align: center;
+    color: var(--text-dark);
+    font-size: clamp(1.2rem, 2.8vw, 2rem);
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+/* Slightly tighter layout for short portrait displays */
+@media (max-height: 900px) {
+    .header {
+        padding: 16px 18px 14px;
     }
 
-    :$ {
-        pad2(seconds)
+    .logo {
+        max-height: 105px;
     }
 
-    `;
-}
-
-function formatShortTime(dateValue) {
-    if ( !dateValue) return "--:--";
-
-    const date=new Date(dateValue);
-
-    return date.toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-    });
-}
-
-function formatFooterDateTime(dateValue) {
-    const date=dateValue ? new Date(dateValue): new Date();
-
-    return date.toLocaleString([], {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-    });
-}
-
-function toDisplayStatus(state) {
-    switch (state) {
-        case "in_process":
-            return "EN PROCESO";
-        case "unavailable":
-            return "NO DISPONIBLE";
-        case "vacant":
-            default: return "VACANTE";
-    }
-}
-
-function applyStateClass(state) {
-    appEl.classList.remove("state-vacant", "state-in-process", "state-unavailable");
-
-    switch (state) {
-        case "in_process":
-            appEl.classList.add("state-in-process");
-        break;
-        case "unavailable":
-            appEl.classList.add("state-unavailable");
-        break;
-        case "vacant":
-            default: appEl.classList.add("state-vacant");
-        break;
-    }
-}
-
-function setDisplay(data) {
-    const state=data.state || "vacant";
-    lastStatus=state;
-
-    applyStateClass(state);
-
-    statusTextEl.textContent=data.statusText || toDisplayStatus(state);
-    patientNameEl.textContent=data.patientName || "—";
-
-    const roomId=data.roomId || "reg_room_1";
-    const stationId=data.stationId || "reg";
-
-    roomValueEl.textContent=roomId;
-    stationValueEl.textContent=stationId;
-    stationBadgeEl.textContent=String(stationId).toUpperCase();
-
-    if (data.startedAt) {
-        startedAtMs=new Date(data.startedAt).getTime();
+    .status-section {
+        padding: 18px 22px 24px;
     }
 
-    else if (state !=="in_process") {
-        startedAtMs=null;
+    .status-row {
+        margin-bottom: 18px;
     }
 
-    updatedValueEl.textContent=formatShortTime(data.updatedAt || Date.now());
-    dateTimeValueEl.textContent=formatFooterDateTime(Date.now());
-}
-
-function refreshElapsed() {
-    if (lastStatus==="in_process" && startedAtMs) {
-        elapsedValueEl.textContent=formatElapsed(Date.now() - startedAtMs);
+    .patient-section {
+        padding: 16px 22px 18px;
     }
 
-    else {
-        elapsedValueEl.textContent="00:00";
-    }
-}
-
-function refreshClock() {
-    dateTimeValueEl.textContent=formatFooterDateTime(Date.now());
-}
-
-async function fetchStatus() {
-    try {
-        const response=await fetch("/api/status");
-
-        if ( !response.ok) {
-            throw new Error(`Status API returned $ {
-                    response.status
-                }
-
-                `);
-        }
-
-        const data=await response.json();
-        setDisplay(data);
+    .info-grid {
+        gap: 14px;
+        padding: 18px 18px 14px;
     }
 
-    catch (error) {
-        console.error("Failed to fetch scanner status:", error);
+    .info-card {
+        min-height: 96px;
+        padding: 14px 16px;
+    }
 
-        setDisplay({
-            state: "unavailable",
-            statusText: "NO DISPONIBLE",
-            patientName: "—",
-            roomId: "—",
-            stationId: "—",
-            updatedAt: Date.now(),
-        });
+    .info-value {
+        font-size: 1.65rem;
+    }
+
+    .footer {
+        padding: 14px 20px 18px;
+    }
 }
-}
-
-/*
-  Preview mode for styling work.
-  Uncomment this block if you want to test without backend wiring.
-
-setDisplay({
-  state: "vacant",
-  patientName: "—",
-  roomId: "reg_room_1",
-  stationId: "reg",
-  updatedAt: Date.now(),
-});
-*/
-
-refreshClock();
-refreshElapsed();
-
-setInterval(refreshClock, 1000);
-setInterval(refreshElapsed, 1000);
-
-fetchStatus();
-setInterval(fetchStatus, 2000);

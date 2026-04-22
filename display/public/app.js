@@ -1,147 +1,148 @@
-console.log("Scanner display loaded");
-
-const card = document.getElementById("card");
-const statusEl = document.getElementById("status");
+const appEl = document.getElementById("app");
+const statusTextEl = document.getElementById("statusText");
 const patientNameEl = document.getElementById("patientName");
 const roomValueEl = document.getElementById("roomValue");
 const stationValueEl = document.getElementById("stationValue");
-const stationPillEl = document.getElementById("stationPill");
+const stationBadgeEl = document.getElementById("stationBadge");
 const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
-const footerMessageEl = document.getElementById("footerMessage");
+const dateTimeValueEl = document.getElementById("dateTimeValue");
 
-let stateStartedAt = null;
+let startedAtMs = null;
+let lastStatus = null;
 
-function formatClock(date) {
-  if (!date) return "--:--";
-  return new Date(date).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function pad2(value) {
+  return String(value).padStart(2, "0");
 }
 
 function formatElapsed(ms) {
   if (!ms || ms < 0) return "00:00";
+
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+  return `${pad2(minutes)}:${pad2(seconds)}`;
 }
 
-function setCardState(state) {
-  card.classList.remove(
-    "state-ready",
-    "state-in-process",
-    "state-vacant",
-    "state-error"
-  );
+function formatShortTime(dateValue) {
+  if (!dateValue) return "--:--";
 
-  switch (state) {
+  const date = new Date(dateValue);
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatFooterDateTime(dateValue) {
+  const date = dateValue ? new Date(dateValue) : new Date();
+
+  return date.toLocaleString([], {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function toDisplayStatus(status) {
+  switch (status) {
     case "in_process":
-      card.classList.add("state-in-process");
+      return "EN PROCESO";
+    case "closed":
+      return "NO DISPONIBLE";
+    case "vacant":
+    default:
+      return "VACANTE";
+  }
+}
+
+function applyStateClass(status) {
+  appEl.classList.remove("state-vacant", "state-in-process", "state-unavailable");
+
+  switch (status) {
+    case "in_process":
+      appEl.classList.add("state-in-process");
+      break;
+    case "closed":
+      appEl.classList.add("state-unavailable");
       break;
     case "vacant":
-      card.classList.add("state-vacant");
-      break;
-    case "error":
-      card.classList.add("state-error");
-      break;
-    case "ready":
     default:
-      card.classList.add("state-ready");
+      appEl.classList.add("state-vacant");
       break;
   }
 }
 
 function setDisplay(data) {
-  const state = data.state || "ready";
-  const statusText =
-    data.statusText ||
-    (state === "in_process"
-      ? "IN PROCESS"
-      : state === "vacant"
-        ? "VACANT"
-        : state === "error"
-          ? "ERROR"
-          : "READY");
+  const status = data.status || "vacant";
+  lastStatus = status;
 
-  statusEl.textContent = statusText;
+  applyStateClass(status);
+
+  statusTextEl.textContent = toDisplayStatus(status);
   patientNameEl.textContent = data.patientName || "—";
-  roomValueEl.textContent = data.roomId || "reg_room_1";
-  stationValueEl.textContent = data.stationId || "reg";
-  stationPillEl.textContent = (data.stationId || "reg").toUpperCase();
-  updatedValueEl.textContent = formatClock(data.updatedAt || Date.now());
 
-  if (data.message) {
-    footerMessageEl.textContent = data.message;
-  } else if (state === "in_process") {
-    footerMessageEl.textContent = "Patient currently being processed";
-  } else if (state === "vacant") {
-    footerMessageEl.textContent = "Room available";
-  } else if (state === "error") {
-    footerMessageEl.textContent = "Display disconnected or invalid state";
-  } else {
-    footerMessageEl.textContent = "Waiting for scanner activity";
+  const roomName = data.locationName || "—";
+  const stationName = data.stationName || "—";
+
+  roomValueEl.textContent = roomName;
+  stationValueEl.textContent = stationName;
+  stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
+
+  if (data.inProcessStartedAt) {
+    startedAtMs = new Date(data.inProcessStartedAt).getTime();
+  } else if (status !== "in_process") {
+    startedAtMs = null;
   }
 
-  if (data.startedAt) {
-    stateStartedAt = new Date(data.startedAt).getTime();
-  } else if (state !== "in_process") {
-    stateStartedAt = null;
-  }
-
-  setCardState(state);
+  updatedValueEl.textContent = formatShortTime(data.updatedAt || Date.now());
+  dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
-function updateElapsed() {
-  if (!stateStartedAt) {
+function refreshElapsed() {
+  if (lastStatus === "in_process" && startedAtMs) {
+    elapsedValueEl.textContent = formatElapsed(Date.now() - startedAtMs);
+  } else {
     elapsedValueEl.textContent = "00:00";
-    return;
   }
+}
 
-  elapsedValueEl.textContent = formatElapsed(Date.now() - stateStartedAt);
+function refreshClock() {
+  dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 async function fetchStatus() {
   try {
     const response = await fetch("/api/status");
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(`Status API returned ${response.status}`);
     }
 
     const data = await response.json();
     setDisplay(data);
   } catch (error) {
-    console.error("Failed to fetch status", error);
+    console.error("Failed to fetch scanner status:", error);
 
     setDisplay({
-      state: "error",
-      statusText: "OFFLINE",
+      status: "closed",
       patientName: "—",
-      message: "Unable to reach local status API",
+      locationName: "—",
+      stationName: "—",
       updatedAt: Date.now(),
     });
   }
 }
 
-/*
-  Temporary local demo state:
-  Uncomment this block if you want to preview the formatting
-  before the backend /api/status endpoint is fully wired.
+refreshClock();
+refreshElapsed();
 
-setDisplay({
-  state: "in_process",
-  patientName: "PAUL M.",
-  roomId: "reg_room_1",
-  stationId: "reg",
-  message: "Preview mode",
-  startedAt: Date.now() - 125000,
-  updatedAt: Date.now(),
-});
-*/
-
-updateElapsed();
-setInterval(updateElapsed, 1000);
+setInterval(refreshClock, 1000);
+setInterval(refreshElapsed, 1000);
 
 fetchStatus();
 setInterval(fetchStatus, 2000);
