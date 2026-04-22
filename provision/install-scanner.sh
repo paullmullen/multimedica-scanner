@@ -6,6 +6,7 @@ APP_DIR="/opt/multimedica-scanner"
 APP_USER="multimedica_edge"
 APP_GROUP="multimedica_edge"
 SYSTEMD_DIR="/etc/systemd/system"
+HOME_DIR="/home/${APP_USER}"
 
 log() {
   echo "==> $*"
@@ -53,6 +54,12 @@ if [ -f "$SOURCE_DIR/.env" ]; then
   cp "$SOURCE_DIR/.env" "$APP_DIR/.env"
 fi
 
+if [ -f "$SOURCE_DIR/.bash_profile" ]; then
+  log "Installing .bash_profile"
+  cp "$SOURCE_DIR/.bash_profile" "$HOME_DIR/.bash_profile"
+  chown "$APP_USER:$APP_GROUP" "$HOME_DIR/.bash_profile"
+fi
+
 log "Setting ownership and permissions"
 chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
 find "$APP_DIR" -type f -name '*.sh' -exec chmod +x {} \;
@@ -91,17 +98,27 @@ if [ -d "$SOURCE_DIR/systemd" ]; then
   done
 fi
 
+# Clean up old kiosk.service if it still exists from prior iterations
+if [ -f "$SYSTEMD_DIR/kiosk.service" ]; then
+  log "Removing legacy kiosk.service"
+  systemctl disable kiosk.service || true
+  systemctl stop kiosk.service || true
+  rm -f "$SYSTEMD_DIR/kiosk.service"
+  rm -f /etc/systemd/system/graphical.target.wants/kiosk.service
+  rm -f /etc/systemd/system/multi-user.target.wants/kiosk.service
+fi
+
 log "Reloading systemd"
 systemctl daemon-reload
 
-for svc in multimedica-scanner.service kiosk-display.service kiosk.service; do
+for svc in multimedica-scanner.service kiosk-display.service; do
   if [ -f "$SYSTEMD_DIR/$svc" ]; then
     log "Enabling $svc"
     systemctl enable "$svc"
   fi
 done
 
-for svc in multimedica-scanner.service kiosk-display.service kiosk.service; do
+for svc in multimedica-scanner.service kiosk-display.service; do
   if [ -f "$SYSTEMD_DIR/$svc" ]; then
     log "Restarting $svc"
     systemctl restart "$svc"

@@ -1,17 +1,70 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Scanner Status</title>
-  <link rel="stylesheet" href="./styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scanner Display</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div id="title" class="title">Multimedica Scanner</div>
-    <div id="status" class="status">READY</div>
-    <div id="detail1" class="detail">Room: reg_room_1</div>
-    <div id="detail2" class="detail">Station: reg</div>
+  <div id="app" class="screen state-vacant">
+    <div class="panel">
+      <header class="header">
+        <div class="logo-wrap">
+          <img
+            src="./full_logo.png"
+            alt="El Alfarero Multimédica"
+            class="logo"
+          />
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="status-section">
+          <div class="status-row">
+            <div class="section-label">Estado</div>
+            <div id="stationBadge" class="station-badge">REG</div>
+          </div>
+
+          <div id="statusText" class="status-text">VACANTE</div>
+        </section>
+
+        <section class="patient-section">
+          <div class="section-label">Paciente</div>
+          <div id="patientName" class="patient-name">—</div>
+        </section>
+
+        <section class="info-grid">
+          <div class="info-card">
+            <div class="info-label">Room</div>
+            <div id="roomValue" class="info-value">reg_room_1</div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-label">Station</div>
+            <div id="stationValue" class="info-value">reg</div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-label">Elapsed</div>
+            <div id="elapsedValue" class="info-value">00:00</div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-label">Updated</div>
+            <div id="updatedValue" class="info-value">--:--</div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div id="dateTimeValue" class="date-time">
+          Tuesday, April 23, 2024 - 9:15 AM
+        </div>
+      </footer>
+    </div>
   </div>
+
   <script src="./app.js"></script>
 </body>
 </html>

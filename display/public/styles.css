@@ -1,32 +1,179 @@
-body {
-    margin: 0;
-    background: #000;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
+const appEl=document.getElementById("app");
+const statusTextEl=document.getElementById("statusText");
+const patientNameEl=document.getElementById("patientName");
+const roomValueEl=document.getElementById("roomValue");
+const stationValueEl=document.getElementById("stationValue");
+const stationBadgeEl=document.getElementById("stationBadge");
+const elapsedValueEl=document.getElementById("elapsedValue");
+const updatedValueEl=document.getElementById("updatedValue");
+const dateTimeValueEl=document.getElementById("dateTimeValue");
+
+let startedAtMs=null;
+let lastStatus=null;
+
+function pad2(value) {
+    return String(value).padStart(2, "0");
 }
 
-.wrap {
-    text-align: center;
-    padding: 24px;
+function formatElapsed(ms) {
+    if ( !ms || ms < 0) return "00:00";
+
+    const totalSeconds=Math.floor(ms / 1000);
+    const minutes=Math.floor(totalSeconds / 60);
+    const seconds=totalSeconds % 60;
+
+    return `$ {
+        pad2(minutes)
+    }
+
+    :$ {
+        pad2(seconds)
+    }
+
+    `;
 }
 
-.title {
-    font-size: 28px;
-    margin-bottom: 16px;
+function formatShortTime(dateValue) {
+    if ( !dateValue) return "--:--";
+
+    const date=new Date(dateValue);
+
+    return date.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+    });
 }
 
-.status {
-    font-size: 52px;
-    font-weight: bold;
-    margin-bottom: 20px;
+function formatFooterDateTime(dateValue) {
+    const date=dateValue ? new Date(dateValue): new Date();
+
+    return date.toLocaleString([], {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+    });
 }
 
-.detail {
-    font-size: 24px;
-    color: #ccc;
-    margin-top: 8px;
+function toDisplayStatus(state) {
+    switch (state) {
+        case "in_process":
+            return "EN PROCESO";
+        case "unavailable":
+            return "NO DISPONIBLE";
+        case "vacant":
+            default: return "VACANTE";
+    }
 }
+
+function applyStateClass(state) {
+    appEl.classList.remove("state-vacant", "state-in-process", "state-unavailable");
+
+    switch (state) {
+        case "in_process":
+            appEl.classList.add("state-in-process");
+        break;
+        case "unavailable":
+            appEl.classList.add("state-unavailable");
+        break;
+        case "vacant":
+            default: appEl.classList.add("state-vacant");
+        break;
+    }
+}
+
+function setDisplay(data) {
+    const state=data.state || "vacant";
+    lastStatus=state;
+
+    applyStateClass(state);
+
+    statusTextEl.textContent=data.statusText || toDisplayStatus(state);
+    patientNameEl.textContent=data.patientName || "—";
+
+    const roomId=data.roomId || "reg_room_1";
+    const stationId=data.stationId || "reg";
+
+    roomValueEl.textContent=roomId;
+    stationValueEl.textContent=stationId;
+    stationBadgeEl.textContent=String(stationId).toUpperCase();
+
+    if (data.startedAt) {
+        startedAtMs=new Date(data.startedAt).getTime();
+    }
+
+    else if (state !=="in_process") {
+        startedAtMs=null;
+    }
+
+    updatedValueEl.textContent=formatShortTime(data.updatedAt || Date.now());
+    dateTimeValueEl.textContent=formatFooterDateTime(Date.now());
+}
+
+function refreshElapsed() {
+    if (lastStatus==="in_process" && startedAtMs) {
+        elapsedValueEl.textContent=formatElapsed(Date.now() - startedAtMs);
+    }
+
+    else {
+        elapsedValueEl.textContent="00:00";
+    }
+}
+
+function refreshClock() {
+    dateTimeValueEl.textContent=formatFooterDateTime(Date.now());
+}
+
+async function fetchStatus() {
+    try {
+        const response=await fetch("/api/status");
+
+        if ( !response.ok) {
+            throw new Error(`Status API returned $ {
+                    response.status
+                }
+
+                `);
+        }
+
+        const data=await response.json();
+        setDisplay(data);
+    }
+
+    catch (error) {
+        console.error("Failed to fetch scanner status:", error);
+
+        setDisplay({
+            state: "unavailable",
+            statusText: "NO DISPONIBLE",
+            patientName: "—",
+            roomId: "—",
+            stationId: "—",
+            updatedAt: Date.now(),
+        });
+}
+}
+
+/*
+  Preview mode for styling work.
+  Uncomment this block if you want to test without backend wiring.
+
+setDisplay({
+  state: "vacant",
+  patientName: "—",
+  roomId: "reg_room_1",
+  stationId: "reg",
+  updatedAt: Date.now(),
+});
+*/
+
+refreshClock();
+refreshElapsed();
+
+setInterval(refreshClock, 1000);
+setInterval(refreshElapsed, 1000);
+
+fetchStatus();
+setInterval(fetchStatus, 2000);
