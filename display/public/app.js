@@ -1,3 +1,20 @@
+window.addEventListener("error", (event) => {
+  console.error(
+    "WINDOW ERROR:",
+    event.message,
+    event.filename,
+    event.lineno,
+    event.colno,
+    event.error
+  );
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("UNHANDLED PROMISE REJECTION:", event.reason);
+});
+
+console.log("APP STARTED");
+
 const appEl = document.getElementById("app");
 const statusTextEl = document.getElementById("statusText");
 const patientNameEl = document.getElementById("patientName");
@@ -7,6 +24,18 @@ const stationBadgeEl = document.getElementById("stationBadge");
 const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
 const dateTimeValueEl = document.getElementById("dateTimeValue");
+
+console.log("DOM CHECK", {
+  appEl: !!appEl,
+  statusTextEl: !!statusTextEl,
+  patientNameEl: !!patientNameEl,
+  roomValueEl: !!roomValueEl,
+  stationValueEl: !!stationValueEl,
+  stationBadgeEl: !!stationBadgeEl,
+  elapsedValueEl: !!elapsedValueEl,
+  updatedValueEl: !!updatedValueEl,
+  dateTimeValueEl: !!dateTimeValueEl,
+});
 
 let startedAtMs = null;
 let lastStatus = null;
@@ -51,16 +80,21 @@ function formatFooterDateTime(dateValue) {
 function toDisplayStatus(status) {
   switch (status) {
     case "in_process":
-      return "EN PROCESO";
+      return "EN\nPROCESO";
     case "closed":
-      return "NO DISPONIBLE";
+      return "NO\nDISPONIBLE";
     case "vacant":
     default:
-      return "VACANTE";
+      return "VACIO";
   }
 }
 
 function applyStateClass(status) {
+  if (!appEl) {
+    console.error("appEl is missing from index.html");
+    return;
+  }
+
   appEl.classList.remove("state-vacant", "state-in-process", "state-unavailable");
 
   switch (status) {
@@ -83,15 +117,38 @@ function setDisplay(data) {
 
   applyStateClass(status);
 
-  statusTextEl.textContent = toDisplayStatus(status);
-  patientNameEl.textContent = data.patientName || "—";
+  if (statusTextEl) {
+    statusTextEl.textContent = toDisplayStatus(status);
+  } else {
+    console.error("statusTextEl is missing from index.html");
+  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = data.patientName || "—";
+  } else {
+    console.error("patientNameEl is missing from index.html");
+  }
 
   const roomName = data.locationName || "—";
   const stationName = data.stationName || "—";
 
-  roomValueEl.textContent = roomName;
-  stationValueEl.textContent = stationName;
-  stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
+  if (roomValueEl) {
+    roomValueEl.textContent = roomName;
+  } else {
+    console.error("roomValueEl is missing from index.html");
+  }
+
+  if (stationValueEl) {
+    stationValueEl.textContent = stationName;
+  } else {
+    console.error("stationValueEl is missing from index.html");
+  }
+
+  if (stationBadgeEl) {
+    stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
+  } else {
+    console.error("stationBadgeEl is missing from index.html");
+  }
 
   if (data.inProcessStartedAt) {
     startedAtMs = new Date(data.inProcessStartedAt).getTime();
@@ -99,11 +156,25 @@ function setDisplay(data) {
     startedAtMs = null;
   }
 
-  updatedValueEl.textContent = formatShortTime(data.updatedAt || Date.now());
-  dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+  if (updatedValueEl) {
+    updatedValueEl.textContent = formatShortTime(data.updatedAt || Date.now());
+  } else {
+    console.error("updatedValueEl is missing from index.html");
+  }
+
+  if (dateTimeValueEl) {
+    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+  } else {
+    console.error("dateTimeValueEl is missing from index.html");
+  }
 }
 
 function refreshElapsed() {
+  if (!elapsedValueEl) {
+    console.error("elapsedValueEl is missing from index.html");
+    return;
+  }
+
   if (lastStatus === "in_process" && startedAtMs) {
     elapsedValueEl.textContent = formatElapsed(Date.now() - startedAtMs);
   } else {
@@ -112,11 +183,17 @@ function refreshElapsed() {
 }
 
 function refreshClock() {
+  if (!dateTimeValueEl) {
+    console.error("dateTimeValueEl is missing from index.html");
+    return;
+  }
+
   dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 async function fetchStatus() {
   try {
+    console.log("Fetching /api/status...");
     const response = await fetch("/api/status");
 
     if (!response.ok) {
@@ -124,6 +201,7 @@ async function fetchStatus() {
     }
 
     const data = await response.json();
+    console.log("Status response:", data);
     setDisplay(data);
   } catch (error) {
     console.error("Failed to fetch scanner status:", error);

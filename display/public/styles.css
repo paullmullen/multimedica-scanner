@@ -2,15 +2,15 @@
     --clinic-teal: #2bb8b0;
     --clinic-blue: #2d3192;
     --clinic-orange: #f47c20;
-    --card-bg: rgba(255, 255, 255, 0.88);
-    --card-line: rgba(255, 255, 255, 0.35);
+    --card-bg: rgba(255, 255, 255, 0.9);
+    --card-line: rgba(255, 255, 255, 0.4);
     --text-dark: #17384a;
     --text-muted: #4d6a79;
     --white: #ffffff;
 
     --vacant-bg: #2bb8b0;
     --inprocess-bg: #f47c20;
-    --unavailable-bg: #5b6475;
+    --unavailable-bg: #6b7280;
 }
 
 * {
@@ -32,7 +32,7 @@ body {
 .screen {
     width: 100vw;
     height: 100vh;
-    padding: 18px;
+    padding: 16px;
     transition: background-color 0.25s ease;
     display: flex;
     align-items: stretch;
@@ -64,7 +64,7 @@ body {
 
 .header {
     background: #f2f4f5;
-    padding: 20px 20px 18px;
+    padding: 12px 16px 10px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     display: flex;
     justify-content: center;
@@ -79,8 +79,8 @@ body {
 }
 
 .logo {
-    width: min(92%, 520px);
-    max-height: 130px;
+    width: min(70%, 360px);
+    max-height: 80px;
     object-fit: contain;
     display: block;
 }
@@ -92,7 +92,7 @@ body {
 }
 
 .status-section {
-    padding: 22px 24px 30px;
+    padding: 16px 24px 20px;
     color: var(--white);
 }
 
@@ -112,7 +112,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 26px;
+    margin-bottom: 18px;
 }
 
 .section-label {
@@ -124,27 +124,39 @@ body {
 .station-badge {
     min-width: 92px;
     text-align: center;
-    padding: 10px 18px;
+    padding: 12px 20px;
     border-radius: 999px;
-    background: rgba(0, 0, 0, 0.14);
+    background: rgba(0, 0, 0, 0.2);
     color: var(--white);
-    font-size: 1.4rem;
+    font-size: 1.6rem;
     font-weight: 800;
     letter-spacing: 0.08em;
 }
 
 .status-text {
     text-align: center;
-    font-size: clamp(3.2rem, 10vw, 6rem);
+    font-size: clamp(5rem, 14vw, 8rem);
     font-weight: 900;
-    letter-spacing: 0.04em;
-    line-height: 1;
+    letter-spacing: 0.05em;
+    line-height: 0.9;
     text-transform: uppercase;
+
+    /* KEY FIX */
+    min-height: 2.2em;
+    /* forces space for ~2 lines */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: normal;
+}
+
+.screen.state-in-process .status-text {
+    animation: pulse 2s infinite;
 }
 
 .patient-section {
-    padding: 18px 24px 22px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 16px 24px 18px;
+    border-bottom: 2px solid rgba(0, 0, 0, 0.05);
     color: var(--text-dark);
 }
 
@@ -154,28 +166,33 @@ body {
 }
 
 .patient-name {
-    font-size: clamp(1.8rem, 4vw, 2.8rem);
-    font-weight: 700;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    font-weight: 600;
     line-height: 1.1;
-    min-height: 3rem;
+    min-height: 2.8rem;
 }
 
 .info-grid {
-    padding: 22px 20px 18px;
+    padding: 18px 18px 14px;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    grid-template-columns: 1fr 1fr 1 fr;
+    gap: 14px;
+    margin-top: 6px;
 }
 
 .info-card {
     background: rgba(255, 255, 255, 0.42);
     border: 1px solid var(--card-line);
     border-radius: 22px;
-    padding: 18px 18px 16px;
-    min-height: 116px;
+    padding: 14px 16px;
+    min-height: 96px;
     display: flex;
     flex-direction: column;
     justify-content: center;
+}
+
+.info-card:nth-child(3) {
+    grid-column: span 2;
 }
 
 .info-label {
@@ -187,14 +204,17 @@ body {
 
 .info-value {
     color: var(--text-dark);
-    font-size: 2rem;
+    font-size: 1.65rem;
     font-weight: 700;
     line-height: 1.1;
-    word-break: break-word;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: normal;
 }
 
 .footer {
-    padding: 18px 24px 22px;
+    padding: 14px 20px 18px;
     margin-top: auto;
     border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -203,47 +223,96 @@ body {
     text-align: center;
     color: var(--text-dark);
     font-size: clamp(1.2rem, 2.8vw, 2rem);
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.2;
+    opacity: 0.85;
 }
 
-/* Slightly tighter layout for short portrait displays */
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.03);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
 @media (max-height: 900px) {
+    .screen {
+        padding: 12px;
+    }
+
     .header {
-        padding: 16px 18px 14px;
+        padding: 10px 14px 8px;
     }
 
     .logo {
-        max-height: 105px;
+        width: min(64%, 320px);
+        max-height: 70px;
     }
 
     .status-section {
-        padding: 18px 22px 24px;
+        padding: 14px 24px 16px;
     }
 
     .status-row {
-        margin-bottom: 18px;
+        margin-bottom: 12px;
+    }
+
+    .section-label {
+        font-size: 1rem;
+    }
+
+    .station-badge {
+        min-width: 80px;
+        padding: 10px 16px;
+        font-size: 1.35rem;
+    }
+
+    .status-text {
+        font-size: clamp(2.2rem, 8vw, 4.5rem);
+        word-break: keep-all;
+        white-space: pre-line;
     }
 
     .patient-section {
-        padding: 16px 22px 18px;
+        padding: 14px 20px 16px;
+    }
+
+    .patient-name {
+        font-size: clamp(1.4rem, 2.8vw, 2rem);
+        min-height: 2.4rem;
     }
 
     .info-grid {
-        gap: 14px;
-        padding: 18px 18px 14px;
+        gap: 12px;
+        padding: 14px 14px 12px;
     }
 
     .info-card {
-        min-height: 96px;
-        padding: 14px 16px;
+        min-height: 84px;
+        padding: 12px 14px;
+    }
+
+    .info-label {
+        font-size: 0.95rem;
+        margin-bottom: 8px;
     }
 
     .info-value {
-        font-size: 1.65rem;
+        font-size: 1.4rem;
     }
 
     .footer {
-        padding: 14px 20px 18px;
+        padding: 12px 16px 14px;
+    }
+
+    .date-time {
+        font-size: clamp(1rem, 2.4vw, 1.5rem);
     }
 }
