@@ -25,20 +25,17 @@ const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
 const dateTimeValueEl = document.getElementById("dateTimeValue");
 
-console.log("DOM CHECK", {
-  appEl: !!appEl,
-  statusTextEl: !!statusTextEl,
-  patientNameEl: !!patientNameEl,
-  roomValueEl: !!roomValueEl,
-  stationValueEl: !!stationValueEl,
-  stationBadgeEl: !!stationBadgeEl,
-  elapsedValueEl: !!elapsedValueEl,
-  updatedValueEl: !!updatedValueEl,
-  dateTimeValueEl: !!dateTimeValueEl,
-});
+
+const iconBySeverity = {
+  success: "✓",
+  error: "!",
+  warning: "⚠",
+  info: "i",
+};
 
 let startedAtMs = null;
-let lastStatus = null;
+let lastMode = null;
+let lastStatusCode = null;
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -77,105 +74,184 @@ function formatFooterDateTime(dateValue) {
   });
 }
 
-function toDisplayStatus(status) {
-  switch (status) {
+function toDisplayStatus(statusCode) {
+  switch (statusCode) {
     case "in_process":
       return "EN\nPROCESO";
-    case "closed":
+    case "unavailable":
       return "NO\nDISPONIBLE";
-    case "vacant":
+    case "available":
     default:
-      return "VACIO";
+      return "DISPONIBLE";
   }
 }
 
-function applyStateClass(status) {
-  if (!appEl) {
-    console.error("appEl is missing from index.html");
-    return;
-  }
+function applyRoomStateClass(statusCode) {
+  if (!appEl) return;
 
-  appEl.classList.remove("state-vacant", "state-in-process", "state-unavailable");
+  appEl.classList.remove(
+    "state-vacant",
+    "state-in-process",
+    "state-unavailable",
+    "overlay-success",
+    "overlay-error",
+    "overlay-warning",
+    "overlay-info"
+  );
 
-  switch (status) {
+  switch (statusCode) {
     case "in_process":
       appEl.classList.add("state-in-process");
       break;
-    case "closed":
+    case "unavailable":
       appEl.classList.add("state-unavailable");
       break;
-    case "vacant":
+    case "available":
     default:
       appEl.classList.add("state-vacant");
       break;
   }
 }
 
-function setDisplay(data) {
-  const status = data.status || "vacant";
-  lastStatus = status;
+function applyOverlayClass(severity) {
+  if (!appEl) return;
 
-  applyStateClass(status);
+  appEl.classList.remove(
+    "state-vacant",
+    "state-in-process",
+    "state-unavailable",
+    "overlay-success",
+    "overlay-error",
+    "overlay-warning",
+    "overlay-info"
+  );
+
+  switch (severity) {
+    case "success":
+      appEl.classList.add("overlay-success");
+      break;
+    case "error":
+      appEl.classList.add("overlay-error");
+      break;
+    case "warning":
+      appEl.classList.add("overlay-warning");
+      break;
+    case "info":
+    default:
+      appEl.classList.add("overlay-info");
+      break;
+  }
+}
+
+function setRoomStatusDisplay(state) {
+  const statusCode = state?.status?.code || "available";
+  const statusLabel = state?.status?.label || toDisplayStatus(statusCode);
+  const patientName = state?.patient?.name || "—";
+  const roomName = state?.room?.label || "—";
+  const stationName = state?.station?.label || "—";
+  const startedAt = state?.timing?.started_at || null;
+  const updatedAt = state?.updated_at || Date.now();
+
+  lastMode = "room_status";
+  lastStatusCode = statusCode;
+
+  applyRoomStateClass(statusCode);
 
   if (statusTextEl) {
-    statusTextEl.textContent = toDisplayStatus(status);
-  } else {
-    console.error("statusTextEl is missing from index.html");
+    statusTextEl.textContent = statusLabel;
   }
 
   if (patientNameEl) {
-    patientNameEl.textContent = data.patientName || "—";
-  } else {
-    console.error("patientNameEl is missing from index.html");
+    patientNameEl.textContent = patientName;
   }
-
-  const roomName = data.locationName || "—";
-  const stationName = data.stationName || "—";
 
   if (roomValueEl) {
     roomValueEl.textContent = roomName;
-  } else {
-    console.error("roomValueEl is missing from index.html");
   }
 
   if (stationValueEl) {
     stationValueEl.textContent = stationName;
-  } else {
-    console.error("stationValueEl is missing from index.html");
   }
 
   if (stationBadgeEl) {
     stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
-  } else {
-    console.error("stationBadgeEl is missing from index.html");
   }
 
-  if (data.inProcessStartedAt) {
-    startedAtMs = new Date(data.inProcessStartedAt).getTime();
-  } else if (status !== "in_process") {
+  if (startedAt) {
+    startedAtMs = new Date(startedAt).getTime();
+  } else {
     startedAtMs = null;
   }
 
   if (updatedValueEl) {
-    updatedValueEl.textContent = formatShortTime(data.updatedAt || Date.now());
-  } else {
-    console.error("updatedValueEl is missing from index.html");
+    updatedValueEl.textContent = formatShortTime(updatedAt);
   }
 
   if (dateTimeValueEl) {
     dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
-  } else {
-    console.error("dateTimeValueEl is missing from index.html");
   }
 }
 
-function refreshElapsed() {
-  if (!elapsedValueEl) {
-    console.error("elapsedValueEl is missing from index.html");
+function setOverlayDisplay(state) {
+  const overlay = state?.overlay || {};
+  const severity = overlay.severity || "warning";
+  const title = overlay.title || "Mensaje";
+  const detail = overlay.detail || "";
+  const updatedAt = state?.updated_at || Date.now();
+
+  lastMode = "overlay";
+
+  applyOverlayClass(severity);
+
+  if (statusTextEl) {
+statusTextEl.textContent = `${iconBySeverity[severity] || "i"}\n${title}`;  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = detail || " ";
+  }
+
+  if (roomValueEl) {
+    roomValueEl.textContent = " ";
+  }
+
+  if (stationValueEl) {
+    stationValueEl.textContent = " ";
+  }
+
+  if (stationBadgeEl) {
+    stationBadgeEl.textContent = "ALERTA";
+  }
+
+  startedAtMs = null;
+
+  if (elapsedValueEl) {
+    elapsedValueEl.textContent = "Volviendo...";
+  }
+
+  if (updatedValueEl) {
+    updatedValueEl.textContent = formatShortTime(updatedAt);
+  }
+
+  if (dateTimeValueEl) {
+    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+  }
+}
+
+function setDisplayState(state) {
+  const mode = state?.mode || "room_status";
+
+  if (mode === "overlay") {
+    setOverlayDisplay(state);
     return;
   }
 
-  if (lastStatus === "in_process" && startedAtMs) {
+  setRoomStatusDisplay(state);
+}
+
+function refreshElapsed() {
+  if (!elapsedValueEl) return;
+
+  if (lastMode === "room_status" && lastStatusCode === "in_process" && startedAtMs) {
     elapsedValueEl.textContent = formatElapsed(Date.now() - startedAtMs);
   } else {
     elapsedValueEl.textContent = "00:00";
@@ -183,35 +259,31 @@ function refreshElapsed() {
 }
 
 function refreshClock() {
-  if (!dateTimeValueEl) {
-    console.error("dateTimeValueEl is missing from index.html");
-    return;
-  }
-
+  if (!dateTimeValueEl) return;
   dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
-async function fetchStatus() {
+async function fetchDisplayState() {
   try {
-    console.log("Fetching /api/status...");
-    const response = await fetch("/api/status");
+    const response = await fetch("/api/display");
 
     if (!response.ok) {
-      throw new Error(`Status API returned ${response.status}`);
+      throw new Error(`Display API returned ${response.status}`);
     }
 
-    const data = await response.json();
-    console.log("Status response:", data);
-    setDisplay(data);
+    const payload = await response.json();
+    setDisplayState(payload.state);
   } catch (error) {
-    console.error("Failed to fetch scanner status:", error);
+    console.error("Failed to fetch display state:", error);
 
-    setDisplay({
-      status: "closed",
-      patientName: "—",
-      locationName: "—",
-      stationName: "—",
-      updatedAt: Date.now(),
+    setDisplayState({
+      mode: "room_status",
+      updated_at: Date.now(),
+      room: { label: "—" },
+      station: { label: "—" },
+      status: { code: "unavailable", label: "NO DISPONIBLE" },
+      patient: { name: "—" },
+      timing: { started_at: null },
     });
   }
 }
@@ -222,5 +294,5 @@ refreshElapsed();
 setInterval(refreshClock, 1000);
 setInterval(refreshElapsed, 1000);
 
-fetchStatus();
-setInterval(fetchStatus, 2000);
+fetchDisplayState();
+setInterval(fetchDisplayState, 2000);
