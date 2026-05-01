@@ -1,12 +1,14 @@
 require("dotenv").config();
+
 const fs = require("fs");
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
+const http = require("http");
 const https = require("https");
 
 const { isConfigQr, handleConfigQr } = require("./configQr");
 
 // =========================
-// CONFIG (from .env via systemd)
+// CONFIG
 // =========================
 
 const SCANNER_DEVICE_NAME =
@@ -16,14 +18,78 @@ let ENDPOINT_URL =
   process.env.ENDPOINT_URL ||
   "https://us-central1-alfarero-478ad.cloudfunctions.net/receiveRoomScanEvent";
 
+let LOCAL_DISPLAY_URL =
+  process.env.LOCAL_DISPLAY_URL || "http://127.0.0.1:3001/api/display";
+
 let SHARED_SECRET = process.env.SHARED_SECRET || "";
 let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
 let STATION_ID = process.env.STATION_ID || "reg";
 let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
 
-// Fail fast if secret is missing
 if (!SHARED_SECRET) {
   throw new Error("Missing SHARED_SECRET environment variable");
+}
+
+// =========================
+// COMMAND HELPERS
+// =========================
+
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject({
+          error,
+          stdout: stdout || "",
+          stderr: stderr || "",
+        });
+        return;
+      }
+
+      resolve({
+        stdout: stdout || "",
+        stderr: stderr || "",
+      });
+    });
+  });
+}
+
+function getWifiPayloadFromScan(scanValue) {
+  const rawJson = scanValue.replace(/^MMCFG:/, "");
+  const parsed = JSON.parse(rawJson);
+
+  if (!parsed.payload || !parsed.payload.ssid || !parsed.payload.password) {
+    throw new Error("WiFi config QR is missing payload.ssid or payload.password");
+  }
+
+  return {
+    ssid: parsed.payload.ssid,
+    password: parsed.payload.password,
+  };
+}
+
+async function applyWifiConfig({ ssid, password }) {
+  console.log("APPLYING WIFI CONFIG VIA sudo nmcli");
+  console.log("WIFI SSID:", ssid);
+  console.log("WIFI PASSWORD: [REDACTED]");
+
+  const result = await runCommand("sudo", [
+    "/usr/bin/nmcli",
+    "dev",
+    "wifi",
+    "connect",
+    ssid,
+    "password",
+    password,
+  ]);
+
+  if (result.stdout.trim()) {
+    console.log("NMCLI STDOUT:", result.stdout.trim());
+  }
+
+  if (result.stderr.trim()) {
+    console.log("NMCLI STDERR:", result.stderr.trim());
+  }
 }
 
 // =========================
@@ -110,42 +176,92 @@ function keyToCharacter(key, shiftActive) {
   switch (key) {
     case "KEY_SEMICOLON":
       return shiftActive ? ":" : ";";
-
     case "KEY_MINUS":
       return shiftActive ? "_" : "-";
-
     case "KEY_DOT":
       return shiftActive ? ">" : ".";
-
     case "KEY_SLASH":
       return shiftActive ? "?" : "/";
-
     case "KEY_SPACE":
       return " ";
-
     case "KEY_COMMA":
       return shiftActive ? "<" : ",";
-
     case "KEY_APOSTROPHE":
       return shiftActive ? '"' : "'";
-
     case "KEY_LEFTBRACE":
       return shiftActive ? "{" : "[";
-
     case "KEY_RIGHTBRACE":
       return shiftActive ? "}" : "]";
-
     case "KEY_EQUAL":
       return shiftActive ? "+" : "=";
-
     case "KEY_BACKSLASH":
       return shiftActive ? "|" : "\\";
-
     case "KEY_GRAVE":
       return shiftActive ? "~" : "`";
-
     default:
       return null;
+  }
+}
+
+// =========================
+// LOCAL DISPLAY
+// =========================
+
+function postJson(urlString, payloadObj, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(payloadObj);
+    const endpoint = new URL(urlString);
+    const client = endpoint.protocol === "https:" ? https : http;
+
+    const req = client.request(
+      {
+        protocol: endpoint.protocol,
+        hostname: endpoint.hostname,
+        port: endpoint.port || (endpoint.protocol === "https:" ? 443 : 80),
+        path: endpoint.pathname + endpoint.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          ...headers,
+        },
+      },
+      (res) => {
+        let body = "";
+
+        res.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode,
+            body,
+          });
+        });
+      }
+    );
+
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function sendDisplayToKiosk(display) {
+  if (!display) return;
+
+  try {
+    const result = await postJson(LOCAL_DISPLAY_URL, { display });
+
+    if (!result.statusCode || result.statusCode >= 300) {
+      console.error("DISPLAY POST FAILED:", result.statusCode, result.body);
+      return;
+    }
+
+    console.log("DISPLAY POST OK:", result.statusCode);
+  } catch (err) {
+    console.error("DISPLAY POST ERROR:", err.message);
   }
 }
 
@@ -153,7 +269,7 @@ function keyToCharacter(key, shiftActive) {
 // CONFIG QR HANDLING
 // =========================
 
-function handleConfigScan(scanValue) {
+async function handleConfigScan(scanValue) {
   let result;
 
   try {
@@ -175,17 +291,9 @@ function handleConfigScan(scanValue) {
   if (result.kind === "station_config") {
     console.log("CONFIG QR APPLIED:", result.applied);
 
-    if (result.applied.ROOM_ID) {
-      ROOM_ID = result.applied.ROOM_ID;
-    }
-
-    if (result.applied.STATION_ID) {
-      STATION_ID = result.applied.STATION_ID;
-    }
-
-    if (result.applied.DEVICE_ID) {
-      DEVICE_ID = result.applied.DEVICE_ID;
-    }
+    if (result.applied.ROOM_ID) ROOM_ID = result.applied.ROOM_ID;
+    if (result.applied.STATION_ID) STATION_ID = result.applied.STATION_ID;
+    if (result.applied.DEVICE_ID) DEVICE_ID = result.applied.DEVICE_ID;
 
     console.log("UPDATED CONFIG:");
     console.log("ROOM_ID =", ROOM_ID);
@@ -195,10 +303,22 @@ function handleConfigScan(scanValue) {
   }
 
   if (result.kind === "wifi_config") {
-    console.log("WIFI CONFIG APPLIED:", result.applied);
-    console.log(
-      "The scanner may briefly lose connectivity while switching networks."
-    );
+    console.log("WIFI CONFIG QR VALIDATED:", result.applied);
+
+    try {
+      const wifiPayload = getWifiPayloadFromScan(scanValue);
+
+      await applyWifiConfig(wifiPayload);
+
+      console.log("WIFI CONFIG APPLIED:", { SSID: wifiPayload.ssid });
+      console.log(
+        "The scanner may briefly lose connectivity while switching networks."
+      );
+    } catch (err) {
+      console.error("WIFI CONFIG ERROR: Failed to apply WiFi config");
+      console.error(err.stderr || err.message || err);
+    }
+
     return true;
   }
 
@@ -243,54 +363,41 @@ function buildPayload(scanValue) {
 }
 
 // =========================
-// POST FUNCTION
+// POST SCAN TO CLOUD
 // =========================
 
-function postScan(scanValue) {
+async function postScan(scanValue) {
   const payloadObj = buildPayload(scanValue);
-  const payload = JSON.stringify(payloadObj);
-
-  const endpoint = new URL(ENDPOINT_URL);
 
   console.log("POST PAYLOAD:", payloadObj);
 
-  const headers = {
-    "Content-Type": "application/json",
-    "Content-Length": Buffer.byteLength(payload),
-    Authorization: `Bearer ${SHARED_SECRET}`,
-  };
+  try {
+    const result = await postJson(ENDPOINT_URL, payloadObj, {
+      Authorization: `Bearer ${SHARED_SECRET}`,
+    });
 
-  const req = https.request(
-    {
-      protocol: endpoint.protocol,
-      hostname: endpoint.hostname,
-      path: endpoint.pathname + endpoint.search,
-      method: "POST",
-      headers,
-    },
-    (res) => {
-      let body = "";
+    console.log("POST STATUS:", result.statusCode);
 
-      res.on("data", (chunk) => {
-        body += chunk.toString();
-      });
-
-      res.on("end", () => {
-        console.log("POST STATUS:", res.statusCode);
-
-        if (body) {
-          console.log("POST BODY:", body);
-        }
-      });
+    if (result.body) {
+      console.log("POST BODY:", result.body);
     }
-  );
 
-  req.on("error", (err) => {
+    if (!result.body) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(result.body);
+    } catch (err) {
+      console.error("POST BODY JSON PARSE ERROR:", err.message);
+      return;
+    }
+
+    if (parsed.display) {
+      await sendDisplayToKiosk(parsed.display);
+    }
+  } catch (err) {
     console.error("POST ERROR:", err.message);
-  });
-
-  req.write(payload);
-  req.end();
+  }
 }
 
 // =========================
@@ -298,7 +405,6 @@ function postScan(scanValue) {
 // =========================
 
 function startScannerListener() {
-
   const devicePath = resolveScannerDevicePath();
 
   let scanBuffer = "";
@@ -376,6 +482,7 @@ function startScannerListener() {
 
   console.log("Listening for scans...");
   console.log(`POST target: ${ENDPOINT_URL}`);
+  console.log(`Local display target: ${LOCAL_DISPLAY_URL}`);
 }
 
 process.on("uncaughtException", (err) => {

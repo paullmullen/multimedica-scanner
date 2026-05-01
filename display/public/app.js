@@ -25,7 +25,6 @@ const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
 const dateTimeValueEl = document.getElementById("dateTimeValue");
 
-
 const iconBySeverity = {
   success: "✓",
   error: "!",
@@ -78,9 +77,12 @@ function toDisplayStatus(statusCode) {
   switch (statusCode) {
     case "in_process":
       return "EN\nPROCESO";
+    case "patient_waiting":
+      return "PACIENTE\nESPERANDO";
     case "unavailable":
       return "NO\nDISPONIBLE";
     case "available":
+    case "vacant":
     default:
       return "DISPONIBLE";
   }
@@ -106,7 +108,9 @@ function applyRoomStateClass(statusCode) {
     case "unavailable":
       appEl.classList.add("state-unavailable");
       break;
+    case "patient_waiting":
     case "available":
+    case "vacant":
     default:
       appEl.classList.add("state-vacant");
       break;
@@ -157,39 +161,19 @@ function setRoomStatusDisplay(state) {
 
   applyRoomStateClass(statusCode);
 
-  if (statusTextEl) {
-    statusTextEl.textContent = statusLabel;
-  }
-
-  if (patientNameEl) {
-    patientNameEl.textContent = patientName;
-  }
-
-  if (roomValueEl) {
-    roomValueEl.textContent = roomName;
-  }
-
-  if (stationValueEl) {
-    stationValueEl.textContent = stationName;
-  }
+  if (statusTextEl) statusTextEl.textContent = statusLabel;
+  if (patientNameEl) patientNameEl.textContent = patientName;
+  if (roomValueEl) roomValueEl.textContent = roomName;
+  if (stationValueEl) stationValueEl.textContent = stationName;
 
   if (stationBadgeEl) {
     stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
   }
 
-  if (startedAt) {
-    startedAtMs = new Date(startedAt).getTime();
-  } else {
-    startedAtMs = null;
-  }
+  startedAtMs = startedAt ? new Date(startedAt).getTime() : null;
 
-  if (updatedValueEl) {
-    updatedValueEl.textContent = formatShortTime(updatedAt);
-  }
-
-  if (dateTimeValueEl) {
-    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
-  }
+  if (updatedValueEl) updatedValueEl.textContent = formatShortTime(updatedAt);
+  if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 function setOverlayDisplay(state) {
@@ -204,37 +188,19 @@ function setOverlayDisplay(state) {
   applyOverlayClass(severity);
 
   if (statusTextEl) {
-statusTextEl.textContent = `${iconBySeverity[severity] || "i"}\n${title}`;  }
-
-  if (patientNameEl) {
-    patientNameEl.textContent = detail || " ";
+    statusTextEl.textContent = `${iconBySeverity[severity] || "i"}\n${title}`;
   }
 
-  if (roomValueEl) {
-    roomValueEl.textContent = " ";
-  }
-
-  if (stationValueEl) {
-    stationValueEl.textContent = " ";
-  }
-
-  if (stationBadgeEl) {
-    stationBadgeEl.textContent = "ALERTA";
-  }
+  if (patientNameEl) patientNameEl.textContent = detail || " ";
+  if (roomValueEl) roomValueEl.textContent = " ";
+  if (stationValueEl) stationValueEl.textContent = " ";
+  if (stationBadgeEl) stationBadgeEl.textContent = "ALERTA";
 
   startedAtMs = null;
 
-  if (elapsedValueEl) {
-    elapsedValueEl.textContent = "Volviendo...";
-  }
-
-  if (updatedValueEl) {
-    updatedValueEl.textContent = formatShortTime(updatedAt);
-  }
-
-  if (dateTimeValueEl) {
-    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
-  }
+  if (elapsedValueEl) elapsedValueEl.textContent = "Volviendo...";
+  if (updatedValueEl) updatedValueEl.textContent = formatShortTime(updatedAt);
+  if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 function setDisplayState(state) {

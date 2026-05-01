@@ -32,6 +32,10 @@ fi
 mkdir -p "$APP_DIR"
 mkdir -p "$APP_DIR/kiosk"
 
+# =========================
+# COPY FILES
+# =========================
+
 log "Copying scanner runtime files"
 copy_if_exists "$SOURCE_DIR/scanner.js" "$APP_DIR/scanner.js"
 copy_if_exists "$SOURCE_DIR/configQr.js" "$APP_DIR/configQr.js"
@@ -49,20 +53,23 @@ if [ -d "$SOURCE_DIR/kiosk-display" ]; then
   cp -R "$SOURCE_DIR/kiosk-display" "$APP_DIR/kiosk-display"
 fi
 
-if [ -f "$SOURCE_DIR/.env" ]; then
-  log "Installing .env"
-  cp "$SOURCE_DIR/.env" "$APP_DIR/.env"
-fi
-
 if [ -f "$SOURCE_DIR/.bash_profile" ]; then
   log "Installing .bash_profile"
   cp "$SOURCE_DIR/.bash_profile" "$HOME_DIR/.bash_profile"
   chown "$APP_USER:$APP_GROUP" "$HOME_DIR/.bash_profile"
 fi
 
+# =========================
+# PERMISSIONS
+# =========================
+
 log "Setting ownership and permissions"
 chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
 find "$APP_DIR" -type f -name '*.sh' -exec chmod +x {} \;
+
+# =========================
+# NPM INSTALL
+# =========================
 
 if command -v npm >/dev/null 2>&1; then
   if [ -f "$APP_DIR/package.json" ]; then
@@ -91,6 +98,10 @@ else
   exit 1
 fi
 
+# =========================
+# SYSTEMD INSTALL
+# =========================
+
 if [ -d "$SOURCE_DIR/systemd" ]; then
   log "Installing systemd unit files"
   find "$SOURCE_DIR/systemd" -maxdepth 1 -type f -name '*.service' -print0 | while IFS= read -r -d '' unit; do
@@ -98,7 +109,7 @@ if [ -d "$SOURCE_DIR/systemd" ]; then
   done
 fi
 
-# Clean up old kiosk.service if it still exists from prior iterations
+# Remove legacy kiosk.service
 if [ -f "$SYSTEMD_DIR/kiosk.service" ]; then
   log "Removing legacy kiosk.service"
   systemctl disable kiosk.service || true
@@ -107,6 +118,48 @@ if [ -f "$SYSTEMD_DIR/kiosk.service" ]; then
   rm -f /etc/systemd/system/graphical.target.wants/kiosk.service
   rm -f /etc/systemd/system/multi-user.target.wants/kiosk.service
 fi
+
+# Remove legacy scanner.service
+if systemctl list-unit-files | grep -q '^scanner.service'; then
+  log "Removing legacy scanner.service"
+  systemctl disable --now scanner.service 2>/dev/null || true
+  systemctl reset-failed scanner.service 2>/dev/null || true
+  rm -f "$SYSTEMD_DIR/scanner.service"
+  rm -f /etc/systemd/system/multi-user.target.wants/scanner.service
+fi
+
+# =========================
+# PERSISTENT CONFIG
+# =========================
+
+log "Preparing persistent scanner config directory"
+mkdir -p "$HOME_DIR/scanner"
+chown -R "$APP_USER:$APP_GROUP" "$HOME_DIR/scanner"
+
+if [ -f "$SOURCE_DIR/.env" ]; then
+  log "Installing .env to persistent config directory"
+  cp "$SOURCE_DIR/.env" "$HOME_DIR/scanner/.env"
+  chown "$APP_USER:$APP_GROUP" "$HOME_DIR/scanner/.env"
+  chmod 0600 "$HOME_DIR/scanner/.env"
+fi
+
+# =========================
+# SUDOERS
+# =========================
+
+log "Installing scanner sudoers rules"
+cat >/etc/sudoers.d/multimedica-scanner <<'EOF'
+multimedica_edge ALL=(root) NOPASSWD: /usr/bin/evtest
+multimedica_edge ALL=(root) NOPASSWD: /usr/bin/nmcli
+EOF
+
+chown root:root /etc/sudoers.d/multimedica-scanner
+chmod 0440 /etc/sudoers.d/multimedica-scanner
+visudo -c
+
+# =========================
+# START SERVICES
+# =========================
 
 log "Reloading systemd"
 systemctl daemon-reload
@@ -124,5 +177,51 @@ for svc in multimedica-scanner.service kiosk-display.service; do
     systemctl restart "$svc"
   fi
 done
+
+# =========================
+# POST-INSTALL VALIDATION
+# =========================
+
+log "Running post-install validation"
+
+log "Checking sudoers syntax"
+visudo -c
+
+log "Checking scanner sudo access to evtest"
+sudo -u "$APP_USER" sudo -n /usr/bin/evtest --help >/dev/null 2>&1 || {
+  echo "ERROR: $APP_USER cannot run sudo evtest without password." >&2
+  exit 1
+}
+
+log "Checking scanner sudo access to nmcli"
+sudo -u "$APP_USER" sudo -n /usr/bin/nmcli dev status >/dev/null || {
+  echo "ERROR: $APP_USER cannot run sudo nmcli without password." >&2
+  exit 1
+}
+
+log "Checking multimedica-scanner.service"
+systemctl is-active --quiet multimedica-scanner.service || {
+  echo "ERROR: multimedica-scanner.service is not active." >&2
+  systemctl status multimedica-scanner.service --no-pager || true
+  exit 1
+}
+
+log "Checking kiosk-display.service"
+systemctl is-active --quiet kiosk-display.service || {
+  echo "ERROR: kiosk-display.service is not active." >&2
+  systemctl status kiosk-display.service --no-pager || true
+  exit 1
+}
+
+log "Checking local display health endpoint"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsS http://127.0.0.1:3001/api/status/health >/dev/null || {
+    echo "WARNING: kiosk display health endpoint did not respond successfully." >&2
+  }
+else
+  echo "WARNING: curl not found; skipping display health check." >&2
+fi
+
+log "Post-install validation complete"
 
 log "Installation complete"
