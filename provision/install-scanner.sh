@@ -188,14 +188,14 @@ log "Checking sudoers syntax"
 visudo -c
 
 log "Checking scanner sudo access to evtest"
-sudo -u "$APP_USER" sudo -n /usr/bin/evtest --help >/dev/null 2>&1 || {
-  echo "ERROR: $APP_USER cannot run sudo evtest without password." >&2
+sudo -u "$APP_USER" sudo -n -l /usr/bin/evtest >/dev/null 2>&1 || {
+  echo "ERROR: $APP_USER cannot run sudo /usr/bin/evtest without password." >&2
   exit 1
 }
 
 log "Checking scanner sudo access to nmcli"
-sudo -u "$APP_USER" sudo -n /usr/bin/nmcli dev status >/dev/null || {
-  echo "ERROR: $APP_USER cannot run sudo nmcli without password." >&2
+sudo -u "$APP_USER" sudo -n -l /usr/bin/nmcli >/dev/null 2>&1 || {
+  echo "ERROR: $APP_USER cannot run sudo /usr/bin/nmcli without password." >&2
   exit 1
 }
 

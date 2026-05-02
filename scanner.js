@@ -248,6 +248,36 @@ function postJson(urlString, payloadObj, headers = {}) {
   });
 }
 
+function buildConfiguredStationDisplay() {
+  return {
+    mode: "room_status",
+    room: { label: ROOM_ID || "—" },
+    station: { label: STATION_ID || "—" },
+    status: { code: "available", label: "DISPONIBLE" },
+    patient: { name: "—" },
+    timing: { started_at: null },
+    updated_at: Date.now(),
+  };
+}
+
+async function showStationConfigConfirmation() {
+  await sendDisplayToKiosk({
+    mode: "overlay",
+    overlay: {
+      type: "success",
+      title: "Configuración actualizada",
+      message: `Estación: ${STATION_ID.toUpperCase()}`,
+    },
+    room: { label: ROOM_ID || "—" },
+    station: { label: STATION_ID || "—" },
+    updated_at: Date.now(),
+  });
+
+  setTimeout(() => {
+    sendDisplayToKiosk(buildConfiguredStationDisplay());
+  }, 2000);
+}
+
 async function sendDisplayToKiosk(display) {
   if (!display) return;
 
@@ -299,6 +329,8 @@ async function handleConfigScan(scanValue) {
     console.log("ROOM_ID =", ROOM_ID);
     console.log("STATION_ID =", STATION_ID);
     console.log("DEVICE_ID =", DEVICE_ID);
+
+    await showStationConfigConfirmation();
     return true;
   }
 
