@@ -14,6 +14,31 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 console.log("APP STARTED");
+function debugScreen(message, data = null) {
+  console.log("DISPLAY DEBUG:", message, data || "");
+
+  let debugEl = document.getElementById("debugStatus");
+
+  if (!debugEl) {
+    debugEl = document.createElement("div");
+    debugEl.id = "debugStatus";
+    debugEl.style.position = "fixed";
+    debugEl.style.left = "8px";
+    debugEl.style.bottom = "8px";
+    debugEl.style.zIndex = "99999";
+    debugEl.style.background = "rgba(0,0,0,0.75)";
+    debugEl.style.color = "white";
+    debugEl.style.fontSize = "14px";
+    debugEl.style.padding = "6px 8px";
+    debugEl.style.borderRadius = "6px";
+    debugEl.style.maxWidth = "95vw";
+    debugEl.style.whiteSpace = "pre-wrap";
+    document.body.appendChild(debugEl);
+  }
+
+  debugEl.textContent = `${new Date().toLocaleTimeString()} — ${message}`;
+}
+
 
 const appEl = document.getElementById("app");
 const statusTextEl = document.getElementById("statusText");
@@ -78,7 +103,7 @@ function toDisplayStatus(statusCode) {
     case "in_process":
       return "EN\nPROCESO";
     case "patient_waiting":
-      return "PACIENTE\nESPERANDO";
+      return "PACIENTE\nEN ESPERA";
     case "unavailable":
       return "NO\nDISPONIBLE";
     case "available":
@@ -95,6 +120,7 @@ function applyRoomStateClass(statusCode) {
     "state-vacant",
     "state-in-process",
     "state-unavailable",
+    "state-waiting",
     "overlay-success",
     "overlay-error",
     "overlay-warning",
@@ -109,6 +135,8 @@ function applyRoomStateClass(statusCode) {
       appEl.classList.add("state-unavailable");
       break;
     case "patient_waiting":
+        appEl.classList.add("state-waiting");
+        break;
     case "available":
     case "vacant":
     default:
@@ -231,16 +259,32 @@ function refreshClock() {
 
 async function fetchDisplayState() {
   try {
-    const response = await fetch("/api/display");
+    debugScreen("fetchDisplayState: start");
+
+    const response = await fetch(`/api/display?ts=${Date.now()}`, {
+      cache: "no-store",
+    });
+
+    debugScreen(`fetchDisplayState: response ${response.status}`);
 
     if (!response.ok) {
       throw new Error(`Display API returned ${response.status}`);
     }
 
     const payload = await response.json();
+
+    debugScreen(
+      `payload: ${payload?.state?.status?.code || "no status"} / ${payload?.state?.station?.label || "no station"}`
+    );
+
     setDisplayState(payload.state);
+
+    debugScreen(
+      `rendered: ${payload?.state?.status?.code || "no status"}`
+    );
   } catch (error) {
     console.error("Failed to fetch display state:", error);
+    debugScreen(`ERROR: ${error.message}`);
 
     setDisplayState({
       mode: "room_status",

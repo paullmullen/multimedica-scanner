@@ -7,14 +7,14 @@ USER="multimedica_edge"
 echo "==> Installing kiosk packages"
 
 sudo apt update
-sudo apt install -y --no-install-recommends \
-  xserver-xorg \
-  x11-xserver-utils \
-  xinit \
-  openbox \
-  chromium \
-  unclutter \
-  xserver-xorg-legacy
+sudo apt install -y --no-install-recommends 
+xserver-xorg 
+x11-xserver-utils 
+xinit 
+openbox 
+chromium 
+unclutter 
+xserver-xorg-legacy
 
 echo "==> Configuring X wrapper"
 
@@ -38,6 +38,27 @@ echo "==> Installing kiosk launcher"
 
 chmod +x $APP_DIR/kiosk/start-kiosk.sh
 
+echo "==> Installing kiosk display service"
+
+sudo tee /etc/systemd/system/kiosk-display.service > /dev/null <<EOF
+[Unit]
+Description=Kiosk Display Server
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=/opt/multimedica-scanner/kiosk-display
+EnvironmentFile=-/home/$USER/scanner/.env
+Environment=KIOSK_PORT=3001
+ExecStart=/usr/bin/node /opt/multimedica-scanner/kiosk-display/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo "==> Installing kiosk service"
 
 sudo tee /etc/systemd/system/kiosk.service > /dev/null <<EOF
@@ -57,6 +78,10 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 
+echo "==> Enabling services"
+
 sudo systemctl daemon-reload
+sudo systemctl enable kiosk.service
+sudo systemctl enable kiosk-display.service
 
 echo "==> Kiosk installed"

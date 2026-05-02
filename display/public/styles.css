@@ -2,16 +2,26 @@
     --clinic-teal: #2bb8b0;
     --clinic-blue: #2d3192;
     --clinic-orange: #f47c20;
+    --clinic-purple: #6d28d9;
+
+
     --card-bg: rgba(255, 255, 255, 0.9);
     --card-line: rgba(255, 255, 255, 0.4);
+
     --text-dark: #17384a;
     --text-muted: #4d6a79;
+    --text-waiting: #ffffff;
     --white: #ffffff;
 
-    --vacant-bg: #2bb8b0;
-    --inprocess-bg: #f47c20;
+    --vacant-bg: var(--clinic-teal);
+    --inprocess-bg: var(--clinic-orange);
+    --waiting-bg: var(--clinic-purple);
     --unavailable-bg: #6b7280;
 }
+
+/* =========================
+   Base
+========================= */
 
 * {
     box-sizing: border-box;
@@ -29,44 +39,10 @@ body {
     background: var(--clinic-blue);
 }
 
-#app.overlay-success,
-#app.overlay-error,
-#app.overlay-warning,
-#app.overlay-info {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #111
-}
+/* =========================
+   Screen state backgrounds
+========================= */
 
-#app.overlay-success .main-card,
-#app.overlay-error .main-card,
-#app.overlay-warning .main-card,
-#app.overlay-info .main-card {
-    max-width: 85%;
-    padding: 2rem;
-    border: 6px solid rgba(255, 255, 255, 0.85);
-    border-radius: 28px;
-    background: #FFF;
-    color: #111;
-    border-width: 10 px;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
-}
-#app.overlay-success {
-    background: linear-gradient(135deg, #1f9d55, #38c172);
-}
-
-#app.overlay-error {
-    background: linear-gradient(135deg, #cc1f1a, #e3342f);
-}
-
-#app.overlay-warning {
-    background: linear-gradient(135deg, #f6993f, #ffed4a);
-}
-
-#app.overlay-info {
-    background: linear-gradient(135deg, #3490dc, #6cb2eb);
-}
 .screen {
     width: 100vw;
     height: 100vh;
@@ -85,9 +61,61 @@ body {
     background: var(--inprocess-bg);
 }
 
+.screen.state-waiting {
+    background: var(--waiting-bg);
+    color: var(--text-waiting);
+}
+
 .screen.state-unavailable {
     background: var(--unavailable-bg);
 }
+
+/* =========================
+   Overlay states
+========================= */
+
+#app.overlay-success,
+#app.overlay-error,
+#app.overlay-warning,
+#app.overlay-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+}
+
+#app.overlay-success {
+    background: linear-gradient(135deg, #1f9d55, #38c172);
+}
+
+#app.overlay-error {
+    background: linear-gradient(135deg, #cc1f1a, #e3342f);
+}
+
+#app.overlay-warning {
+    background: linear-gradient(135deg, #f6993f, #ffed4a);
+}
+
+#app.overlay-info {
+    background: linear-gradient(135deg, #3490dc, #6cb2eb);
+}
+
+#app.overlay-success .main-card,
+#app.overlay-error .main-card,
+#app.overlay-warning .main-card,
+#app.overlay-info .main-card {
+    max-width: 85%;
+    padding: 2rem;
+    border: 10px solid rgba(255, 255, 255, 0.85);
+    border-radius: 28px;
+    background: #ffffff;
+    color: #111111;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+
+/* =========================
+   Main panel
+========================= */
 
 .panel {
     width: min(760px, 100%);
@@ -129,6 +157,10 @@ body {
     flex-direction: column;
 }
 
+/* =========================
+   Status section
+========================= */
+
 .status-section {
     padding: 16px 24px 20px;
     color: var(--white);
@@ -140,6 +172,11 @@ body {
 
 .screen.state-in-process .status-section {
     background: var(--inprocess-bg);
+}
+
+.screen.state-waiting .status-section {
+    background: var(--waiting-bg);
+    color: var(--text-waiting);
 }
 
 .screen.state-unavailable .status-section {
@@ -171,6 +208,11 @@ body {
     letter-spacing: 0.08em;
 }
 
+.screen.state-waiting .station-badge {
+    background: rgba(64, 28, 69, 0.16);
+    color: var(--text-waiting);
+}
+
 .status-text {
     text-align: center;
     font-size: clamp(5rem, 14vw, 8rem);
@@ -178,10 +220,7 @@ body {
     letter-spacing: 0.05em;
     line-height: 0.9;
     text-transform: uppercase;
-
-    /* KEY FIX */
     min-height: 2.2em;
-    /* forces space for ~2 lines */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -191,6 +230,16 @@ body {
 .screen.state-in-process .status-text {
     animation: pulse 2s infinite;
 }
+
+.screen.state-waiting .status-text {
+    color: var(--text-waiting);
+    text-shadow: none;
+    animation: waiting-pulse 2s ease-in-out infinite;
+}
+
+/* =========================
+   Patient section
+========================= */
 
 .patient-section {
     padding: 16px 24px 18px;
@@ -210,10 +259,14 @@ body {
     min-height: 2.8rem;
 }
 
+/* =========================
+   Info cards
+========================= */
+
 .info-grid {
     padding: 18px 18px 14px;
     display: grid;
-    grid-template-columns: 1fr 1fr 1 fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 14px;
     margin-top: 6px;
 }
@@ -251,6 +304,10 @@ body {
     word-break: normal;
 }
 
+/* =========================
+   Footer
+========================= */
+
 .footer {
     padding: 14px 20px 18px;
     margin-top: auto;
@@ -266,6 +323,10 @@ body {
     opacity: 0.85;
 }
 
+/* =========================
+   Animation
+========================= */
+
 @keyframes pulse {
     0% {
         transform: scale(1);
@@ -279,6 +340,24 @@ body {
         transform: scale(1);
     }
 }
+
+@keyframes waiting-pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.025);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* =========================
+   Short screens
+========================= */
 
 @media (max-height: 900px) {
     .screen {
@@ -353,6 +432,4 @@ body {
     .date-time {
         font-size: clamp(1rem, 2.4vw, 1.5rem);
     }
-
-    
 }
