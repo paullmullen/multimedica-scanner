@@ -214,14 +214,23 @@ systemctl is-active --quiet kiosk-display.service || {
 }
 
 log "Checking local display health endpoint"
-if command -v curl >/dev/null 2>&1; then
-  curl -fsS http://127.0.0.1:3001/api/status/health >/dev/null || {
-    echo "WARNING: kiosk display health endpoint did not respond successfully." >&2
-  }
-else
-  echo "WARNING: curl not found; skipping display health check." >&2
-fi
 
+DISPLAY_HEALTH_OK=false
+
+for i in {1..10}; do
+  if curl -fsS http://127.0.0.1:3001/api/display >/dev/null 2>&1; then
+    DISPLAY_HEALTH_OK=true
+    break
+  fi
+
+  sleep 1
+done
+
+if [ "$DISPLAY_HEALTH_OK" = true ]; then
+  log "Kiosk display health endpoint responded successfully"
+else
+  echo "WARNING: kiosk display health endpoint did not respond successfully."
+fi
 log "Post-install validation complete"
 
 log "Installation complete"

@@ -6,6 +6,11 @@ param(
     [switch]$SkipEnv
 )
 
+function log($msg) {
+    $ts = Get-Date -Format "HH:mm:ss"
+    Write-Host "[$ts] ==> $msg"
+}
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "Provisioning scanner on $PiHost ..." -ForegroundColor Cyan
@@ -110,5 +115,16 @@ ssh -t $PiHost "sudo systemctl --no-pager --full status kiosk-display.service ||
 
 ssh -t $PiHost "journalctl -u multimedica-scanner.service -n 40 --no-pager || true"
 ssh -t $PiHost "journalctl -u kiosk-display.service -n 40 --no-pager || true"
+
+log "Restarting services"
+
+sudo systemctl daemon-reload
+sudo systemctl restart multimedica-scanner.service
+sudo systemctl restart kiosk-display.service
+sudo systemctl restart kiosk.service
+
+sleep 3
+
+log "Provisioning complete"
 
 Write-Host "Provisioning complete." -ForegroundColor Green
