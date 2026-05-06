@@ -433,6 +433,59 @@ async function postScan(scanValue) {
 }
 
 // =========================
+// BOOT DISPLAY SYNC
+// =========================
+
+async function bootSyncDisplay() {
+  console.log("==== BOOT DISPLAY SYNC ====");
+
+  const payloadObj = {
+    visit_id: null,
+    raw_scan_value: null,
+    room_id: ROOM_ID,
+    station_id: STATION_ID,
+    device_id: DEVICE_ID,
+    event_type: "boot_sync",
+    source_type: "PI_SCANNER",
+    device_timestamp_utc: new Date().toISOString(),
+  };
+
+  console.log("BOOT SYNC PAYLOAD:", payloadObj);
+
+  try {
+    const result = await postJson(ENDPOINT_URL, payloadObj, {
+      Authorization: `Bearer ${SHARED_SECRET}`,
+    });
+
+    console.log("BOOT SYNC STATUS:", result.statusCode);
+
+    if (result.body) {
+      console.log("BOOT SYNC BODY:", result.body);
+    }
+
+    if (!result.body) return;
+
+    let parsed;
+
+    try {
+      parsed = JSON.parse(result.body);
+    } catch (err) {
+      console.error("BOOT SYNC JSON PARSE ERROR:", err.message);
+      return;
+    }
+
+    if (parsed.display) {
+      console.log("BOOT SYNC DISPLAY RECEIVED");
+      await sendDisplayToKiosk(parsed.display);
+    } else {
+      console.log("BOOT SYNC: no display payload returned");
+    }
+  } catch (err) {
+    console.error("BOOT SYNC ERROR:", err.message);
+  }
+}
+
+// =========================
 // MAIN
 // =========================
 
@@ -525,4 +578,9 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
 
-startScannerListener();
+async function main() {
+  await bootSyncDisplay();
+  startScannerListener();
+}
+
+main();

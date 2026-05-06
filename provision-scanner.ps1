@@ -118,10 +118,10 @@ ssh -t $PiHost "journalctl -u kiosk-display.service -n 40 --no-pager || true"
 
 log "Restarting services"
 
-sudo systemctl daemon-reload
-sudo systemctl restart multimedica-scanner.service
-sudo systemctl restart kiosk-display.service
-sudo systemctl restart kiosk.service
+ssh "$PiUser@$PiHost" systemctl daemon-reload
+ssh "$PiUser@$PiHost" systemctl restart multimedica-scanner.service
+ssh "$PiUser@$PiHost" systemctl restart kiosk-display.service
+ssh "$PiUser@$PiHost" systemctl restart kiosk.service
 
 sleep 3
 
