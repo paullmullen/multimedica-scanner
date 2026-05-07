@@ -34,54 +34,140 @@ if (!SHARED_SECRET) {
 // COMMAND HELPERS
 // =========================
 
-function runCommand(command, args) {
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: 30000 }, (error, stdout, stderr) => {
-      if (error) {
-        reject({
-          error,
+    execFile(
+      command,
+      args,
+      { timeout: options.timeout || 30000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject({
+            error,
+            stdout: stdout || "",
+            stderr: stderr || "",
+          });
+          return;
+        }
+
+        resolve({
           stdout: stdout || "",
           stderr: stderr || "",
         });
-        return;
       }
-
-      resolve({
-        stdout: stdout || "",
-        stderr: stderr || "",
-      });
-    });
+    );
   });
 }
 
-function getWifiPayloadFromScan(scanValue) {
-  const rawJson = scanValue.replace(/^MMCFG:/, "");
-  const parsed = JSON.parse(rawJson);
-
-  if (!parsed.payload || !parsed.payload.ssid || !parsed.payload.password) {
-    throw new Error("WiFi config QR is missing payload.ssid or payload.password");
+async function runCommandAllowFailure(command, args, options = {}) {
+  try {
+    return await runCommand(command, args, options);
+  } catch (err) {
+    return {
+      failed: true,
+      error: err.error || err,
+      stdout: err.stdout || "",
+      stderr: err.stderr || "",
+    };
   }
-
-  return {
-    ssid: parsed.payload.ssid,
-    password: parsed.payload.password,
-  };
 }
 
 async function applyWifiConfig({ ssid, password }) {
+  if (!ssid) {
+    throw new Error("Missing WiFi SSID");
+  }
+
+  if (password === undefined) {
+    throw new Error("Missing WiFi password");
+  }
+
   console.log("APPLYING WIFI CONFIG VIA sudo nmcli");
   console.log("WIFI SSID:", ssid);
   console.log("WIFI PASSWORD: [REDACTED]");
 
-  const result = await runCommand("sudo", [
+  const existing = await runCommandAllowFailure("sudo", [
     "/usr/bin/nmcli",
-    "dev",
+    "-t",
+    "-f",
+    "UUID,NAME,TYPE",
+    "connection",
+    "show",
+  ]);
+
+  if (!existing.failed && existing.stdout.trim()) {
+    const matchingUuids = existing.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [uuid, name, type] = line.split(":");
+        return { uuid, name, type };
+      })
+      .filter((conn) => conn.name === ssid && conn.type === "802-11-wireless")
+      .map((conn) => conn.uuid)
+      .filter(Boolean);
+
+    for (const uuid of matchingUuids) {
+      console.log("DELETING EXISTING WIFI CONNECTION:", uuid);
+      await runCommandAllowFailure("sudo", [
+        "/usr/bin/nmcli",
+        "connection",
+        "delete",
+        uuid,
+      ]);
+    }
+  }
+
+  await runCommand("sudo", [
+    "/usr/bin/nmcli",
+    "connection",
+    "add",
+    "type",
     "wifi",
-    "connect",
+    "ifname",
+    "wlan0",
+    "con-name",
     ssid,
-    "password",
+    "ssid",
+    ssid,
+  ]);
+
+  await runCommand("sudo", [
+    "/usr/bin/nmcli",
+    "connection",
+    "modify",
+    ssid,
+    "wifi-sec.key-mgmt",
+    "wpa-psk",
+  ]);
+
+  await runCommand("sudo", [
+    "/usr/bin/nmcli",
+    "connection",
+    "modify",
+    ssid,
+    "wifi-sec.psk",
     password,
   ]);
+
+  await runCommand("sudo", [
+    "/usr/bin/nmcli",
+    "connection",
+    "modify",
+    ssid,
+    "connection.autoconnect",
+    "yes",
+  ]);
+
+  const result = await runCommand(
+    "sudo",
+    ["/usr/bin/nmcli", "connection", "up", ssid],
+    { timeout: 60000 }
+  );
 
   if (result.stdout.trim()) {
     console.log("NMCLI STDOUT:", result.stdout.trim());
@@ -260,6 +346,23 @@ function buildConfiguredStationDisplay() {
   };
 }
 
+async function sendDisplayToKiosk(display) {
+  if (!display) return;
+
+  try {
+    const result = await postJson(LOCAL_DISPLAY_URL, { display });
+
+    if (!result.statusCode || result.statusCode >= 300) {
+      console.error("DISPLAY POST FAILED:", result.statusCode, result.body);
+      return;
+    }
+
+    console.log("DISPLAY POST OK:", result.statusCode);
+  } catch (err) {
+    console.error("DISPLAY POST ERROR:", err.message);
+  }
+}
+
 async function showStationConfigConfirmation() {
   await sendDisplayToKiosk({
     mode: "overlay",
@@ -278,20 +381,59 @@ async function showStationConfigConfirmation() {
   }, 2000);
 }
 
-async function sendDisplayToKiosk(display) {
-  if (!display) return;
+// =========================
+// DISPLAY SYNC
+// =========================
+
+async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
+  console.log(`==== DISPLAY SYNC: ${reason} ====`);
+
+  if (delayMs > 0) {
+    await delay(delayMs);
+  }
+
+  const payloadObj = {
+    visit_id: null,
+    raw_scan_value: null,
+    room_id: ROOM_ID,
+    station_id: STATION_ID,
+    device_id: DEVICE_ID,
+    event_type: "boot_sync",
+    source_type: "PI_SCANNER",
+    device_timestamp_utc: new Date().toISOString(),
+  };
+
+  console.log("DISPLAY SYNC PAYLOAD:", payloadObj);
 
   try {
-    const result = await postJson(LOCAL_DISPLAY_URL, { display });
+    const result = await postJson(ENDPOINT_URL, payloadObj, {
+      Authorization: `Bearer ${SHARED_SECRET}`,
+    });
 
-    if (!result.statusCode || result.statusCode >= 300) {
-      console.error("DISPLAY POST FAILED:", result.statusCode, result.body);
+    console.log("DISPLAY SYNC STATUS:", result.statusCode);
+
+    if (result.body) {
+      console.log("DISPLAY SYNC BODY:", result.body);
+    }
+
+    if (!result.body) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(result.body);
+    } catch (err) {
+      console.error("DISPLAY SYNC JSON PARSE ERROR:", err.message);
       return;
     }
 
-    console.log("DISPLAY POST OK:", result.statusCode);
+    if (parsed.display) {
+      console.log("DISPLAY SYNC RECEIVED");
+      await sendDisplayToKiosk(parsed.display);
+    } else {
+      console.log("DISPLAY SYNC: no display payload returned");
+    }
   } catch (err) {
-    console.error("DISPLAY POST ERROR:", err.message);
+    console.error("DISPLAY SYNC ERROR:", err.message);
   }
 }
 
@@ -331,6 +473,11 @@ async function handleConfigScan(scanValue) {
     console.log("DEVICE_ID =", DEVICE_ID);
 
     await showStationConfigConfirmation();
+
+    setTimeout(() => {
+      syncDisplayFromCloud("station_config", 0);
+    }, 2500);
+
     return true;
   }
 
@@ -338,14 +485,19 @@ async function handleConfigScan(scanValue) {
     console.log("WIFI CONFIG QR VALIDATED:", result.applied);
 
     try {
-      const wifiPayload = getWifiPayloadFromScan(scanValue);
+      await applyWifiConfig(result.runtime);
 
-      await applyWifiConfig(wifiPayload);
+      console.log("WIFI CONFIG APPLIED:", {
+        SSID: result.runtime.ssid,
+      });
 
-      console.log("WIFI CONFIG APPLIED:", { SSID: wifiPayload.ssid });
       console.log(
         "The scanner may briefly lose connectivity while switching networks."
       );
+
+      setTimeout(() => {
+        syncDisplayFromCloud("wifi_config", 0);
+      }, 8000);
     } catch (err) {
       console.error("WIFI CONFIG ERROR: Failed to apply WiFi config");
       console.error(err.stderr || err.message || err);
@@ -368,6 +520,11 @@ async function handleConfigScan(scanValue) {
     console.log("UPDATED CLOUD CONFIG:");
     console.log("ENDPOINT_URL =", ENDPOINT_URL);
     console.log("SHARED_SECRET = [REDACTED]");
+
+    setTimeout(() => {
+      syncDisplayFromCloud("cloud_config", 0);
+    }, 2500);
+
     return true;
   }
 
@@ -429,59 +586,6 @@ async function postScan(scanValue) {
     }
   } catch (err) {
     console.error("POST ERROR:", err.message);
-  }
-}
-
-// =========================
-// BOOT DISPLAY SYNC
-// =========================
-
-async function bootSyncDisplay() {
-  console.log("==== BOOT DISPLAY SYNC ====");
-
-  const payloadObj = {
-    visit_id: null,
-    raw_scan_value: null,
-    room_id: ROOM_ID,
-    station_id: STATION_ID,
-    device_id: DEVICE_ID,
-    event_type: "boot_sync",
-    source_type: "PI_SCANNER",
-    device_timestamp_utc: new Date().toISOString(),
-  };
-
-  console.log("BOOT SYNC PAYLOAD:", payloadObj);
-
-  try {
-    const result = await postJson(ENDPOINT_URL, payloadObj, {
-      Authorization: `Bearer ${SHARED_SECRET}`,
-    });
-
-    console.log("BOOT SYNC STATUS:", result.statusCode);
-
-    if (result.body) {
-      console.log("BOOT SYNC BODY:", result.body);
-    }
-
-    if (!result.body) return;
-
-    let parsed;
-
-    try {
-      parsed = JSON.parse(result.body);
-    } catch (err) {
-      console.error("BOOT SYNC JSON PARSE ERROR:", err.message);
-      return;
-    }
-
-    if (parsed.display) {
-      console.log("BOOT SYNC DISPLAY RECEIVED");
-      await sendDisplayToKiosk(parsed.display);
-    } else {
-      console.log("BOOT SYNC: no display payload returned");
-    }
-  } catch (err) {
-    console.error("BOOT SYNC ERROR:", err.message);
   }
 }
 
@@ -579,7 +683,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 async function main() {
-  await bootSyncDisplay();
+  await syncDisplayFromCloud("boot", 3000);
   startScannerListener();
 }
 

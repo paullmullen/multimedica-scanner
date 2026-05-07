@@ -1,5 +1,4 @@
 const fs = require("fs");
-const { spawnSync } = require("child_process");
 
 const ADMIN_TOKEN = process.env.SCANNER_QR_ADMIN_TOKEN;
 const ENV_FILE_PATH = "/home/multimedica_edge/scanner/.env";
@@ -161,36 +160,14 @@ function validateWifiConfigPayload(payload) {
   return { ok: true };
 }
 
-function applyWifiConfig(ssid, password) {
-  try {
-    // Delete old connection if exists
-    spawnSync("nmcli", ["connection", "delete", ssid]);
 
-    // Add new connection
-    spawnSync("nmcli", [
-      "device",
-      "wifi",
-      "connect",
-      ssid,
-      "password",
-      password,
-    ]);
-
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}
 
 function handleWifiConfig(data) {
   const p = data.payload || {};
   const valid = validateWifiConfigPayload(p);
-  if (!valid.ok) return valid;
 
-  const result = applyWifiConfig(p.ssid, p.password);
-
-  if (!result.ok) {
-    return { ok: false, error: result.error };
+  if (!valid.ok) {
+    return valid;
   }
 
   return {
@@ -198,6 +175,10 @@ function handleWifiConfig(data) {
     kind: "wifi_config",
     applied: {
       SSID: p.ssid,
+    },
+    runtime: {
+      ssid: p.ssid,
+      password: p.password,
     },
   };
 }

@@ -116,14 +116,6 @@ ssh -t $PiHost "sudo systemctl --no-pager --full status kiosk-display.service ||
 ssh -t $PiHost "journalctl -u multimedica-scanner.service -n 40 --no-pager || true"
 ssh -t $PiHost "journalctl -u kiosk-display.service -n 40 --no-pager || true"
 
-log "Restarting services"
-
-ssh "$PiUser@$PiHost" systemctl daemon-reload
-ssh "$PiUser@$PiHost" systemctl restart multimedica-scanner.service
-ssh "$PiUser@$PiHost" systemctl restart kiosk-display.service
-ssh "$PiUser@$PiHost" systemctl restart kiosk.service
-
-sleep 3
 
 log "Provisioning complete"
 
