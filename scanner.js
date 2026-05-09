@@ -5,6 +5,7 @@ const fs = require("fs");
 const { spawn, execFile } = require("child_process");
 const http = require("http");
 const https = require("https");
+const express = require("express");
 
 const { isConfigQr, handleConfigQr } = require("./configQr");
 
@@ -14,6 +15,8 @@ const { isConfigQr, handleConfigQr } = require("./configQr");
 
 const SCANNER_DEVICE_NAME =
   process.env.SCANNER_DEVICE_NAME || "BF SCAN SCAN KEYBOARD";
+
+const SCANNER_STATUS_PORT = Number(process.env.SCANNER_STATUS_PORT || 3002);
 
 let ENDPOINT_URL =
   process.env.ENDPOINT_URL ||
@@ -40,6 +43,248 @@ if (!LOCATION_ID) {
   console.warn(
     "WARNING: LOCATION_ID is not configured. Display sync will not be location-scoped."
   );
+}
+
+// =========================
+// OBSERVABILITY / HEALTH
+// =========================
+
+const STARTED_AT = new Date().toISOString();
+
+const health = {
+  ok: true,
+  service: "multimedica-scanner",
+  status_version: 1,
+  started_at: STARTED_AT,
+
+  process: {
+    pid: process.pid,
+    node_version: process.version,
+    uptime_seconds: 0,
+  },
+
+  config: {
+    scanner_status_port: SCANNER_STATUS_PORT,
+    scanner_device_name: SCANNER_DEVICE_NAME,
+    endpoint_url: ENDPOINT_URL,
+    sync_endpoint_url: SYNC_ENDPOINT_URL,
+    local_display_url: LOCAL_DISPLAY_URL,
+    room_id: ROOM_ID,
+    station_id: STATION_ID,
+    device_id: DEVICE_ID,
+    location_id: LOCATION_ID || null,
+    has_shared_secret: Boolean(SHARED_SECRET),
+    has_admin_token: Boolean(process.env.SCANNER_QR_ADMIN_TOKEN),
+  },
+
+  scanner: {
+    connected: false,
+    device_name: SCANNER_DEVICE_NAME,
+    device_path: null,
+    evtest_running: false,
+    evtest_exit_code: null,
+    last_scan_at: null,
+    last_scan_type: null,
+    last_scan_result: null,
+    last_scan_value_preview: null,
+    last_error_at: null,
+    last_error_message: null,
+  },
+
+  cloud: {
+    endpoint_url: ENDPOINT_URL,
+    sync_endpoint_url: SYNC_ENDPOINT_URL,
+    last_post_at: null,
+    last_post_status: null,
+    last_success_at: null,
+    last_error_at: null,
+    last_error_message: null,
+    last_response_preview: null,
+  },
+
+  display: {
+    local_url: LOCAL_DISPLAY_URL,
+    last_update_at: null,
+    last_update_result: null,
+    last_status_code: null,
+    last_error_at: null,
+    last_error_message: null,
+  },
+
+  polling: {
+    enabled: true,
+    active: false,
+    in_flight: false,
+    current_interval_ms: null,
+    last_reason: null,
+    last_poll_at: null,
+    last_success_at: null,
+    last_error_at: null,
+    last_error_message: null,
+  },
+
+  config_qr: {
+    last_config_at: null,
+    last_kind: null,
+    last_result: null,
+    last_error_at: null,
+    last_error_message: null,
+  },
+
+  wifi: {
+    last_config_at: null,
+    last_result: null,
+    last_ssid: null,
+    last_error_at: null,
+    last_error_message: null,
+  },
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function previewValue(value, maxLength = 80) {
+  if (value === null || value === undefined) return null;
+
+  const text = String(value);
+  if (text.length <= maxLength) return text;
+
+  return `${text.slice(0, maxLength)}…`;
+}
+
+function refreshRuntimeHealth() {
+  health.ok =
+    Boolean(health.scanner.connected) &&
+    Boolean(health.config.has_shared_secret);
+
+  health.process.uptime_seconds = Math.floor(process.uptime());
+
+  health.config.endpoint_url = ENDPOINT_URL;
+  health.config.sync_endpoint_url = SYNC_ENDPOINT_URL;
+  health.config.local_display_url = LOCAL_DISPLAY_URL;
+  health.config.room_id = ROOM_ID;
+  health.config.station_id = STATION_ID;
+  health.config.device_id = DEVICE_ID;
+  health.config.location_id = LOCATION_ID || null;
+  health.config.has_shared_secret = Boolean(SHARED_SECRET);
+  health.config.has_admin_token = Boolean(process.env.SCANNER_QR_ADMIN_TOKEN);
+
+  health.cloud.endpoint_url = ENDPOINT_URL;
+  health.cloud.sync_endpoint_url = SYNC_ENDPOINT_URL;
+
+  health.display.local_url = LOCAL_DISPLAY_URL;
+
+  health.polling.in_flight = adaptivePollInFlight;
+  health.polling.active = Boolean(adaptivePollTimer);
+}
+
+function buildStatusSummary() {
+  refreshRuntimeHealth();
+
+  const cloudOk =
+    Boolean(health.cloud.last_success_at) &&
+    !health.cloud.last_error_message;
+
+  const displayOk =
+    health.display.last_update_result === "success" &&
+    !health.display.last_error_message;
+
+  return {
+    ok: health.ok,
+    timestamp: nowIso(),
+    service: health.service,
+    uptime_seconds: health.process.uptime_seconds,
+
+    station: health.config.station_id,
+    room: health.config.room_id,
+    device_id: health.config.device_id,
+    location_id: health.config.location_id,
+
+    scanner_connected: health.scanner.connected,
+    evtest_running: health.scanner.evtest_running,
+
+    cloud_ok: cloudOk,
+    display_ok: displayOk,
+    polling_active: health.polling.active,
+    polling_interval_ms: health.polling.current_interval_ms,
+
+    last_scan_at: health.scanner.last_scan_at,
+    last_scan_type: health.scanner.last_scan_type,
+
+    last_cloud_success_at: health.cloud.last_success_at,
+    last_cloud_error_at: health.cloud.last_error_at,
+
+    last_display_update_at: health.display.last_update_at,
+    last_display_result: health.display.last_update_result,
+  };
+}
+
+function buildStatusSummary() {
+  refreshRuntimeHealth();
+
+  const cloudOk =
+    Boolean(health.cloud.last_success_at) &&
+    !health.cloud.last_error_message;
+
+  const displayOk =
+    health.display.last_update_result === "success" &&
+    !health.display.last_error_message;
+
+  return {
+    ok: health.ok,
+    timestamp: nowIso(),
+    service: health.service,
+    uptime_seconds: health.process.uptime_seconds,
+
+    station: health.config.station_id,
+    room: health.config.room_id,
+    device_id: health.config.device_id,
+    location_id: health.config.location_id,
+
+    scanner_connected: health.scanner.connected,
+    evtest_running: health.scanner.evtest_running,
+
+    cloud_ok: cloudOk,
+    display_ok: displayOk,
+
+    polling_active: health.polling.active,
+    polling_interval_ms: health.polling.current_interval_ms,
+
+    last_scan_at: health.scanner.last_scan_at,
+    last_scan_type: health.scanner.last_scan_type,
+
+    last_cloud_success_at: health.cloud.last_success_at,
+    last_cloud_error_at: health.cloud.last_error_at,
+
+    last_display_update_at: health.display.last_update_at,
+    last_display_result: health.display.last_update_result,
+  };
+}
+
+function startStatusServer() {
+  const app = express();
+
+  app.get("/api/status", (req, res) => {
+    refreshRuntimeHealth();
+
+    res.json({
+      ok: health.ok,
+      timestamp: nowIso(),
+      uptime_seconds: health.process.uptime_seconds,
+      health,
+    });
+  });
+
+  app.get("/api/status/summary", (req, res) => {
+    res.json(buildStatusSummary());
+  });
+
+  app.listen(SCANNER_STATUS_PORT, "127.0.0.1", () => {
+    console.log(
+      `STATUS SERVER LISTENING: http://127.0.0.1:${SCANNER_STATUS_PORT}/api/status`
+    );
+  });
 }
 
 // =========================
@@ -100,6 +345,11 @@ async function applyWifiConfig({ ssid, password }) {
   console.log("APPLYING WIFI CONFIG VIA sudo nmcli");
   console.log("WIFI SSID:", ssid);
   console.log("WIFI PASSWORD: [REDACTED]");
+
+  health.wifi.last_config_at = nowIso();
+  health.wifi.last_result = "in_progress";
+  health.wifi.last_ssid = ssid;
+  health.wifi.last_error_message = null;
 
   const existing = await runCommandAllowFailure("sudo", [
     "/usr/bin/nmcli",
@@ -181,6 +431,9 @@ async function applyWifiConfig({ ssid, password }) {
     { timeout: 60000 }
   );
 
+  health.wifi.last_result = "success";
+  health.wifi.last_error_message = null;
+
   if (result.stdout.trim()) {
     console.log("NMCLI STDOUT:", result.stdout.trim());
   }
@@ -252,6 +505,12 @@ function findInputDeviceByName(targetName) {
 
 function resolveScannerDevicePath() {
   const devicePath = findInputDeviceByName(SCANNER_DEVICE_NAME);
+
+  health.scanner.connected = true;
+  health.scanner.device_name = SCANNER_DEVICE_NAME;
+  health.scanner.device_path = devicePath;
+  health.scanner.last_error_message = null;
+
   console.log(`Scanner device name: ${SCANNER_DEVICE_NAME}`);
   console.log(`Resolved device path: ${devicePath}`);
   return devicePath;
@@ -361,16 +620,34 @@ function buildConfiguredStationDisplay() {
 async function sendDisplayToKiosk(display) {
   if (!display) return;
 
+  health.display.last_update_at = nowIso();
+
   try {
     const result = await postJson(LOCAL_DISPLAY_URL, { display });
 
+    health.display.last_status_code = result.statusCode;
+
     if (!result.statusCode || result.statusCode >= 300) {
+      health.display.last_update_result = "error";
+      health.display.last_error_at = nowIso();
+      health.display.last_error_message = `HTTP ${result.statusCode}: ${previewValue(
+        result.body,
+        160
+      )}`;
+
       console.error("DISPLAY POST FAILED:", result.statusCode, result.body);
       return;
     }
 
+    health.display.last_update_result = "success";
+    health.display.last_error_message = null;
+
     console.log("DISPLAY POST OK:", result.statusCode);
   } catch (err) {
+    health.display.last_update_result = "error";
+    health.display.last_error_at = nowIso();
+    health.display.last_error_message = err.message;
+
     console.error("DISPLAY POST ERROR:", err.message);
   }
 }
@@ -410,6 +687,10 @@ function cancelAdaptivePolling(reason = "cancel") {
     adaptivePollTimer = null;
   }
 
+  health.polling.active = false;
+  health.polling.current_interval_ms = null;
+  health.polling.last_reason = reason;
+
   console.log(`ADAPTIVE POLLING STOPPED: ${reason}`);
 }
 
@@ -431,10 +712,16 @@ function scheduleAdaptivePoll(intervalMs, reason = "unspecified") {
 
   const safeInterval = clampPollInterval(intervalMs);
 
+  health.polling.enabled = true;
+  health.polling.active = true;
+  health.polling.current_interval_ms = safeInterval;
+  health.polling.last_reason = reason;
+
   console.log(`ADAPTIVE POLLING SCHEDULED: ${safeInterval}ms reason=${reason}`);
 
   adaptivePollTimer = setTimeout(() => {
     adaptivePollTimer = null;
+    health.polling.active = false;
     syncDisplayFromCloud("adaptive_poll", 0);
   }, safeInterval);
 }
@@ -495,6 +782,9 @@ async function applyCloudDisplayResponse(
 async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
   console.log(`==== DISPLAY SYNC: ${reason} ====`);
 
+  health.polling.last_poll_at = nowIso();
+  health.polling.last_reason = reason;
+
   if (delayMs > 0) {
     await delay(delayMs);
   }
@@ -505,6 +795,7 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
   }
 
   adaptivePollInFlight = true;
+  health.polling.in_flight = true;
 
   const payloadObj = {
     location_id: LOCATION_ID || null,
@@ -524,10 +815,26 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
       Authorization: `Bearer ${SHARED_SECRET}`,
     });
 
+    health.cloud.last_post_at = nowIso();
+    health.cloud.last_post_status = result.statusCode;
+    health.cloud.last_response_preview = previewValue(result.body, 300);
+
     console.log("DISPLAY SYNC STATUS:", result.statusCode);
 
     if (result.body) {
       console.log("DISPLAY SYNC BODY:", result.body);
+    }
+
+    if (!result.statusCode || result.statusCode >= 300) {
+      health.polling.last_error_at = nowIso();
+      health.polling.last_error_message = `HTTP ${result.statusCode}`;
+      health.cloud.last_error_at = nowIso();
+      health.cloud.last_error_message = `DISPLAY SYNC HTTP ${result.statusCode}`;
+    } else {
+      health.polling.last_success_at = nowIso();
+      health.polling.last_error_message = null;
+      health.cloud.last_success_at = nowIso();
+      health.cloud.last_error_message = null;
     }
 
     if (!result.body) return;
@@ -536,6 +843,11 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
     try {
       parsed = JSON.parse(result.body);
     } catch (err) {
+      health.polling.last_error_at = nowIso();
+      health.polling.last_error_message = `JSON parse error: ${err.message}`;
+      health.cloud.last_error_at = nowIso();
+      health.cloud.last_error_message = `DISPLAY SYNC JSON parse error: ${err.message}`;
+
       console.error("DISPLAY SYNC JSON PARSE ERROR:", err.message);
       return;
     }
@@ -544,11 +856,17 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
       fetchPollingIfMissing: false,
     });
   } catch (err) {
+    health.polling.last_error_at = nowIso();
+    health.polling.last_error_message = err.message;
+    health.cloud.last_error_at = nowIso();
+    health.cloud.last_error_message = `DISPLAY SYNC ERROR: ${err.message}`;
+
     console.error("DISPLAY SYNC ERROR:", err.message);
 
     scheduleAdaptivePoll(MAX_POLL_INTERVAL_MS, "sync_error_backoff");
   } finally {
     adaptivePollInFlight = false;
+    health.polling.in_flight = false;
   }
 }
 
@@ -559,21 +877,38 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
 async function handleConfigScan(scanValue) {
   let result;
 
+  health.config_qr.last_config_at = nowIso();
+  health.config_qr.last_result = "in_progress";
+  health.config_qr.last_error_message = null;
+
   try {
     result = handleConfigQr(scanValue);
   } catch (err) {
+    health.config_qr.last_result = "error";
+    health.config_qr.last_error_at = nowIso();
+    health.config_qr.last_error_message = err.message;
+
     console.error("CONFIG QR ERROR: Exception while parsing config QR");
     console.error(err);
     return true;
   }
 
   if (!result || !result.ok) {
+    health.config_qr.last_result = "error";
+    health.config_qr.last_error_at = nowIso();
+    health.config_qr.last_error_message =
+      result && result.error ? result.error : "Unknown config QR failure";
+
     console.error(
       "CONFIG QR ERROR:",
       result && result.error ? result.error : "Unknown config QR failure"
     );
     return true;
   }
+
+  health.config_qr.last_kind = result.kind;
+  health.config_qr.last_result = "success";
+  health.config_qr.last_error_message = null;
 
   if (result.kind === "station_config") {
     console.log("CONFIG QR APPLIED:", result.applied);
@@ -582,6 +917,11 @@ async function handleConfigScan(scanValue) {
     if (result.applied.STATION_ID) STATION_ID = result.applied.STATION_ID;
     if (result.applied.DEVICE_ID) DEVICE_ID = result.applied.DEVICE_ID;
     if (result.applied.LOCATION_ID) LOCATION_ID = result.applied.LOCATION_ID;
+
+    health.config.room_id = ROOM_ID;
+    health.config.station_id = STATION_ID;
+    health.config.device_id = DEVICE_ID;
+    health.config.location_id = LOCATION_ID || null;
 
     console.log("UPDATED CONFIG:");
     console.log("ROOM_ID =", ROOM_ID);
@@ -616,6 +956,10 @@ async function handleConfigScan(scanValue) {
         syncDisplayFromCloud("wifi_config", 0);
       }, 8000);
     } catch (err) {
+      health.wifi.last_result = "error";
+      health.wifi.last_error_at = nowIso();
+      health.wifi.last_error_message = err.stderr || err.message || String(err);
+
       console.error("WIFI CONFIG ERROR: Failed to apply WiFi config");
       console.error(err.stderr || err.message || err);
     }
@@ -642,6 +986,12 @@ async function handleConfigScan(scanValue) {
       SHARED_SECRET = result.runtime.SHARED_SECRET;
     }
 
+    health.config.endpoint_url = ENDPOINT_URL;
+    health.config.sync_endpoint_url = SYNC_ENDPOINT_URL;
+    health.config.has_shared_secret = Boolean(SHARED_SECRET);
+    health.cloud.endpoint_url = ENDPOINT_URL;
+    health.cloud.sync_endpoint_url = SYNC_ENDPOINT_URL;
+
     console.log("UPDATED CLOUD CONFIG:");
     console.log("ENDPOINT_URL =", ENDPOINT_URL);
     console.log("SYNC_ENDPOINT_URL =", SYNC_ENDPOINT_URL);
@@ -653,6 +1003,10 @@ async function handleConfigScan(scanValue) {
 
     return true;
   }
+
+  health.config_qr.last_result = "error";
+  health.config_qr.last_error_at = nowIso();
+  health.config_qr.last_error_message = "Unknown result kind";
 
   console.error("CONFIG QR ERROR: Unknown result kind");
   return true;
@@ -686,6 +1040,10 @@ function buildPayload(scanValue) {
 async function postScan(scanValue) {
   const payloadObj = buildPayload(scanValue);
 
+  health.cloud.last_post_at = nowIso();
+  health.cloud.last_post_status = null;
+  health.cloud.last_error_message = null;
+
   console.log("POST TARGET:", ENDPOINT_URL);
   console.log("POST PAYLOAD:", payloadObj);
 
@@ -694,10 +1052,21 @@ async function postScan(scanValue) {
       Authorization: `Bearer ${SHARED_SECRET}`,
     });
 
+    health.cloud.last_post_status = result.statusCode;
+    health.cloud.last_response_preview = previewValue(result.body, 300);
+
     console.log("POST STATUS:", result.statusCode);
 
     if (result.body) {
       console.log("POST BODY:", result.body);
+    }
+
+    if (!result.statusCode || result.statusCode >= 300) {
+      health.cloud.last_error_at = nowIso();
+      health.cloud.last_error_message = `HTTP ${result.statusCode}`;
+    } else {
+      health.cloud.last_success_at = nowIso();
+      health.cloud.last_error_message = null;
     }
 
     if (!result.body) return;
@@ -706,6 +1075,9 @@ async function postScan(scanValue) {
     try {
       parsed = JSON.parse(result.body);
     } catch (err) {
+      health.cloud.last_error_at = nowIso();
+      health.cloud.last_error_message = `POST BODY JSON parse error: ${err.message}`;
+
       console.error("POST BODY JSON PARSE ERROR:", err.message);
       return;
     }
@@ -714,6 +1086,9 @@ async function postScan(scanValue) {
       fetchPollingIfMissing: true,
     });
   } catch (err) {
+    health.cloud.last_error_at = nowIso();
+    health.cloud.last_error_message = err.message;
+
     console.error("POST ERROR:", err.message);
     scheduleAdaptivePoll(MAX_POLL_INTERVAL_MS, "post_scan_error_backoff");
   }
@@ -724,13 +1099,27 @@ async function postScan(scanValue) {
 // =========================
 
 function startScannerListener() {
-  const devicePath = resolveScannerDevicePath();
+  let devicePath;
+
+  try {
+    devicePath = resolveScannerDevicePath();
+  } catch (err) {
+    health.scanner.connected = false;
+    health.scanner.evtest_running = false;
+    health.scanner.last_error_at = nowIso();
+    health.scanner.last_error_message = err.message;
+
+    throw err;
+  }
 
   let scanBuffer = "";
   let lineRemainder = "";
   let shiftActive = false;
 
   const evtest = spawn("sudo", ["evtest", devicePath]);
+
+  health.scanner.evtest_running = true;
+  health.scanner.evtest_exit_code = null;
 
   function handleLine(line) {
     if (!line.includes("EV_KEY")) return;
@@ -751,6 +1140,15 @@ function startScannerListener() {
     if (key === "KEY_ENTER") {
       if (scanBuffer.length > 0) {
         console.log("SCAN:", scanBuffer);
+
+        health.scanner.last_scan_at = nowIso();
+        health.scanner.last_scan_value_preview = previewValue(scanBuffer, 80);
+        health.scanner.last_scan_result = "received";
+        health.scanner.last_scan_type = isConfigQr(scanBuffer)
+          ? "config_qr"
+          : scanBuffer.startsWith("VISIT:")
+          ? "visit"
+          : "unknown";
 
         if (isConfigQr(scanBuffer)) {
           console.log("==== CONFIG QR DETECTED ====");
@@ -792,10 +1190,21 @@ function startScannerListener() {
   });
 
   evtest.on("close", (code) => {
+    health.scanner.connected = false;
+    health.scanner.evtest_running = false;
+    health.scanner.evtest_exit_code = code;
+    health.scanner.last_error_at = nowIso();
+    health.scanner.last_error_message = `evtest exited with code ${code}`;
+
     console.error(`evtest exited with code ${code}`);
   });
 
   evtest.on("error", (err) => {
+    health.scanner.connected = false;
+    health.scanner.evtest_running = false;
+    health.scanner.last_error_at = nowIso();
+    health.scanner.last_error_message = err.message;
+
     console.error("Failed to start evtest:", err);
   });
 
@@ -807,15 +1216,30 @@ function startScannerListener() {
 }
 
 process.on("uncaughtException", (err) => {
+  health.ok = false;
+  health.scanner.last_error_at = nowIso();
+  health.scanner.last_error_message = `Uncaught Exception: ${err.message}`;
+
   console.error("Uncaught Exception:", err);
 });
 
 process.on("unhandledRejection", (reason) => {
+  health.ok = false;
+
+  const message =
+    reason && reason.message ? reason.message : JSON.stringify(reason);
+
+  health.scanner.last_error_at = nowIso();
+  health.scanner.last_error_message = `Unhandled Rejection: ${message}`;
+
   console.error("Unhandled Rejection:", reason);
 });
 
 async function main() {
+  startStatusServer();
+
   await syncDisplayFromCloud("boot", 3000);
+
   startScannerListener();
 }
 
