@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const crypto = require("crypto");
 const fs = require("fs");
 const { spawn, execFile } = require("child_process");
 const http = require("http");
@@ -18,6 +19,10 @@ let ENDPOINT_URL =
   process.env.ENDPOINT_URL ||
   "https://us-central1-alfarero-478ad.cloudfunctions.net/receiveRoomScanEvent";
 
+let SYNC_ENDPOINT_URL =
+  process.env.SYNC_ENDPOINT_URL ||
+  ENDPOINT_URL.replace("receiveRoomScanEvent", "syncStationDisplayState");
+
 let LOCAL_DISPLAY_URL =
   process.env.LOCAL_DISPLAY_URL || "http://127.0.0.1:3001/api/display";
 
@@ -25,9 +30,16 @@ let SHARED_SECRET = process.env.SHARED_SECRET || "";
 let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
 let STATION_ID = process.env.STATION_ID || "reg";
 let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
+let LOCATION_ID = process.env.LOCATION_ID || "";
 
 if (!SHARED_SECRET) {
   throw new Error("Missing SHARED_SECRET environment variable");
+}
+
+if (!LOCATION_ID) {
+  console.warn(
+    "WARNING: LOCATION_ID is not configured. Display sync will not be location-scoped."
+  );
 }
 
 // =========================
@@ -290,7 +302,7 @@ function keyToCharacter(key, shiftActive) {
 }
 
 // =========================
-// LOCAL DISPLAY
+// LOCAL DISPLAY / HTTP
 // =========================
 
 function postJson(urlString, payloadObj, headers = {}) {
@@ -382,6 +394,101 @@ async function showStationConfigConfirmation() {
 }
 
 // =========================
+// ADAPTIVE POLLING
+// =========================
+
+let adaptivePollTimer = null;
+let adaptivePollInFlight = false;
+
+const MIN_POLL_INTERVAL_MS = 5000;
+const DEFAULT_POLL_INTERVAL_MS = 30000;
+const MAX_POLL_INTERVAL_MS = 300000;
+
+function cancelAdaptivePolling(reason = "cancel") {
+  if (adaptivePollTimer) {
+    clearTimeout(adaptivePollTimer);
+    adaptivePollTimer = null;
+  }
+
+  console.log(`ADAPTIVE POLLING STOPPED: ${reason}`);
+}
+
+function clampPollInterval(value) {
+  const n = Number(value);
+
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+
+  return Math.max(MIN_POLL_INTERVAL_MS, Math.min(MAX_POLL_INTERVAL_MS, n));
+}
+
+function scheduleAdaptivePoll(intervalMs, reason = "unspecified") {
+  if (adaptivePollTimer) {
+    clearTimeout(adaptivePollTimer);
+    adaptivePollTimer = null;
+  }
+
+  const safeInterval = clampPollInterval(intervalMs);
+
+  console.log(`ADAPTIVE POLLING SCHEDULED: ${safeInterval}ms reason=${reason}`);
+
+  adaptivePollTimer = setTimeout(() => {
+    adaptivePollTimer = null;
+    syncDisplayFromCloud("adaptive_poll", 0);
+  }, safeInterval);
+}
+
+function applyPollingInstruction(polling, sourceReason = "unknown") {
+  if (!polling || polling.should_poll !== true) {
+    cancelAdaptivePolling(
+      polling && polling.reason
+        ? polling.reason
+        : `cloud_said_stop_after_${sourceReason}`
+    );
+    return;
+  }
+
+  scheduleAdaptivePoll(
+    polling.recommended_interval_ms,
+    polling.reason || sourceReason
+  );
+}
+
+function extractDisplayFromCloudResponse(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+
+  return parsed.display || parsed.state || parsed.room_status || null;
+}
+
+async function applyCloudDisplayResponse(
+  parsed,
+  sourceReason = "unknown",
+  options = {}
+) {
+  const display = extractDisplayFromCloudResponse(parsed);
+
+  if (display) {
+    console.log(`DISPLAY RECEIVED FROM CLOUD: ${sourceReason}`);
+    await sendDisplayToKiosk(display);
+  } else {
+    console.log(`NO DISPLAY PAYLOAD FROM CLOUD: ${sourceReason}`);
+  }
+
+  if (parsed && parsed.polling) {
+    applyPollingInstruction(parsed.polling, sourceReason);
+    return;
+  }
+
+  if (options.fetchPollingIfMissing) {
+    console.log(
+      `POLLING INSTRUCTION MISSING AFTER ${sourceReason}; FETCHING SYNC STATE`
+    );
+    syncDisplayFromCloud(`${sourceReason}_polling_followup`, 0);
+  }
+}
+
+// =========================
 // DISPLAY SYNC
 // =========================
 
@@ -392,21 +499,28 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
     await delay(delayMs);
   }
 
+  if (adaptivePollInFlight) {
+    console.log("DISPLAY SYNC SKIPPED: already in flight");
+    return;
+  }
+
+  adaptivePollInFlight = true;
+
   const payloadObj = {
-    visit_id: null,
-    raw_scan_value: null,
+    location_id: LOCATION_ID || null,
     room_id: ROOM_ID,
     station_id: STATION_ID,
     device_id: DEVICE_ID,
-    event_type: "boot_sync",
+    reason,
     source_type: "PI_SCANNER",
     device_timestamp_utc: new Date().toISOString(),
   };
 
+  console.log("DISPLAY SYNC TARGET:", SYNC_ENDPOINT_URL);
   console.log("DISPLAY SYNC PAYLOAD:", payloadObj);
 
   try {
-    const result = await postJson(ENDPOINT_URL, payloadObj, {
+    const result = await postJson(SYNC_ENDPOINT_URL, payloadObj, {
       Authorization: `Bearer ${SHARED_SECRET}`,
     });
 
@@ -426,14 +540,15 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
       return;
     }
 
-    if (parsed.display) {
-      console.log("DISPLAY SYNC RECEIVED");
-      await sendDisplayToKiosk(parsed.display);
-    } else {
-      console.log("DISPLAY SYNC: no display payload returned");
-    }
+    await applyCloudDisplayResponse(parsed, reason, {
+      fetchPollingIfMissing: false,
+    });
   } catch (err) {
     console.error("DISPLAY SYNC ERROR:", err.message);
+
+    scheduleAdaptivePoll(MAX_POLL_INTERVAL_MS, "sync_error_backoff");
+  } finally {
+    adaptivePollInFlight = false;
   }
 }
 
@@ -466,11 +581,13 @@ async function handleConfigScan(scanValue) {
     if (result.applied.ROOM_ID) ROOM_ID = result.applied.ROOM_ID;
     if (result.applied.STATION_ID) STATION_ID = result.applied.STATION_ID;
     if (result.applied.DEVICE_ID) DEVICE_ID = result.applied.DEVICE_ID;
+    if (result.applied.LOCATION_ID) LOCATION_ID = result.applied.LOCATION_ID;
 
     console.log("UPDATED CONFIG:");
     console.log("ROOM_ID =", ROOM_ID);
     console.log("STATION_ID =", STATION_ID);
     console.log("DEVICE_ID =", DEVICE_ID);
+    console.log("LOCATION_ID =", LOCATION_ID || "[not set]");
 
     await showStationConfigConfirmation();
 
@@ -511,6 +628,14 @@ async function handleConfigScan(scanValue) {
 
     if (result.runtime && result.runtime.ENDPOINT_URL) {
       ENDPOINT_URL = result.runtime.ENDPOINT_URL;
+      SYNC_ENDPOINT_URL = ENDPOINT_URL.replace(
+        "receiveRoomScanEvent",
+        "syncStationDisplayState"
+      );
+    }
+
+    if (result.runtime && result.runtime.SYNC_ENDPOINT_URL) {
+      SYNC_ENDPOINT_URL = result.runtime.SYNC_ENDPOINT_URL;
     }
 
     if (result.runtime && result.runtime.SHARED_SECRET) {
@@ -519,6 +644,7 @@ async function handleConfigScan(scanValue) {
 
     console.log("UPDATED CLOUD CONFIG:");
     console.log("ENDPOINT_URL =", ENDPOINT_URL);
+    console.log("SYNC_ENDPOINT_URL =", SYNC_ENDPOINT_URL);
     console.log("SHARED_SECRET = [REDACTED]");
 
     setTimeout(() => {
@@ -540,8 +666,10 @@ function buildPayload(scanValue) {
   const visitId = scanValue.replace(/^VISIT:/, "");
 
   return {
+    event_id: crypto.randomUUID(),
     visit_id: visitId,
     raw_scan_value: scanValue,
+    location_id: LOCATION_ID || null,
     room_id: ROOM_ID,
     station_id: STATION_ID,
     device_id: DEVICE_ID,
@@ -558,6 +686,7 @@ function buildPayload(scanValue) {
 async function postScan(scanValue) {
   const payloadObj = buildPayload(scanValue);
 
+  console.log("POST TARGET:", ENDPOINT_URL);
   console.log("POST PAYLOAD:", payloadObj);
 
   try {
@@ -581,11 +710,12 @@ async function postScan(scanValue) {
       return;
     }
 
-    if (parsed.display) {
-      await sendDisplayToKiosk(parsed.display);
-    }
+    await applyCloudDisplayResponse(parsed, "scan", {
+      fetchPollingIfMissing: true,
+    });
   } catch (err) {
     console.error("POST ERROR:", err.message);
+    scheduleAdaptivePoll(MAX_POLL_INTERVAL_MS, "post_scan_error_backoff");
   }
 }
 
@@ -671,7 +801,9 @@ function startScannerListener() {
 
   console.log("Listening for scans...");
   console.log(`POST target: ${ENDPOINT_URL}`);
+  console.log(`Display sync target: ${SYNC_ENDPOINT_URL}`);
   console.log(`Local display target: ${LOCAL_DISPLAY_URL}`);
+  console.log(`LOCATION_ID: ${LOCATION_ID || "[not set]"}`);
 }
 
 process.on("uncaughtException", (err) => {

@@ -115,9 +115,21 @@ function validateStationConfigPayload(payload) {
     return { ok: false, error: "Missing station config payload" };
   }
 
-  if (!payload.room_id) return { ok: false, error: "Missing room_id" };
-  if (!payload.station_id) return { ok: false, error: "Missing station_id" };
-  if (!payload.device_id) return { ok: false, error: "Missing device_id" };
+  if (!payload.location_id) {
+    return { ok: false, error: "Missing location_id" };
+  }
+
+  if (!payload.room_id) {
+    return { ok: false, error: "Missing room_id" };
+  }
+
+  if (!payload.station_id) {
+    return { ok: false, error: "Missing station_id" };
+  }
+
+  if (!payload.device_id) {
+    return { ok: false, error: "Missing device_id" };
+  }
 
   return { ok: true };
 }
@@ -125,9 +137,13 @@ function validateStationConfigPayload(payload) {
 function handleStationConfig(data) {
   const p = data.payload || {};
   const valid = validateStationConfigPayload(p);
-  if (!valid.ok) return valid;
+
+  if (!valid.ok) {
+    return valid;
+  }
 
   updateEnvFile({
+    LOCATION_ID: p.location_id,
     ROOM_ID: p.room_id,
     STATION_ID: p.station_id,
     DEVICE_ID: p.device_id,
@@ -137,6 +153,7 @@ function handleStationConfig(data) {
     ok: true,
     kind: "station_config",
     applied: {
+      LOCATION_ID: p.location_id,
       ROOM_ID: p.room_id,
       STATION_ID: p.station_id,
       DEVICE_ID: p.device_id,
