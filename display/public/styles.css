@@ -309,15 +309,20 @@ body {
 ========================= */
 
 .footer {
-    padding: 14px 20px 18px;
+    padding: 12px 20px 16px;
     margin-top: auto;
     border-top: 1px solid rgba(0, 0, 0, 0.06);
+
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: center;
 }
 
 .date-time {
     text-align: center;
     color: var(--text-dark);
-    font-size: clamp(1.2rem, 2.8vw, 2rem);
+    font-size: clamp(1rem, 2.4vw, 1.6rem);
     font-weight: 600;
     line-height: 1.2;
     opacity: 0.85;
@@ -426,10 +431,109 @@ body {
     }
 
     .footer {
-        padding: 12px 16px 14px;
+        padding: 10px 16px 12px;
+        gap: 8px;
     }
 
     .date-time {
-        font-size: clamp(1rem, 2.4vw, 1.5rem);
+        font-size: clamp(0.9rem, 2.2vw, 1.25rem);
     }
+}
+
+/* =========================
+   Footer device health strip
+========================= */
+
+.health-strip {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 14px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 999px;
+    font-size: clamp(0.82rem, 1.8vw, 1rem);
+    font-weight: 800;
+    letter-spacing: 0.01em;
+
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+}
+
+.health-healthy {
+    background: rgba(17, 24, 39, 0.82);
+    color: #ffffff;
+}
+
+.health-closed {
+    background: rgba(55, 65, 81, 0.88);
+    color: #ffffff;
+}
+
+.health-degraded {
+    background: #f59e0b;
+    color: #111827;
+}
+
+.health-untrusted {
+    background: #dc2626;
+    color: #ffffff;
+}
+
+@media (max-height: 900px) {
+    .health-strip {
+        min-height: 30px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+    }
+}
+
+/* =========================
+   Untrusted blocking state
+========================= */
+
+#app.trust-untrusted {
+    background: #111827;
+}
+
+#app.trust-untrusted .status-section {
+    background: #991b1b;
+}
+
+#app.trust-untrusted .status-text {
+    color: #ffffff;
+    animation: none;
+    font-size: clamp(3.2rem, 10vw, 6.5rem);
+    line-height: 0.95;
+}
+
+#app.trust-untrusted .patient-section {
+    background: #ffffff;
+    color: #111827;
+}
+
+#app.trust-untrusted .patient-name {
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 800;
+    color: #111827;
+}
+
+#app.trust-untrusted .station-badge {
+    background: #111827;
+    color: #ffffff;
+}
+
+#app.trust-untrusted .info-card {
+    background: #fee2e2;
+    border-color: #fecaca;
+}
+
+#app.trust-untrusted .info-label {
+    color: #7f1d1d;
+}
+
+#app.trust-untrusted .info-value {
+    color: #111827;
 }

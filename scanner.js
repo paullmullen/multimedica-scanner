@@ -140,6 +140,42 @@ const health = {
   },
 };
 
+const LOCAL_HEALTH_URL = "http://127.0.0.1:3001/api/health";
+
+async function postLocalHealth(healthPatch) {
+  try {
+    await fetch(LOCAL_HEALTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ health: healthPatch }),
+    });
+  } catch (error) {
+    console.error("Failed to post local health:", error.message || error);
+  }
+}
+
+async function markCloudHealthy(extra = {}) {
+  await postLocalHealth({
+    connectivity: "online",
+    trust_level: "trusted",
+    stale_level: "fresh",
+    last_cloud_sync_at: Date.now(),
+    last_error_at: null,
+    last_error_message: null,
+    ...extra,
+  });
+}
+
+async function markCloudDegraded(error, extra = {}) {
+  await postLocalHealth({
+    connectivity: "offline",
+    trust_level: "degraded",
+    last_error_at: Date.now(),
+    last_error_message: String(error?.message || error || "Cloud request failed"),
+    ...extra,
+  });
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -830,11 +866,17 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
       health.polling.last_error_message = `HTTP ${result.statusCode}`;
       health.cloud.last_error_at = nowIso();
       health.cloud.last_error_message = `DISPLAY SYNC HTTP ${result.statusCode}`;
+
+      await markCloudDegraded(`DISPLAY SYNC HTTP ${result.statusCode}`);
     } else {
       health.polling.last_success_at = nowIso();
       health.polling.last_error_message = null;
       health.cloud.last_success_at = nowIso();
       health.cloud.last_error_message = null;
+
+      await markCloudHealthy({
+        operational_mode: "active",
+      });
     }
 
     if (!result.body) return;
@@ -860,6 +902,8 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
     health.polling.last_error_message = err.message;
     health.cloud.last_error_at = nowIso();
     health.cloud.last_error_message = `DISPLAY SYNC ERROR: ${err.message}`;
+
+    await markCloudDegraded(err);
 
     console.error("DISPLAY SYNC ERROR:", err.message);
 
@@ -1064,9 +1108,15 @@ async function postScan(scanValue) {
     if (!result.statusCode || result.statusCode >= 300) {
       health.cloud.last_error_at = nowIso();
       health.cloud.last_error_message = `HTTP ${result.statusCode}`;
+
+      await markCloudDegraded(`SCAN POST HTTP ${result.statusCode}`);
     } else {
       health.cloud.last_success_at = nowIso();
       health.cloud.last_error_message = null;
+
+      await markCloudHealthy({
+        operational_mode: "active",
+      });
     }
 
     if (!result.body) return;
@@ -1088,6 +1138,8 @@ async function postScan(scanValue) {
   } catch (err) {
     health.cloud.last_error_at = nowIso();
     health.cloud.last_error_message = err.message;
+
+    await markCloudDegraded(err);
 
     console.error("POST ERROR:", err.message);
     scheduleAdaptivePoll(MAX_POLL_INTERVAL_MS, "post_scan_error_backoff");

@@ -7,6 +7,17 @@ const PORT = process.env.KIOSK_PORT || 3001;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+const defaultHealthState = {
+  operational_mode: "active",
+  connectivity: "online",
+  trust_level: "trusted",
+  stale_level: "fresh",
+  expected_sync_interval_seconds: 30,
+  last_cloud_sync_at: Date.now(),
+  last_error_at: null,
+  last_error_message: null,
+};
+
 let currentDisplayState = {
   mode: "room_status",
   updated_at: Date.now(),
@@ -15,6 +26,8 @@ let currentDisplayState = {
   status: { code: "available", label: "DISPONIBLE" },
   patient: { name: "—" },
   timing: { started_at: null },
+
+  health: defaultHealthState,
 };
 
 app.get("/api/display", (req, res) => {
@@ -35,8 +48,22 @@ app.post("/api/display", (req, res) => {
   }
 
   currentDisplayState = {
+    ...currentDisplayState,
     ...display,
+
     updated_at: display.updated_at || Date.now(),
+
+    health: {
+      ...defaultHealthState,
+      ...(currentDisplayState.health || {}),
+      ...(display.health || {}),
+
+      connectivity: "online",
+      trust_level: "trusted",
+      stale_level: "fresh",
+      last_cloud_sync_at: Date.now(),
+      last_error_message: null,
+    },
   };
 
   console.log("DISPLAY STATE UPDATED:", currentDisplayState);
@@ -44,6 +71,22 @@ app.post("/api/display", (req, res) => {
   return res.json({
     ok: true,
     state: currentDisplayState,
+  });
+});
+
+app.post("/api/health", (req, res) => {
+  const { health } = req.body || {};
+
+  currentDisplayState.health = {
+    ...currentDisplayState.health,
+    ...(health || {}),
+  };
+
+  console.log("HEALTH STATE UPDATED:", currentDisplayState.health);
+
+  return res.json({
+    ok: true,
+    health: currentDisplayState.health,
   });
 });
 

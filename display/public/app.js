@@ -27,12 +27,95 @@ const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
 const dateTimeValueEl = document.getElementById("dateTimeValue");
 
+
 const iconBySeverity = {
   success: "✓",
   error: "!",
   warning: "⚠",
   info: "i",
 };
+
+
+let healthStripEl = null;
+let currentRenderedState = null;
+
+
+const HEALTH_STALE_MS = 90 * 1000;
+const HEALTH_VERY_STALE_MS = 180 * 1000;
+
+
+function ensureHealthStrip() {
+  if (healthStripEl) return healthStripEl;
+
+  healthStripEl = document.getElementById("healthStrip");
+
+  if (healthStripEl) return healthStripEl;
+
+  const footerEl = document.querySelector(".footer");
+
+  healthStripEl = document.createElement("div");
+  healthStripEl.id = "healthStrip";
+  healthStripEl.className = "health-strip health-healthy";
+  healthStripEl.textContent = "● Conectado";
+
+  if (footerEl) {
+    footerEl.appendChild(healthStripEl);
+  } else {
+    document.body.appendChild(healthStripEl);
+  }
+
+  return healthStripEl;
+}
+
+function formatAge(ms) {
+  if (!ms || ms < 0) return "ahora";
+
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `hace ${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `hace ${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  return `hace ${hours}h`;
+}
+
+function renderHealthStrip(state) {
+  const strip = ensureHealthStrip();
+  const health = state?.health || {};
+
+  const operationalMode = health.operational_mode || "active";
+  const connectivity = health.connectivity || "online";
+  const trustLevel = health.trust_level || "trusted";
+  const lastCloudSyncAt = health.last_cloud_sync_at || state?.updated_at || Date.now();
+
+  const syncAgeMs = Date.now() - new Date(lastCloudSyncAt).getTime();
+
+  let level = "healthy";
+  // let text = `● Conectado · actualizado ${formatAge(syncAgeMs)}`;
+  let text = `Conectado `;
+
+  if (operationalMode === "closed") {
+    level = "closed";
+    // text = `○ Clínica cerrada · verificado ${formatAge(syncAgeMs)}`;
+    text = `○ Clínica cerrada `;
+  } else if (trustLevel === "untrusted") {
+    level = "untrusted";
+    text = "✖ Pantalla no confiable · revisar configuración";
+  } else if (connectivity === "offline") {
+    level = "degraded";
+    text = `⚠ Sin conexión · último estado ${formatAge(syncAgeMs)}`;
+  } else if (syncAgeMs > HEALTH_VERY_STALE_MS) {
+    level = "untrusted";
+    text = `✖ Estado muy antiguo · último estado ${formatAge(syncAgeMs)}`;
+  } else if (syncAgeMs > HEALTH_STALE_MS) {
+    level = "degraded";
+    text = `⚠ Estado no reciente · actualizado ${formatAge(syncAgeMs)}`;
+  }
+
+  strip.className = `health-strip health-${level}`;
+  strip.textContent = text;
+}
 
 let startedAtMs = null;
 let lastMode = null;
@@ -152,6 +235,7 @@ function applyOverlayClass(severity) {
   }
 }
 
+
 function setRoomStatusDisplay(state) {
   const statusCode = state?.status?.code || "available";
   const statusLabel = state?.status?.label || toDisplayStatus(statusCode);
@@ -208,7 +292,63 @@ function setOverlayDisplay(state) {
   if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
+function renderUntrustedScreen(state) {
+  if (!appEl) return;
+
+  appEl.classList.remove(
+    "state-vacant",
+    "state-in-process",
+    "state-unavailable",
+    "state-waiting",
+    "overlay-success",
+    "overlay-error",
+    "overlay-warning",
+    "overlay-info"
+  );
+
+  appEl.classList.add("trust-untrusted");
+
+  lastMode = "untrusted";
+  lastStatusCode = null;
+  startedAtMs = null;
+
+  const health = state?.health || {};
+  const message =
+    health.last_error_message ||
+    "La información en esta pantalla puede ser incorrecta.";
+
+  if (statusTextEl) {
+    statusTextEl.textContent = "PANTALLA\nNO CONFIABLE";
+  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = message;
+  }
+
+  if (roomValueEl) roomValueEl.textContent = "Revisar";
+  if (stationValueEl) stationValueEl.textContent = "Configuración";
+  if (stationBadgeEl) stationBadgeEl.textContent = "ALERTA";
+  if (elapsedValueEl) elapsedValueEl.textContent = "—";
+  if (updatedValueEl) updatedValueEl.textContent = formatShortTime(Date.now());
+  if (dateTimeValueEl) {
+    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+  }
+}
+
 function setDisplayState(state) {
+  currentRenderedState = state;
+
+  renderHealthStrip(state);
+
+  if (state?.health?.trust_level === "untrusted") {
+    renderUntrustedScreen(state);
+    return;
+  }
+
+  if (appEl) {
+    appEl.classList.remove("trust-untrusted");
+  }
+
   const mode = state?.mode || "room_status";
 
   if (mode === "overlay") {
@@ -217,6 +357,10 @@ function setDisplayState(state) {
   }
 
   setRoomStatusDisplay(state);
+}
+function refreshHealthStrip() {
+  if (!currentRenderedState) return;
+  renderHealthStrip(currentRenderedState);
 }
 
 function refreshElapsed() {
@@ -251,21 +395,28 @@ async function fetchDisplayState() {
    
 
     setDisplayState(payload.state);
+    window.lastKnownGoodState = payload.state;
 
     
-  } catch (error) {
-    console.error("Failed to fetch display state:", error);
+} catch (error) {
+  console.error("Failed to fetch display state:", error);
 
-    setDisplayState({
-      mode: "room_status",
-      updated_at: Date.now(),
-      room: { label: "—" },
-      station: { label: "—" },
-      status: { code: "unavailable", label: "NO DISPONIBLE" },
-      patient: { name: "—" },
-      timing: { started_at: null },
-    });
+  if (window.lastKnownGoodState) {
+    const degradedState = {
+      ...window.lastKnownGoodState,
+
+      health: {
+        ...(window.lastKnownGoodState.health || {}),
+        connectivity: "offline",
+        trust_level: "degraded",
+        last_error_at: Date.now(),
+        last_error_message: String(error),
+      },
+    };
+
+    setDisplayState(degradedState);
   }
+}
 }
 
 refreshClock();
@@ -273,6 +424,7 @@ refreshElapsed();
 
 setInterval(refreshClock, 1000);
 setInterval(refreshElapsed, 1000);
+setInterval(refreshHealthStrip, 1000);
 
 fetchDisplayState();
 setInterval(fetchDisplayState, 2000);
