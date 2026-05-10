@@ -92,13 +92,11 @@ function renderHealthStrip(state) {
   const syncAgeMs = Date.now() - new Date(lastCloudSyncAt).getTime();
 
   let level = "healthy";
-  // let text = `● Conectado · actualizado ${formatAge(syncAgeMs)}`;
-  let text = `Conectado `;
+  let text = "Conectado";
 
   if (operationalMode === "closed") {
     level = "closed";
-    // text = `○ Clínica cerrada · verificado ${formatAge(syncAgeMs)}`;
-    text = `○ Clínica cerrada `;
+    text = "○ Clínica cerrada";
   } else if (trustLevel === "untrusted") {
     level = "untrusted";
     text = "✖ Pantalla no confiable · revisar configuración";

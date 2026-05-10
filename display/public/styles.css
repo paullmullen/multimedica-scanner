@@ -315,17 +315,17 @@ body {
 
     display: grid;
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 6px;
     align-items: center;
 }
 
 .date-time {
     text-align: center;
     color: var(--text-dark);
-    font-size: clamp(1rem, 2.4vw, 1.6rem);
+    font-size: clamp(1rem, 2.4vw, 1.55rem);
     font-weight: 600;
     line-height: 1.2;
-    opacity: 0.85;
+    opacity: 0.82;
 }
 
 /* =========================
@@ -446,30 +446,42 @@ body {
 
 .health-strip {
     width: 100%;
-    min-height: 34px;
-    padding: 7px 14px;
+    min-height: 18px;
+    padding: 0 10px;
 
     display: flex;
     align-items: center;
     justify-content: center;
 
     border-radius: 999px;
-    font-size: clamp(0.82rem, 1.8vw, 1rem);
-    font-weight: 800;
+    font-size: clamp(0.72rem, 1.45vw, 0.9rem);
+    font-weight: 700;
     letter-spacing: 0.01em;
+    line-height: 1.15;
 
-    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.18);
+    background: transparent;
+    box-shadow: none;
     pointer-events: none;
 }
 
 .health-healthy {
-    background: rgba(17, 24, 39, 0.82);
-    color: #ffffff;
+    color: rgba(23, 56, 74, 0.5);
 }
 
 .health-closed {
-    background: rgba(55, 65, 81, 0.88);
-    color: #ffffff;
+    color: rgba(23, 56, 74, 0.62);
+}
+
+.health-degraded,
+.health-untrusted {
+    justify-self: center;
+    width: auto;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 7px 18px;
+    font-size: clamp(0.82rem, 1.8vw, 1rem);
+    font-weight: 900;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
 }
 
 .health-degraded {
@@ -484,8 +496,15 @@ body {
 
 @media (max-height: 900px) {
     .health-strip {
-        min-height: 30px;
-        padding: 6px 12px;
+        min-height: 16px;
+        padding: 0 8px;
+        font-size: 0.72rem;
+    }
+
+    .health-degraded,
+    .health-untrusted {
+        min-height: 28px;
+        padding: 6px 14px;
         font-size: 0.82rem;
     }
 }
