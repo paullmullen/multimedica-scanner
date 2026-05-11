@@ -137,6 +137,17 @@ function renderHealthStrip(state) {
   let level = "healthy";
   let text = "Conectado";
 
+  const operationalMode = state?.operational_mode || health?.operational_mode || "open";
+
+  if (operationalMode === "closed") {
+    level = "healthy";
+    text = "○ Clínica cerrada";
+
+    strip.className = `health-strip health-${level}`;
+    strip.textContent = text;
+    return;
+  }
+
   if (trustLevel === "untrusted") {
     level = "untrusted";
     text = "✖ Pantalla no confiable · revisar configuración";
