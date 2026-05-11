@@ -100,10 +100,12 @@ body {
     background: linear-gradient(135deg, #3490dc, #6cb2eb);
 }
 
+/* Overlay and closed state main card styles */
 #app.overlay-success .main-card,
 #app.overlay-error .main-card,
 #app.overlay-warning .main-card,
-#app.overlay-info .main-card {
+#app.overlay-info .main-card,
+#app.state-closed .main-card {
     max-width: 85%;
     padding: 2rem;
     border: 10px solid rgba(255, 255, 255, 0.85);
@@ -111,6 +113,11 @@ body {
     background: #ffffff;
     color: #111111;
     box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+
+/* Adjust border color for closed state */
+#app.state-closed .main-card {
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 /* =========================
@@ -555,4 +562,24 @@ body {
 
 #app.trust-untrusted .info-value {
     color: #111827;
+}
+
+#app.state-clinic-closed {
+  background: linear-gradient(135deg, #1f2937, #374151);
+}
+
+#app.state-clinic-closed .status-section {
+  background: linear-gradient(135deg, #1f2937, #374151);
+}
+
+#app.state-clinic-closed .panel {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+#app.state-clinic-closed .status-text {
+  animation: none;
+}
+
+#app.state-clinic-closed .patient-name {
+  font-weight: 700;
 }

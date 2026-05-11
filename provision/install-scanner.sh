@@ -135,12 +135,19 @@ fi
 log "Preparing persistent scanner config directory"
 mkdir -p "$HOME_DIR/scanner"
 chown -R "$APP_USER:$APP_GROUP" "$HOME_DIR/scanner"
+chmod 0700 "$HOME_DIR/scanner"
 
-if [ -f "$SOURCE_DIR/.env" ]; then
-  log "Installing .env to persistent config directory"
+if [ -f "$HOME_DIR/scanner/.env" ]; then
+  log "Existing persistent .env found; preserving device-specific configuration"
+  chown "$APP_USER:$APP_GROUP" "$HOME_DIR/scanner/.env"
+  chmod 0600 "$HOME_DIR/scanner/.env"
+elif [ -f "$SOURCE_DIR/.env" ]; then
+  log "Installing initial .env to persistent config directory"
   cp "$SOURCE_DIR/.env" "$HOME_DIR/scanner/.env"
   chown "$APP_USER:$APP_GROUP" "$HOME_DIR/scanner/.env"
   chmod 0600 "$HOME_DIR/scanner/.env"
+else
+  log "No .env found in source bundle; skipping initial .env install"
 fi
 
 # =========================

@@ -15,8 +15,6 @@ window.addEventListener("unhandledrejection", (event) => {
 
 console.log("APP STARTED");
 
-
-
 const appEl = document.getElementById("app");
 const statusTextEl = document.getElementById("statusText");
 const patientNameEl = document.getElementById("patientName");
@@ -27,7 +25,6 @@ const elapsedValueEl = document.getElementById("elapsedValue");
 const updatedValueEl = document.getElementById("updatedValue");
 const dateTimeValueEl = document.getElementById("dateTimeValue");
 
-
 const iconBySeverity = {
   success: "✓",
   error: "!",
@@ -35,14 +32,60 @@ const iconBySeverity = {
   info: "i",
 };
 
-
 let healthStripEl = null;
 let currentRenderedState = null;
+let startedAtMs = null;
+let lastMode = null;
+let lastStatusCode = null;
 
+const DISPLAY_CONFIG = Object.freeze({
+  health: Object.freeze({
+    stale_ms: 90 * 1000,
+    very_stale_ms: 180 * 1000,
+  }),
+  refresh: Object.freeze({
+    clock_ms: 1000,
+    elapsed_ms: 1000,
+    health_ms: 1000,
+    display_poll_ms: 2000,
+  }),
+});
 
-const HEALTH_STALE_MS = 90 * 1000;
-const HEALTH_VERY_STALE_MS = 180 * 1000;
+const DISPLAY_CLASS_NAMES = Object.freeze([
+  "state-vacant",
+  "state-in-process",
+  "state-unavailable",
+  "state-waiting",
+  "state-clinic-closed",
+  "overlay-success",
+  "overlay-error",
+  "overlay-warning",
+  "overlay-info",
+  "trust-untrusted",
+]);
 
+function clearDisplayClasses() {
+  if (!appEl) return;
+  appEl.classList.remove(...DISPLAY_CLASS_NAMES);
+}
+
+function getRenderMode(state) {
+  const operationalMode = state?.operational_mode || state?.health?.operational_mode || "open";
+
+  if (state?.health?.trust_level === "untrusted") {
+    return "untrusted";
+  }
+
+  if ((state?.mode || "room_status") === "overlay") {
+    return "overlay";
+  }
+
+  if (operationalMode === "closed") {
+    return "clinic_closed";
+  }
+
+  return "room_status";
+}
 
 function ensureHealthStrip() {
   if (healthStripEl) return healthStripEl;
@@ -84,29 +127,26 @@ function renderHealthStrip(state) {
   const strip = ensureHealthStrip();
   const health = state?.health || {};
 
-  const operationalMode = health.operational_mode || "active";
   const connectivity = health.connectivity || "online";
   const trustLevel = health.trust_level || "trusted";
-  const lastCloudSyncAt = health.last_cloud_sync_at || state?.updated_at || Date.now();
+  const lastCloudSyncAt =
+    health.last_cloud_sync_at || health.updated_at || state?.updated_at || Date.now();
 
   const syncAgeMs = Date.now() - new Date(lastCloudSyncAt).getTime();
 
   let level = "healthy";
   let text = "Conectado";
 
-  if (operationalMode === "closed") {
-    level = "closed";
-    text = "○ Clínica cerrada";
-  } else if (trustLevel === "untrusted") {
+  if (trustLevel === "untrusted") {
     level = "untrusted";
     text = "✖ Pantalla no confiable · revisar configuración";
   } else if (connectivity === "offline") {
     level = "degraded";
     text = `⚠ Sin conexión · último estado ${formatAge(syncAgeMs)}`;
-  } else if (syncAgeMs > HEALTH_VERY_STALE_MS) {
+  } else if (syncAgeMs > DISPLAY_CONFIG.health.very_stale_ms) {
     level = "untrusted";
     text = `✖ Estado muy antiguo · último estado ${formatAge(syncAgeMs)}`;
-  } else if (syncAgeMs > HEALTH_STALE_MS) {
+  } else if (syncAgeMs > DISPLAY_CONFIG.health.stale_ms) {
     level = "degraded";
     text = `⚠ Estado no reciente · actualizado ${formatAge(syncAgeMs)}`;
   }
@@ -114,10 +154,6 @@ function renderHealthStrip(state) {
   strip.className = `health-strip health-${level}`;
   strip.textContent = text;
 }
-
-let startedAtMs = null;
-let lastMode = null;
-let lastStatusCode = null;
 
 function pad2(value) {
   return String(value).padStart(2, "0");
@@ -174,16 +210,7 @@ function toDisplayStatus(statusCode) {
 function applyRoomStateClass(statusCode) {
   if (!appEl) return;
 
-  appEl.classList.remove(
-    "state-vacant",
-    "state-in-process",
-    "state-unavailable",
-    "state-waiting",
-    "overlay-success",
-    "overlay-error",
-    "overlay-warning",
-    "overlay-info"
-  );
+  clearDisplayClasses();
 
   switch (statusCode) {
     case "in_process":
@@ -193,8 +220,8 @@ function applyRoomStateClass(statusCode) {
       appEl.classList.add("state-unavailable");
       break;
     case "patient_waiting":
-        appEl.classList.add("state-waiting");
-        break;
+      appEl.classList.add("state-waiting");
+      break;
     case "available":
     case "vacant":
     default:
@@ -206,15 +233,7 @@ function applyRoomStateClass(statusCode) {
 function applyOverlayClass(severity) {
   if (!appEl) return;
 
-  appEl.classList.remove(
-    "state-vacant",
-    "state-in-process",
-    "state-unavailable",
-    "overlay-success",
-    "overlay-error",
-    "overlay-warning",
-    "overlay-info"
-  );
+  clearDisplayClasses();
 
   switch (severity) {
     case "success":
@@ -232,7 +251,6 @@ function applyOverlayClass(severity) {
       break;
   }
 }
-
 
 function setRoomStatusDisplay(state) {
   const statusCode = state?.status?.code || "available";
@@ -265,12 +283,14 @@ function setRoomStatusDisplay(state) {
 
 function setOverlayDisplay(state) {
   const overlay = state?.overlay || {};
-  const severity = overlay.severity || "warning";
+  const severity = overlay.severity || overlay.type || "warning";
   const title = overlay.title || "Mensaje";
-  const detail = overlay.detail || "";
+  const detail = overlay.detail || overlay.message || "";
   const updatedAt = state?.updated_at || Date.now();
 
   lastMode = "overlay";
+  lastStatusCode = null;
+  startedAtMs = null;
 
   applyOverlayClass(severity);
 
@@ -282,28 +302,51 @@ function setOverlayDisplay(state) {
   if (roomValueEl) roomValueEl.textContent = " ";
   if (stationValueEl) stationValueEl.textContent = " ";
   if (stationBadgeEl) stationBadgeEl.textContent = "ALERTA";
-
-  startedAtMs = null;
-
   if (elapsedValueEl) elapsedValueEl.textContent = "Volviendo...";
   if (updatedValueEl) updatedValueEl.textContent = formatShortTime(updatedAt);
+  if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+}
+
+function renderClinicClosed(state) {
+  if (!appEl) return;
+
+  clearDisplayClasses();
+  appEl.classList.add("state-clinic-closed");
+
+  lastMode = "clinic_closed";
+  lastStatusCode = null;
+  startedAtMs = null;
+
+  if (statusTextEl) {
+    statusTextEl.textContent = "CLÍNICA\nCERRADA";
+  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = "El sistema está conectado y esperando la próxima jornada.";
+  }
+
+  if (roomValueEl) {
+    roomValueEl.textContent = state?.room?.label || "—";
+  }
+
+  if (stationValueEl) {
+    stationValueEl.textContent = state?.station?.label || "—";
+  }
+
+  if (stationBadgeEl) {
+    const stationName = state?.station?.label || "CLS";
+    stationBadgeEl.textContent = String(stationName).slice(0, 3).toUpperCase();
+  }
+
+  if (elapsedValueEl) elapsedValueEl.textContent = "—";
+  if (updatedValueEl) updatedValueEl.textContent = formatShortTime(Date.now());
   if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 function renderUntrustedScreen(state) {
   if (!appEl) return;
 
-  appEl.classList.remove(
-    "state-vacant",
-    "state-in-process",
-    "state-unavailable",
-    "state-waiting",
-    "overlay-success",
-    "overlay-error",
-    "overlay-warning",
-    "overlay-info"
-  );
-
+  clearDisplayClasses();
   appEl.classList.add("trust-untrusted");
 
   lastMode = "untrusted";
@@ -312,25 +355,19 @@ function renderUntrustedScreen(state) {
 
   const health = state?.health || {};
   const message =
-    health.last_error_message ||
-    "La información en esta pantalla puede ser incorrecta.";
+    health.last_error_message || "La información en esta pantalla puede ser incorrecta.";
 
   if (statusTextEl) {
     statusTextEl.textContent = "PANTALLA\nNO CONFIABLE";
   }
 
-  if (patientNameEl) {
-    patientNameEl.textContent = message;
-  }
-
+  if (patientNameEl) patientNameEl.textContent = message;
   if (roomValueEl) roomValueEl.textContent = "Revisar";
   if (stationValueEl) stationValueEl.textContent = "Configuración";
   if (stationBadgeEl) stationBadgeEl.textContent = "ALERTA";
   if (elapsedValueEl) elapsedValueEl.textContent = "—";
   if (updatedValueEl) updatedValueEl.textContent = formatShortTime(Date.now());
-  if (dateTimeValueEl) {
-    dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
-  }
+  if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
 }
 
 function setDisplayState(state) {
@@ -338,24 +375,26 @@ function setDisplayState(state) {
 
   renderHealthStrip(state);
 
-  if (state?.health?.trust_level === "untrusted") {
-    renderUntrustedScreen(state);
-    return;
+  switch (getRenderMode(state)) {
+    case "untrusted":
+      renderUntrustedScreen(state);
+      return;
+
+    case "overlay":
+      setOverlayDisplay(state);
+      return;
+
+    case "clinic_closed":
+      renderClinicClosed(state);
+      return;
+
+    case "room_status":
+    default:
+      setRoomStatusDisplay(state);
+      return;
   }
-
-  if (appEl) {
-    appEl.classList.remove("trust-untrusted");
-  }
-
-  const mode = state?.mode || "room_status";
-
-  if (mode === "overlay") {
-    setOverlayDisplay(state);
-    return;
-  }
-
-  setRoomStatusDisplay(state);
 }
+
 function refreshHealthStrip() {
   if (!currentRenderedState) return;
   renderHealthStrip(currentRenderedState);
@@ -378,51 +417,45 @@ function refreshClock() {
 
 async function fetchDisplayState() {
   try {
-
     const response = await fetch(`/api/display?ts=${Date.now()}`, {
       cache: "no-store",
     });
-
 
     if (!response.ok) {
       throw new Error(`Display API returned ${response.status}`);
     }
 
     const payload = await response.json();
+    const nextState = payload.display || payload.state || payload;
 
-   
+    setDisplayState(nextState);
+    window.lastKnownGoodState = nextState;
+  } catch (error) {
+    console.error("Failed to fetch display state:", error);
 
-    setDisplayState(payload.state);
-    window.lastKnownGoodState = payload.state;
+    if (window.lastKnownGoodState) {
+      const degradedState = {
+        ...window.lastKnownGoodState,
+        health: {
+          ...(window.lastKnownGoodState.health || {}),
+          connectivity: "offline",
+          trust_level: "degraded",
+          last_error_at: Date.now(),
+          last_error_message: String(error),
+        },
+      };
 
-    
-} catch (error) {
-  console.error("Failed to fetch display state:", error);
-
-  if (window.lastKnownGoodState) {
-    const degradedState = {
-      ...window.lastKnownGoodState,
-
-      health: {
-        ...(window.lastKnownGoodState.health || {}),
-        connectivity: "offline",
-        trust_level: "degraded",
-        last_error_at: Date.now(),
-        last_error_message: String(error),
-      },
-    };
-
-    setDisplayState(degradedState);
+      setDisplayState(degradedState);
+    }
   }
-}
 }
 
 refreshClock();
 refreshElapsed();
 
-setInterval(refreshClock, 1000);
-setInterval(refreshElapsed, 1000);
-setInterval(refreshHealthStrip, 1000);
+setInterval(refreshClock, DISPLAY_CONFIG.refresh.clock_ms);
+setInterval(refreshElapsed, DISPLAY_CONFIG.refresh.elapsed_ms);
+setInterval(refreshHealthStrip, DISPLAY_CONFIG.refresh.health_ms);
 
 fetchDisplayState();
-setInterval(fetchDisplayState, 2000);
+setInterval(fetchDisplayState, DISPLAY_CONFIG.refresh.display_poll_ms);
