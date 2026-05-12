@@ -1019,7 +1019,14 @@ async function handleConfigScan(scanValue) {
   }
 
   if (result.kind === "cloud_config") {
-    console.log("CLOUD CONFIG APPLIED:", result.applied);
+    console.log("CLOUD CONFIG VALIDATED:", result.applied);
+
+    await showTransientOverlay({
+      severity: "info",
+      title: "Actualizando cloud",
+      detail: "Aplicando configuración de nube...",
+      restoreDelayMs: 30000,
+    });
 
     if (result.runtime && result.runtime.ENDPOINT_URL) {
       ENDPOINT_URL = result.runtime.ENDPOINT_URL;
@@ -1336,9 +1343,8 @@ async function scannerSupervisorLoop() {
     try {
       console.log("==== STARTING SCANNER LISTENER ====");
 
-      await startScannerListener();
-
       await showScannerRecoveredOverlay();
+      await startScannerListener();
 
       return;
     } catch (err) {
