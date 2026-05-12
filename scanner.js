@@ -1161,120 +1161,127 @@ async function postScan(scanValue) {
 // =========================
 
 function startScannerListener() {
-  let devicePath;
+  return new Promise((resolve, reject) => {
+    let devicePath;
 
-  try {
-    devicePath = resolveScannerDevicePath();
-  } catch (err) {
-    health.scanner.connected = false;
-    health.scanner.evtest_running = false;
-    health.scanner.last_error_at = nowIso();
-    health.scanner.last_error_message = err.message;
+    try {
+      devicePath = resolveScannerDevicePath();
+    } catch (err) {
+      health.scanner.connected = false;
+      health.scanner.evtest_running = false;
+      health.scanner.last_error_at = nowIso();
+      health.scanner.last_error_message = err.message;
 
-    throw err;
-  }
-
-  let scanBuffer = "";
-  let lineRemainder = "";
-  let shiftActive = false;
-
-  const evtest = spawn("sudo", ["evtest", devicePath]);
-
-  health.scanner.evtest_running = true;
-  health.scanner.evtest_exit_code = null;
-
-  function handleLine(line) {
-    if (!line.includes("EV_KEY")) return;
-
-    const match = line.match(/\((KEY_[A-Z0-9_]+)\), value ([012])/);
-    if (!match) return;
-
-    const key = match[1];
-    const value = Number(match[2]);
-
-    if (key === "KEY_LEFTSHIFT" || key === "KEY_RIGHTSHIFT") {
-      shiftActive = value === 1;
+      reject(err);
       return;
     }
 
-    if (value !== 1) return;
+    let scanBuffer = "";
+    let lineRemainder = "";
+    let shiftActive = false;
 
-    if (key === "KEY_ENTER") {
-      if (scanBuffer.length > 0) {
-        console.log("SCAN:", scanBuffer);
+    const evtest = spawn("sudo", ["evtest", devicePath]);
 
-        health.scanner.last_scan_at = nowIso();
-        health.scanner.last_scan_value_preview = previewValue(scanBuffer, 80);
-        health.scanner.last_scan_result = "received";
-        health.scanner.last_scan_type = isConfigQr(scanBuffer)
-          ? "config_qr"
-          : scanBuffer.startsWith("VISIT:")
-            ? "visit"
-            : "unknown";
+    health.scanner.evtest_running = true;
+    health.scanner.evtest_exit_code = null;
 
-        if (isConfigQr(scanBuffer)) {
-          console.log("==== CONFIG QR DETECTED ====");
-          handleConfigScan(scanBuffer);
-        } else {
-          console.log("==== NORMAL SCAN ====");
-          postScan(scanBuffer);
-        }
+    function handleLine(line) {
+      if (!line.includes("EV_KEY")) return;
 
-        scanBuffer = "";
+      const match = line.match(/\((KEY_[A-Z0-9_]+)\), value ([012])/);
+      if (!match) return;
+
+      const key = match[1];
+      const value = Number(match[2]);
+
+      if (key === "KEY_LEFTSHIFT" || key === "KEY_RIGHTSHIFT") {
+        shiftActive = value === 1;
+        return;
       }
-      return;
+
+      if (value !== 1) return;
+
+      if (key === "KEY_ENTER") {
+        if (scanBuffer.length > 0) {
+          console.log("SCAN:", scanBuffer);
+
+          health.scanner.last_scan_at = nowIso();
+          health.scanner.last_scan_value_preview = previewValue(scanBuffer, 80);
+          health.scanner.last_scan_result = "received";
+          health.scanner.last_scan_type = isConfigQr(scanBuffer)
+            ? "config_qr"
+            : scanBuffer.startsWith("VISIT:")
+              ? "visit"
+              : "unknown";
+
+          if (isConfigQr(scanBuffer)) {
+            console.log("==== CONFIG QR DETECTED ====");
+            handleConfigScan(scanBuffer);
+          } else {
+            console.log("==== NORMAL SCAN ====");
+            postScan(scanBuffer);
+          }
+
+          scanBuffer = "";
+        }
+        return;
+      }
+
+      const character = keyToCharacter(key, shiftActive);
+
+      if (character !== null) {
+        scanBuffer += character;
+        return;
+      }
+
+      console.log("UNMAPPED:", key);
     }
 
-    const character = keyToCharacter(key, shiftActive);
+    evtest.stdout.on("data", (data) => {
+      lineRemainder += data.toString();
 
-    if (character !== null) {
-      scanBuffer += character;
-      return;
-    }
+      const lines = lineRemainder.split("\n");
+      lineRemainder = lines.pop() || "";
 
-    console.log("UNMAPPED:", key);
-  }
+      lines.forEach(handleLine);
+    });
 
-  evtest.stdout.on("data", (data) => {
-    lineRemainder += data.toString();
+    evtest.stderr.on("data", (data) => {
+      const text = data.toString().trim();
+      if (text) {
+        console.log("EVTEST:", text);
+      }
+    });
 
-    const lines = lineRemainder.split("\n");
-    lineRemainder = lines.pop() || "";
+    evtest.on("close", async (code) => {
+      health.scanner.connected = false;
+      health.scanner.evtest_running = false;
+      health.scanner.evtest_exit_code = code;
+      health.scanner.last_error_at = nowIso();
+      health.scanner.last_error_message = `evtest exited with code ${code}`;
 
-    lines.forEach(handleLine);
+      console.error(`evtest exited with code ${code}`);
+
+      await showScannerMissingOverlay("Scanner desconectado");
+
+      reject(new Error(`evtest exited with code ${code}`));
+    });
+
+    evtest.on("error", (err) => {
+      health.scanner.connected = false;
+      health.scanner.evtest_running = false;
+      health.scanner.last_error_at = nowIso();
+      health.scanner.last_error_message = err.message;
+
+      console.error("Failed to start evtest:", err);
+    });
+
+    console.log("Listening for scans...");
+    console.log(`POST target: ${ENDPOINT_URL}`);
+    console.log(`Display sync target: ${SYNC_ENDPOINT_URL}`);
+    console.log(`Local display target: ${LOCAL_DISPLAY_URL}`);
+    console.log(`LOCATION_ID: ${LOCATION_ID || "[not set]"}`);
   });
-
-  evtest.stderr.on("data", (data) => {
-    const text = data.toString().trim();
-    if (text) {
-      console.log("EVTEST:", text);
-    }
-  });
-
-  evtest.on("close", (code) => {
-    health.scanner.connected = false;
-    health.scanner.evtest_running = false;
-    health.scanner.evtest_exit_code = code;
-    health.scanner.last_error_at = nowIso();
-    health.scanner.last_error_message = `evtest exited with code ${code}`;
-
-    console.error(`evtest exited with code ${code}`);
-  });
-
-  evtest.on("error", (err) => {
-    health.scanner.connected = false;
-    health.scanner.evtest_running = false;
-    health.scanner.last_error_at = nowIso();
-    health.scanner.last_error_message = err.message;
-
-    console.error("Failed to start evtest:", err);
-  });
-
-  console.log("Listening for scans...");
-  console.log(`POST target: ${ENDPOINT_URL}`);
-  console.log(`Display sync target: ${SYNC_ENDPOINT_URL}`);
-  console.log(`Local display target: ${LOCAL_DISPLAY_URL}`);
-  console.log(`LOCATION_ID: ${LOCATION_ID || "[not set]"}`);
 }
 
 process.on("uncaughtException", (err) => {
@@ -1329,7 +1336,7 @@ async function scannerSupervisorLoop() {
     try {
       console.log("==== STARTING SCANNER LISTENER ====");
 
-      startScannerListener();
+      await startScannerListener();
 
       await showScannerRecoveredOverlay();
 
