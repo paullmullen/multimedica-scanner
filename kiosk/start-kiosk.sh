@@ -32,5 +32,5 @@ unclutter -idle 0.5 -root &
   --disable-software-rasterizer \
   --enable-logging=stderr \
   --v=1 \
-  --app=http://127.0.0.1:3001 \
+  --app=http://127.0.0.1:3001/boot.html\
   >> $LOG_FILE 2>&1

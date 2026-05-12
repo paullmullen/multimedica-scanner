@@ -1,22 +1,21 @@
 :root {
-    --clinic-teal: #2bb8b0;
-    --clinic-blue: #2d3192;
-    --clinic-orange: #f47c20;
-    --clinic-purple: #6d28d9;
+  --clinic-teal: #2bb8b0;
+  --clinic-blue: #2d3192;
+  --clinic-orange: #f47c20;
+  --clinic-purple: #6d28d9;
 
+  --card-bg: rgba(255, 255, 255, 0.9);
+  --card-line: rgba(255, 255, 255, 0.4);
 
-    --card-bg: rgba(255, 255, 255, 0.9);
-    --card-line: rgba(255, 255, 255, 0.4);
+  --text-dark: #17384a;
+  --text-muted: #4d6a79;
+  --text-waiting: #ffffff;
+  --white: #ffffff;
 
-    --text-dark: #17384a;
-    --text-muted: #4d6a79;
-    --text-waiting: #ffffff;
-    --white: #ffffff;
-
-    --vacant-bg: var(--clinic-teal);
-    --inprocess-bg: var(--clinic-orange);
-    --waiting-bg: var(--clinic-purple);
-    --unavailable-bg: #6b7280;
+  --vacant-bg: var(--clinic-teal);
+  --inprocess-bg: var(--clinic-orange);
+  --waiting-bg: var(--clinic-purple);
+  --unavailable-bg: #6b7280;
 }
 
 /* =========================
@@ -24,19 +23,19 @@
 ========================= */
 
 * {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 html,
 body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 body {
-    background: var(--clinic-blue);
+  background: var(--clinic-blue);
 }
 
 /* =========================
@@ -44,30 +43,30 @@ body {
 ========================= */
 
 .screen {
-    width: 100vw;
-    height: 100vh;
-    padding: 16px;
-    transition: background-color 0.25s ease;
-    display: flex;
-    align-items: stretch;
-    justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  padding: 16px;
+  transition: background-color 0.25s ease;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
 }
 
 .screen.state-vacant {
-    background: var(--vacant-bg);
+  background: var(--vacant-bg);
 }
 
 .screen.state-in-process {
-    background: var(--inprocess-bg);
+  background: var(--inprocess-bg);
 }
 
 .screen.state-waiting {
-    background: var(--waiting-bg);
-    color: var(--text-waiting);
+  background: var(--waiting-bg);
+  color: var(--text-waiting);
 }
 
 .screen.state-unavailable {
-    background: var(--unavailable-bg);
+  background: var(--unavailable-bg);
 }
 
 /* =========================
@@ -78,26 +77,26 @@ body {
 #app.overlay-error,
 #app.overlay-warning,
 #app.overlay-info {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
 }
 
 #app.overlay-success {
-    background: linear-gradient(135deg, #1f9d55, #38c172);
+  background: linear-gradient(135deg, #1f9d55, #38c172);
 }
 
 #app.overlay-error {
-    background: linear-gradient(135deg, #cc1f1a, #e3342f);
+  background: linear-gradient(135deg, #cc1f1a, #e3342f);
 }
 
 #app.overlay-warning {
-    background: linear-gradient(135deg, #f6993f, #ffed4a);
+  background: linear-gradient(135deg, #f6993f, #ffed4a);
 }
 
 #app.overlay-info {
-    background: linear-gradient(135deg, #3490dc, #6cb2eb);
+  background: linear-gradient(135deg, #3490dc, #6cb2eb);
 }
 
 /* Overlay and closed state main card styles */
@@ -106,18 +105,18 @@ body {
 #app.overlay-warning .main-card,
 #app.overlay-info .main-card,
 #app.state-closed .main-card {
-    max-width: 85%;
-    padding: 2rem;
-    border: 10px solid rgba(255, 255, 255, 0.85);
-    border-radius: 28px;
-    background: #ffffff;
-    color: #111111;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  max-width: 85%;
+  padding: 2rem;
+  border: 10px solid rgba(255, 255, 255, 0.85);
+  border-radius: 28px;
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
 }
 
 /* Adjust border color for closed state */
 #app.state-closed .main-card {
-    border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 /* =========================
@@ -125,43 +124,43 @@ body {
 ========================= */
 
 .panel {
-    width: min(760px, 100%);
-    height: 100%;
-    background: var(--card-bg);
-    border-radius: 34px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    border: 2px solid rgba(255, 255, 255, 0.28);
+  width: min(760px, 100%);
+  height: 100%;
+  background: var(--card-bg);
+  border-radius: 34px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid rgba(255, 255, 255, 0.28);
 }
 
 .header {
-    background: #f2f4f5;
-    padding: 12px 16px 10px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  background: #f2f4f5;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .logo-wrap {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .logo {
-    width: min(70%, 360px);
-    max-height: 80px;
-    object-fit: contain;
-    display: block;
+  width: min(70%, 360px);
+  max-height: 80px;
+  object-fit: contain;
+  display: block;
 }
 
 .content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* =========================
@@ -169,79 +168,79 @@ body {
 ========================= */
 
 .status-section {
-    padding: 16px 24px 20px;
-    color: var(--white);
+  padding: 16px 24px 20px;
+  color: var(--white);
 }
 
 .screen.state-vacant .status-section {
-    background: var(--vacant-bg);
+  background: var(--vacant-bg);
 }
 
 .screen.state-in-process .status-section {
-    background: var(--inprocess-bg);
+  background: var(--inprocess-bg);
 }
 
 .screen.state-waiting .status-section {
-    background: var(--waiting-bg);
-    color: var(--text-waiting);
+  background: var(--waiting-bg);
+  color: var(--text-waiting);
 }
 
 .screen.state-unavailable .status-section {
-    background: var(--unavailable-bg);
+  background: var(--unavailable-bg);
 }
 
 .status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
 }
 
 .section-label {
-    font-size: 1.1rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .station-badge {
-    min-width: 92px;
-    text-align: center;
-    padding: 12px 20px;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.2);
-    color: var(--white);
-    font-size: 1.6rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
+  min-width: 92px;
+  text-align: center;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--white);
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .screen.state-waiting .station-badge {
-    background: rgba(64, 28, 69, 0.16);
-    color: var(--text-waiting);
+  background: rgba(64, 28, 69, 0.16);
+  color: var(--text-waiting);
 }
 
 .status-text {
-    text-align: center;
-    font-size: clamp(5rem, 14vw, 8rem);
-    font-weight: 900;
-    letter-spacing: 0.05em;
-    line-height: 0.9;
-    text-transform: uppercase;
-    min-height: 2.2em;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    white-space: normal;
+  text-align: center;
+  font-size: clamp(5rem, 14vw, 8rem);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 0.9;
+  text-transform: uppercase;
+  min-height: 2.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: normal;
 }
 
 .screen.state-in-process .status-text {
-    animation: pulse 2s infinite;
+  animation: pulse 2s infinite;
 }
 
 .screen.state-waiting .status-text {
-    color: var(--text-waiting);
-    text-shadow: none;
-    animation: waiting-pulse 2s ease-in-out infinite;
+  color: var(--text-waiting);
+  text-shadow: none;
+  animation: waiting-pulse 2s ease-in-out infinite;
 }
 
 /* =========================
@@ -249,21 +248,21 @@ body {
 ========================= */
 
 .patient-section {
-    padding: 16px 24px 18px;
-    border-bottom: 2px solid rgba(0, 0, 0, 0.05);
-    color: var(--text-dark);
+  padding: 16px 24px 18px;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.05);
+  color: var(--text-dark);
 }
 
 .patient-section .section-label {
-    color: var(--text-muted);
-    margin-bottom: 8px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
 }
 
 .patient-name {
-    font-size: clamp(1.6rem, 3vw, 2.2rem);
-    font-weight: 600;
-    line-height: 1.1;
-    min-height: 2.8rem;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  font-weight: 600;
+  line-height: 1.1;
+  min-height: 2.8rem;
 }
 
 /* =========================
@@ -271,44 +270,44 @@ body {
 ========================= */
 
 .info-grid {
-    padding: 18px 18px 14px;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 14px;
-    margin-top: 6px;
+  padding: 18px 18px 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+  margin-top: 6px;
 }
 
 .info-card {
-    background: rgba(255, 255, 255, 0.42);
-    border: 1px solid var(--card-line);
-    border-radius: 22px;
-    padding: 14px 16px;
-    min-height: 96px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid var(--card-line);
+  border-radius: 22px;
+  padding: 14px 16px;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .info-card:nth-child(3) {
-    grid-column: span 2;
+  grid-column: span 2;
 }
 
 .info-label {
-    color: #5d8190;
-    font-size: 1rem;
-    font-weight: 700;
-    margin-bottom: 10px;
+  color: #5d8190;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .info-value {
-    color: var(--text-dark);
-    font-size: 1.65rem;
-    font-weight: 700;
-    line-height: 1.1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    word-break: normal;
+  color: var(--text-dark);
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
 }
 
 /* =========================
@@ -316,23 +315,23 @@ body {
 ========================= */
 
 .footer {
-    padding: 12px 20px 16px;
-    margin-top: auto;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 12px 20px 16px;
+  margin-top: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
 
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
-    align-items: center;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: center;
 }
 
 .date-time {
-    text-align: center;
-    color: var(--text-dark);
-    font-size: clamp(1rem, 2.4vw, 1.55rem);
-    font-weight: 600;
-    line-height: 1.2;
-    opacity: 0.82;
+  text-align: center;
+  color: var(--text-dark);
+  font-size: clamp(1rem, 2.4vw, 1.55rem);
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0.82;
 }
 
 /* =========================
@@ -340,31 +339,31 @@ body {
 ========================= */
 
 @keyframes pulse {
-    0% {
-        transform: scale(1);
-    }
+  0% {
+    transform: scale(1);
+  }
 
-    50% {
-        transform: scale(1.03);
-    }
+  50% {
+    transform: scale(1.03);
+  }
 
-    100% {
-        transform: scale(1);
-    }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes waiting-pulse {
-    0% {
-        transform: scale(1);
-    }
+  0% {
+    transform: scale(1);
+  }
 
-    50% {
-        transform: scale(1.025);
-    }
+  50% {
+    transform: scale(1.025);
+  }
 
-    100% {
-        transform: scale(1);
-    }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* =========================
@@ -372,79 +371,79 @@ body {
 ========================= */
 
 @media (max-height: 900px) {
-    .screen {
-        padding: 12px;
-    }
+  .screen {
+    padding: 12px;
+  }
 
-    .header {
-        padding: 10px 14px 8px;
-    }
+  .header {
+    padding: 10px 14px 8px;
+  }
 
-    .logo {
-        width: min(64%, 320px);
-        max-height: 70px;
-    }
+  .logo {
+    width: min(64%, 320px);
+    max-height: 70px;
+  }
 
-    .status-section {
-        padding: 14px 24px 16px;
-    }
+  .status-section {
+    padding: 14px 24px 16px;
+  }
 
-    .status-row {
-        margin-bottom: 12px;
-    }
+  .status-row {
+    margin-bottom: 12px;
+  }
 
-    .section-label {
-        font-size: 1rem;
-    }
+  .section-label {
+    font-size: 1rem;
+  }
 
-    .station-badge {
-        min-width: 80px;
-        padding: 10px 16px;
-        font-size: 1.35rem;
-    }
+  .station-badge {
+    min-width: 80px;
+    padding: 10px 16px;
+    font-size: 1.35rem;
+  }
 
-    .status-text {
-        font-size: clamp(2.2rem, 8vw, 4.5rem);
-        word-break: keep-all;
-        white-space: pre-line;
-    }
+  .status-text {
+    font-size: clamp(2.2rem, 8vw, 4.5rem);
+    word-break: keep-all;
+    white-space: pre-line;
+  }
 
-    .patient-section {
-        padding: 14px 20px 16px;
-    }
+  .patient-section {
+    padding: 14px 20px 16px;
+  }
 
-    .patient-name {
-        font-size: clamp(1.4rem, 2.8vw, 2rem);
-        min-height: 2.4rem;
-    }
+  .patient-name {
+    font-size: clamp(1.4rem, 2.8vw, 2rem);
+    min-height: 2.4rem;
+  }
 
-    .info-grid {
-        gap: 12px;
-        padding: 14px 14px 12px;
-    }
+  .info-grid {
+    gap: 12px;
+    padding: 14px 14px 12px;
+  }
 
-    .info-card {
-        min-height: 84px;
-        padding: 12px 14px;
-    }
+  .info-card {
+    min-height: 84px;
+    padding: 12px 14px;
+  }
 
-    .info-label {
-        font-size: 0.95rem;
-        margin-bottom: 8px;
-    }
+  .info-label {
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+  }
 
-    .info-value {
-        font-size: 1.4rem;
-    }
+  .info-value {
+    font-size: 1.4rem;
+  }
 
-    .footer {
-        padding: 10px 16px 12px;
-        gap: 8px;
-    }
+  .footer {
+    padding: 10px 16px 12px;
+    gap: 8px;
+  }
 
-    .date-time {
-        font-size: clamp(0.9rem, 2.2vw, 1.25rem);
-    }
+  .date-time {
+    font-size: clamp(0.9rem, 2.2vw, 1.25rem);
+  }
 }
 
 /* =========================
@@ -452,68 +451,68 @@ body {
 ========================= */
 
 .health-strip {
-    width: 100%;
-    min-height: 18px;
-    padding: 0 10px;
+  width: 100%;
+  min-height: 18px;
+  padding: 0 10px;
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 
-    border-radius: 999px;
-    font-size: clamp(0.72rem, 1.45vw, 0.9rem);
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    line-height: 1.15;
+  border-radius: 999px;
+  font-size: clamp(0.72rem, 1.45vw, 0.9rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
 
-    background: transparent;
-    box-shadow: none;
-    pointer-events: none;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
 }
 
 .health-healthy {
-    color: rgba(23, 56, 74, 0.5);
+  color: rgba(23, 56, 74, 0.5);
 }
 
 .health-closed {
-    color: rgba(23, 56, 74, 0.62);
+  color: rgba(23, 56, 74, 0.62);
 }
 
 .health-degraded,
 .health-untrusted {
-    justify-self: center;
-    width: auto;
-    max-width: 100%;
-    min-height: 32px;
-    padding: 7px 18px;
-    font-size: clamp(0.82rem, 1.8vw, 1rem);
-    font-weight: 900;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  justify-self: center;
+  width: auto;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 7px 18px;
+  font-size: clamp(0.82rem, 1.8vw, 1rem);
+  font-weight: 900;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
 }
 
 .health-degraded {
-    background: #f59e0b;
-    color: #111827;
+  background: #f59e0b;
+  color: #111827;
 }
 
 .health-untrusted {
-    background: #dc2626;
-    color: #ffffff;
+  background: #dc2626;
+  color: #ffffff;
 }
 
 @media (max-height: 900px) {
-    .health-strip {
-        min-height: 16px;
-        padding: 0 8px;
-        font-size: 0.72rem;
-    }
+  .health-strip {
+    min-height: 16px;
+    padding: 0 8px;
+    font-size: 0.72rem;
+  }
 
-    .health-degraded,
-    .health-untrusted {
-        min-height: 28px;
-        padding: 6px 14px;
-        font-size: 0.82rem;
-    }
+  .health-degraded,
+  .health-untrusted {
+    min-height: 28px;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+  }
 }
 
 /* =========================
@@ -521,47 +520,47 @@ body {
 ========================= */
 
 #app.trust-untrusted {
-    background: #111827;
+  background: #111827;
 }
 
 #app.trust-untrusted .status-section {
-    background: #991b1b;
+  background: #991b1b;
 }
 
 #app.trust-untrusted .status-text {
-    color: #ffffff;
-    animation: none;
-    font-size: clamp(3.2rem, 10vw, 6.5rem);
-    line-height: 0.95;
+  color: #ffffff;
+  animation: none;
+  font-size: clamp(3.2rem, 10vw, 6.5rem);
+  line-height: 0.95;
 }
 
 #app.trust-untrusted .patient-section {
-    background: #ffffff;
-    color: #111827;
+  background: #ffffff;
+  color: #111827;
 }
 
 #app.trust-untrusted .patient-name {
-    font-size: clamp(1.4rem, 3vw, 2rem);
-    font-weight: 800;
-    color: #111827;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 800;
+  color: #111827;
 }
 
 #app.trust-untrusted .station-badge {
-    background: #111827;
-    color: #ffffff;
+  background: #111827;
+  color: #ffffff;
 }
 
 #app.trust-untrusted .info-card {
-    background: #fee2e2;
-    border-color: #fecaca;
+  background: #fee2e2;
+  border-color: #fecaca;
 }
 
 #app.trust-untrusted .info-label {
-    color: #7f1d1d;
+  color: #7f1d1d;
 }
 
 #app.trust-untrusted .info-value {
-    color: #111827;
+  color: #111827;
 }
 
 #app.state-clinic-closed {
@@ -582,4 +581,17 @@ body {
 
 #app.state-clinic-closed .patient-name {
   font-weight: 700;
+}
+
+.state-startup {
+  background: #f7fafc;
+  color: #1f2933;
+}
+
+.state-startup .status-text {
+  color: #1f2933;
+}
+
+.state-startup .patient-name {
+  color: #3e4c59;
 }

@@ -38,6 +38,21 @@ let startedAtMs = null;
 let lastMode = null;
 let lastStatusCode = null;
 
+const STARTUP_STATE = {
+  mode: "startup",
+  operational_mode: "starting",
+  updated_at: Date.now(),
+  status: {
+    code: "starting",
+    label: "INICIANDO",
+  },
+  startup: {
+    title: "Iniciando sistema...",
+    subtitle: "Conectando pantalla clínica",
+    step: "Cargando configuración...",
+  },
+};
+
 const DISPLAY_CONFIG = Object.freeze({
   health: Object.freeze({
     stale_ms: 90 * 1000,
@@ -62,6 +77,7 @@ const DISPLAY_CLASS_NAMES = Object.freeze([
   "overlay-warning",
   "overlay-info",
   "trust-untrusted",
+  "state-startup",
 ]);
 
 function clearDisplayClasses() {
@@ -71,7 +87,9 @@ function clearDisplayClasses() {
 
 function getRenderMode(state) {
   const operationalMode = state?.operational_mode || state?.health?.operational_mode || "open";
-
+  if (state?.mode === "startup") {
+    return "startup";
+  }
   if (state?.health?.trust_level === "untrusted") {
     return "untrusted";
   }
@@ -262,6 +280,31 @@ function applyOverlayClass(severity) {
       break;
   }
 }
+function renderStartupScreen(state) {
+  if (!appEl) return;
+
+  clearDisplayClasses();
+  appEl.classList.add("state-startup");
+
+  lastMode = "startup";
+  lastStatusCode = null;
+  startedAtMs = null;
+
+  if (statusTextEl) {
+    statusTextEl.textContent = "INICIANDO\nSISTEMA";
+  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = state?.startup?.subtitle || "Conectando pantalla clínica";
+  }
+
+  if (roomValueEl) roomValueEl.textContent = "Cargando";
+  if (stationValueEl) stationValueEl.textContent = "Configuración";
+  if (stationBadgeEl) stationBadgeEl.textContent = "INI";
+  if (elapsedValueEl) elapsedValueEl.textContent = "—";
+  if (updatedValueEl) updatedValueEl.textContent = formatShortTime(Date.now());
+  if (dateTimeValueEl) dateTimeValueEl.textContent = formatFooterDateTime(Date.now());
+}
 
 function setRoomStatusDisplay(state) {
   const statusCode = state?.status?.code || "available";
@@ -387,6 +430,9 @@ function setDisplayState(state) {
   renderHealthStrip(state);
 
   switch (getRenderMode(state)) {
+    case "startup":
+      renderStartupScreen(state);
+      return;
     case "untrusted":
       renderUntrustedScreen(state);
       return;
@@ -460,6 +506,8 @@ async function fetchDisplayState() {
     }
   }
 }
+
+setDisplayState(STARTUP_STATE);
 
 refreshClock();
 refreshElapsed();

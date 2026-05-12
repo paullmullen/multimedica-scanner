@@ -6,12 +6,12 @@ param(
     [switch]$SkipEnv
 )
 
+$ErrorActionPreference = "Stop"
+
 function log($msg) {
     $ts = Get-Date -Format "HH:mm:ss"
     Write-Host "[$ts] ==> $msg"
 }
-
-$ErrorActionPreference = "Stop"
 
 Write-Host "Provisioning scanner on $PiHost ..." -ForegroundColor Cyan
 
@@ -22,19 +22,25 @@ if (-not $scp) { throw "scp not found." }
 if (-not $ssh) { throw "ssh not found." }
 
 $LocalProjectDir = (Resolve-Path $LocalProjectDir).Path
+
 $InstallerPath = Join-Path $LocalProjectDir "provision/install-scanner.sh"
 $SystemdDir = Join-Path $LocalProjectDir "provision/systemd"
 
-# Resolve .env if needed
+if (-not (Test-Path $InstallerPath)) {
+    throw "Installer not found: $InstallerPath"
+}
+
 $ResolvedEnvPath = $null
+
 if (-not $SkipEnv) {
     if (-not (Test-Path $LocalEnvFile)) {
         throw ".env not found. Use -SkipEnv if needed."
     }
+
     $ResolvedEnvPath = (Resolve-Path $LocalEnvFile).Path
 }
 
-Write-Host "Creating remote temp directory..." -ForegroundColor Cyan
+log "Creating remote temp directory..."
 ssh $PiHost "rm -rf $RemoteTempDir && mkdir -p $RemoteTempDir"
 
 function Copy-IfExists {
@@ -44,9 +50,12 @@ function Copy-IfExists {
     )
 
     $FullPath = Join-Path $LocalProjectDir $RelativePath
-    if (-not (Test-Path $FullPath)) { return }
 
-    Write-Host "Copying $RelativePath ..." -ForegroundColor Cyan
+    if (-not (Test-Path $FullPath)) {
+        return
+    }
+
+    log "Copying $RelativePath ..."
 
     if ($Recursive) {
         scp -r "$FullPath" "${PiHost}:${RemoteTempDir}/"
@@ -70,20 +79,22 @@ Copy-IfExists "update-scanner.sh"
 Copy-IfExists "kiosk" -Recursive
 Copy-IfExists "display" -Recursive
 
-# Rename display → kiosk-display on remote
+# Rename display -> kiosk-display on remote
 ssh $PiHost "if [ -d $RemoteTempDir/display ]; then mv $RemoteTempDir/display $RemoteTempDir/kiosk-display; fi"
 
 # =========================
 # Copy systemd + installer
 # =========================
+log "Copying installer..."
 scp "$InstallerPath" "${PiHost}:${RemoteTempDir}/install-scanner.sh"
 
 if (Test-Path $SystemdDir) {
+    log "Copying systemd files..."
     scp -r "$SystemdDir" "${PiHost}:${RemoteTempDir}/"
 }
 
 # =========================
-# Copy .bash_profile (IMPORTANT)
+# Copy .bash_profile
 # =========================
 Copy-IfExists ".bash_profile"
 
@@ -91,32 +102,37 @@ Copy-IfExists ".bash_profile"
 # Copy .env
 # =========================
 if (-not $SkipEnv) {
-    Write-Host "Copying .env ..." -ForegroundColor Cyan
+    log "Copying .env ..."
     scp "$ResolvedEnvPath" "${PiHost}:${RemoteTempDir}/.env"
 }
 
 # =========================
 # Permissions
 # =========================
+log "Setting remote permissions..."
 ssh $PiHost "chmod +x $RemoteTempDir/install-scanner.sh"
 ssh $PiHost "find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
 
 # =========================
 # Run installer
 # =========================
-Write-Host "Running installer..." -ForegroundColor Cyan
+log "Running installer..."
 ssh -t $PiHost "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir"
 
 # =========================
-# Status check (clean)
+# Status check
 # =========================
+log "Checking scanner service..."
 ssh -t $PiHost "sudo systemctl --no-pager --full status multimedica-scanner.service || true"
+
+log "Checking kiosk display service..."
 ssh -t $PiHost "sudo systemctl --no-pager --full status kiosk-display.service || true"
 
+log "Recent scanner logs..."
 ssh -t $PiHost "journalctl -u multimedica-scanner.service -n 40 --no-pager || true"
+
+log "Recent kiosk display logs..."
 ssh -t $PiHost "journalctl -u kiosk-display.service -n 40 --no-pager || true"
 
-
 log "Provisioning complete"
-
 Write-Host "Provisioning complete." -ForegroundColor Green
