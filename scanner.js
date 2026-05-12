@@ -1296,12 +1296,67 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
 
+const SCANNER_RETRY_MS = Number(process.env.SCANNER_RETRY_MS || 5000);
+
+async function showScannerMissingOverlay(errorMessage = "") {
+  await sendDisplayToKiosk({
+    mode: "overlay",
+    overlay: {
+      type: "warning",
+      severity: "warning",
+      title: "Scanner no conectado",
+      detail: "Esperando lector de códigos...",
+      message: errorMessage || "Verifique la conexión USB del scanner.",
+      persistent: true,
+    },
+    room: { label: ROOM_ID || "—" },
+    station: { label: STATION_ID || "—" },
+    updated_at: Date.now(),
+  });
+}
+
+async function showScannerRecoveredOverlay() {
+  await showTransientOverlay({
+    severity: "success",
+    title: "Scanner conectado",
+    detail: "Lector listo",
+    restoreDelayMs: 2000,
+  });
+}
+
+async function scannerSupervisorLoop() {
+  while (true) {
+    try {
+      console.log("==== STARTING SCANNER LISTENER ====");
+
+      startScannerListener();
+
+      await showScannerRecoveredOverlay();
+
+      return;
+    } catch (err) {
+      health.scanner.connected = false;
+      health.scanner.evtest_running = false;
+      health.scanner.last_error_at = nowIso();
+      health.scanner.last_error_message = err.message;
+
+      console.error("SCANNER START FAILURE:", err.message);
+
+      await showScannerMissingOverlay(err.message);
+
+      console.log(`Retrying scanner startup in ${SCANNER_RETRY_MS}ms`);
+
+      await delay(SCANNER_RETRY_MS);
+    }
+  }
+}
+
 async function main() {
   startStatusServer();
 
   await syncDisplayFromCloud("boot", 3000);
 
-  startScannerListener();
+  await scannerSupervisorLoop();
 }
 
 main();
