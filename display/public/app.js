@@ -143,41 +143,72 @@ function formatAge(ms) {
 
 function renderHealthStrip(state) {
   const strip = ensureHealthStrip();
+
   const health = state?.health || {};
-
-  const connectivity = health.connectivity || "online";
-  const trustLevel = health.trust_level || "trusted";
-  const lastCloudSyncAt =
-    health.last_cloud_sync_at || health.updated_at || state?.updated_at || Date.now();
-
-  const syncAgeMs = Date.now() - new Date(lastCloudSyncAt).getTime();
-
-  let level = "healthy";
-  let text = "Conectado";
+  const meta = state?.meta || {};
 
   const operationalMode = state?.operational_mode || health?.operational_mode || "open";
 
+  const trust = meta?.trust || health?.trust_level || "unknown";
+
+  const source = meta?.source || "local_only";
+
+  const wifiConnected = meta?.wifi_connected;
+
+  const statusMessage = meta?.status_message || health?.label || "Estado desconocido";
+
+  const lastCloudUpdate =
+    meta?.last_cloud_update ||
+    health?.last_cloud_sync_at ||
+    health?.updated_at ||
+    state?.updated_at ||
+    Date.now();
+
+  const syncAgeMs =
+    typeof lastCloudUpdate === "number"
+      ? Date.now() - lastCloudUpdate
+      : Date.now() - new Date(lastCloudUpdate).getTime();
+
+  let level = "healthy";
+  let text = statusMessage;
+
+  // Clinic closed is intentionally calm
   if (operationalMode === "closed") {
     level = "healthy";
-    text = "○ Clínica cerrada";
-
-    strip.className = `health-strip health-${level}`;
-    strip.textContent = text;
-    return;
+    text = `○ ${statusMessage}`;
   }
 
-  if (trustLevel === "untrusted") {
-    level = "untrusted";
-    text = "✖ Pantalla no confiable · revisar configuración";
-  } else if (connectivity === "offline") {
+  // Explicit WiFi failure
+  else if (wifiConnected === false) {
     level = "degraded";
-    text = `⚠ Sin conexión · último estado ${formatAge(syncAgeMs)}`;
-  } else if (syncAgeMs > DISPLAY_CONFIG.health.very_stale_ms) {
-    level = "untrusted";
-    text = `✖ Estado muy antiguo · último estado ${formatAge(syncAgeMs)}`;
-  } else if (syncAgeMs > DISPLAY_CONFIG.health.stale_ms) {
+    text = "⚠ Sin conexión WiFi";
+  }
+
+  // Offline cloud/cached state
+  else if (trust === "offline") {
     level = "degraded";
-    text = `⚠ Estado no reciente · actualizado ${formatAge(syncAgeMs)}`;
+    text = `⚠ ${statusMessage}`;
+  }
+
+  // Stale but still usable
+  else if (trust === "stale") {
+    level = "degraded";
+    text = `⚠ ${statusMessage} · ${formatAge(syncAgeMs)}`;
+  }
+
+  // Unknown/untrusted
+  else if (trust === "unknown" || trust === "untrusted") {
+    level = "untrusted";
+    text = `✖ ${statusMessage}`;
+  }
+
+  // Healthy/fresh
+  else {
+    if (source === "cached_cloud") {
+      text = `◔ ${statusMessage}`;
+    } else {
+      text = `● ${statusMessage}`;
+    }
   }
 
   strip.className = `health-strip health-${level}`;

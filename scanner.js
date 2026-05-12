@@ -13,8 +13,7 @@ const { isConfigQr, handleConfigQr } = require("./configQr");
 // CONFIG
 // =========================
 
-const SCANNER_DEVICE_NAME =
-  process.env.SCANNER_DEVICE_NAME || "BF SCAN SCAN KEYBOARD";
+const SCANNER_DEVICE_NAME = process.env.SCANNER_DEVICE_NAME || "BF SCAN SCAN KEYBOARD";
 
 const SCANNER_STATUS_PORT = Number(process.env.SCANNER_STATUS_PORT || 3002);
 
@@ -26,8 +25,7 @@ let SYNC_ENDPOINT_URL =
   process.env.SYNC_ENDPOINT_URL ||
   ENDPOINT_URL.replace("receiveRoomScanEvent", "syncStationDisplayState");
 
-let LOCAL_DISPLAY_URL =
-  process.env.LOCAL_DISPLAY_URL || "http://127.0.0.1:3001/api/display";
+let LOCAL_DISPLAY_URL = process.env.LOCAL_DISPLAY_URL || "http://127.0.0.1:3001/api/display";
 
 let SHARED_SECRET = process.env.SHARED_SECRET || "";
 let ROOM_ID = process.env.ROOM_ID || "reg_room_1";
@@ -40,9 +38,7 @@ if (!SHARED_SECRET) {
 }
 
 if (!LOCATION_ID) {
-  console.warn(
-    "WARNING: LOCATION_ID is not configured. Display sync will not be location-scoped."
-  );
+  console.warn("WARNING: LOCATION_ID is not configured. Display sync will not be location-scoped.");
 }
 
 // =========================
@@ -190,9 +186,7 @@ function previewValue(value, maxLength = 80) {
 }
 
 function refreshRuntimeHealth() {
-  health.ok =
-    Boolean(health.scanner.connected) &&
-    Boolean(health.config.has_shared_secret);
+  health.ok = Boolean(health.scanner.connected) && Boolean(health.config.has_shared_secret);
 
   health.process.uptime_seconds = Math.floor(process.uptime());
 
@@ -218,13 +212,10 @@ function refreshRuntimeHealth() {
 function buildStatusSummary() {
   refreshRuntimeHealth();
 
-  const cloudOk =
-    Boolean(health.cloud.last_success_at) &&
-    !health.cloud.last_error_message;
+  const cloudOk = Boolean(health.cloud.last_success_at) && !health.cloud.last_error_message;
 
   const displayOk =
-    health.display.last_update_result === "success" &&
-    !health.display.last_error_message;
+    health.display.last_update_result === "success" && !health.display.last_error_message;
 
   return {
     ok: health.ok,
@@ -259,13 +250,10 @@ function buildStatusSummary() {
 function buildStatusSummary() {
   refreshRuntimeHealth();
 
-  const cloudOk =
-    Boolean(health.cloud.last_success_at) &&
-    !health.cloud.last_error_message;
+  const cloudOk = Boolean(health.cloud.last_success_at) && !health.cloud.last_error_message;
 
   const displayOk =
-    health.display.last_update_result === "success" &&
-    !health.display.last_error_message;
+    health.display.last_update_result === "success" && !health.display.last_error_message;
 
   return {
     ok: health.ok,
@@ -317,9 +305,7 @@ function startStatusServer() {
   });
 
   app.listen(SCANNER_STATUS_PORT, "127.0.0.1", () => {
-    console.log(
-      `STATUS SERVER LISTENING: http://127.0.0.1:${SCANNER_STATUS_PORT}/api/status`
-    );
+    console.log(`STATUS SERVER LISTENING: http://127.0.0.1:${SCANNER_STATUS_PORT}/api/status`);
   });
 }
 
@@ -333,26 +319,21 @@ function delay(ms) {
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { timeout: options.timeout || 30000 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject({
-            error,
-            stdout: stdout || "",
-            stderr: stderr || "",
-          });
-          return;
-        }
-
-        resolve({
+    execFile(command, args, { timeout: options.timeout || 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject({
+          error,
           stdout: stdout || "",
           stderr: stderr || "",
         });
+        return;
       }
-    );
+
+      resolve({
+        stdout: stdout || "",
+        stderr: stderr || "",
+      });
+    });
   });
 }
 
@@ -411,12 +392,7 @@ async function applyWifiConfig({ ssid, password }) {
 
     for (const uuid of matchingUuids) {
       console.log("DELETING EXISTING WIFI CONNECTION:", uuid);
-      await runCommandAllowFailure("sudo", [
-        "/usr/bin/nmcli",
-        "connection",
-        "delete",
-        uuid,
-      ]);
+      await runCommandAllowFailure("sudo", ["/usr/bin/nmcli", "connection", "delete", uuid]);
     }
   }
 
@@ -461,11 +437,9 @@ async function applyWifiConfig({ ssid, password }) {
     "yes",
   ]);
 
-  const result = await runCommand(
-    "sudo",
-    ["/usr/bin/nmcli", "connection", "up", ssid],
-    { timeout: 60000 }
-  );
+  const result = await runCommand("sudo", ["/usr/bin/nmcli", "connection", "up", ssid], {
+    timeout: 60000,
+  });
 
   health.wifi.last_result = "success";
   health.wifi.last_error_message = null;
@@ -519,18 +493,14 @@ function findInputDeviceByName(targetName) {
 
     const handlersMatch = block.match(/H:\s+Handlers=([^\n]+)/);
     if (!handlersMatch) {
-      throw new Error(
-        `Found device "${targetName}" but no Handlers line was present.`
-      );
+      throw new Error(`Found device "${targetName}" but no Handlers line was present.`);
     }
 
     const handlers = handlersMatch[1];
     const eventMatch = handlers.match(/\b(event\d+)\b/);
 
     if (!eventMatch) {
-      throw new Error(
-        `Found device "${targetName}" but no event handler was present.`
-      );
+      throw new Error(`Found device "${targetName}" but no event handler was present.`);
     }
 
     return `/dev/input/${eventMatch[1]}`;
@@ -705,6 +675,30 @@ async function showStationConfigConfirmation() {
     sendDisplayToKiosk(buildConfiguredStationDisplay());
   }, 2000);
 }
+async function showTransientOverlay({
+  severity = "info",
+  title = "Mensaje",
+  detail = "",
+  restoreDelayMs = 2500,
+} = {}) {
+  await sendDisplayToKiosk({
+    mode: "overlay",
+    overlay: {
+      type: severity,
+      severity,
+      title,
+      detail,
+      message: detail,
+    },
+    room: { label: ROOM_ID || "—" },
+    station: { label: STATION_ID || "—" },
+    updated_at: Date.now(),
+  });
+
+  setTimeout(() => {
+    syncDisplayFromCloud("overlay_restore", 0);
+  }, restoreDelayMs);
+}
 
 // =========================
 // ADAPTIVE POLLING
@@ -765,17 +759,12 @@ function scheduleAdaptivePoll(intervalMs, reason = "unspecified") {
 function applyPollingInstruction(polling, sourceReason = "unknown") {
   if (!polling || polling.should_poll !== true) {
     cancelAdaptivePolling(
-      polling && polling.reason
-        ? polling.reason
-        : `cloud_said_stop_after_${sourceReason}`
+      polling && polling.reason ? polling.reason : `cloud_said_stop_after_${sourceReason}`
     );
     return;
   }
 
-  scheduleAdaptivePoll(
-    polling.recommended_interval_ms,
-    polling.reason || sourceReason
-  );
+  scheduleAdaptivePoll(polling.recommended_interval_ms, polling.reason || sourceReason);
 }
 
 function extractDisplayFromCloudResponse(parsed) {
@@ -784,11 +773,7 @@ function extractDisplayFromCloudResponse(parsed) {
   return parsed.display || parsed.state || parsed.room_status || null;
 }
 
-async function applyCloudDisplayResponse(
-  parsed,
-  sourceReason = "unknown",
-  options = {}
-) {
+async function applyCloudDisplayResponse(parsed, sourceReason = "unknown", options = {}) {
   const display = extractDisplayFromCloudResponse(parsed);
 
   if (display) {
@@ -804,9 +789,7 @@ async function applyCloudDisplayResponse(
   }
 
   if (options.fetchPollingIfMissing) {
-    console.log(
-      `POLLING INSTRUCTION MISSING AFTER ${sourceReason}; FETCHING SYNC STATE`
-    );
+    console.log(`POLLING INSTRUCTION MISSING AFTER ${sourceReason}; FETCHING SYNC STATE`);
     syncDisplayFromCloud(`${sourceReason}_polling_followup`, 0);
   }
 }
@@ -986,15 +969,25 @@ async function handleConfigScan(scanValue) {
     console.log("WIFI CONFIG QR VALIDATED:", result.applied);
 
     try {
+      await showTransientOverlay({
+        severity: "info",
+        title: "Cambiando WiFi",
+        detail: `Conectando a ${result.runtime.ssid}...`,
+        restoreDelayMs: 30000,
+      });
       await applyWifiConfig(result.runtime);
 
       console.log("WIFI CONFIG APPLIED:", {
         SSID: result.runtime.ssid,
       });
 
-      console.log(
-        "The scanner may briefly lose connectivity while switching networks."
-      );
+      console.log("The scanner may briefly lose connectivity while switching networks.");
+
+      await showTransientOverlay({
+        severity: "success",
+        title: "WiFi actualizado",
+        detail: `Conectado a ${result.runtime.ssid}`,
+      });
 
       setTimeout(() => {
         syncDisplayFromCloud("wifi_config", 0);
@@ -1006,6 +999,20 @@ async function handleConfigScan(scanValue) {
 
       console.error("WIFI CONFIG ERROR: Failed to apply WiFi config");
       console.error(err.stderr || err.message || err);
+
+      let friendlyMessage = "No se pudo aplicar la configuración WiFi";
+
+      const rawError = err.stderr || err.message || String(err);
+
+      if (rawError.includes("could not be found")) {
+        friendlyMessage = `No se encontró la red WiFi "${result.runtime.ssid}"`;
+      }
+
+      await showTransientOverlay({
+        severity: "error",
+        title: "Error de WiFi",
+        detail: friendlyMessage,
+      });
     }
 
     return true;
@@ -1016,10 +1023,7 @@ async function handleConfigScan(scanValue) {
 
     if (result.runtime && result.runtime.ENDPOINT_URL) {
       ENDPOINT_URL = result.runtime.ENDPOINT_URL;
-      SYNC_ENDPOINT_URL = ENDPOINT_URL.replace(
-        "receiveRoomScanEvent",
-        "syncStationDisplayState"
-      );
+      SYNC_ENDPOINT_URL = ENDPOINT_URL.replace("receiveRoomScanEvent", "syncStationDisplayState");
     }
 
     if (result.runtime && result.runtime.SYNC_ENDPOINT_URL) {
@@ -1040,6 +1044,12 @@ async function handleConfigScan(scanValue) {
     console.log("ENDPOINT_URL =", ENDPOINT_URL);
     console.log("SYNC_ENDPOINT_URL =", SYNC_ENDPOINT_URL);
     console.log("SHARED_SECRET = [REDACTED]");
+
+    await showTransientOverlay({
+      severity: "success",
+      title: "Cloud actualizado",
+      detail: "Configuración de nube aplicada",
+    });
 
     setTimeout(() => {
       syncDisplayFromCloud("cloud_config", 0);
@@ -1199,8 +1209,8 @@ function startScannerListener() {
         health.scanner.last_scan_type = isConfigQr(scanBuffer)
           ? "config_qr"
           : scanBuffer.startsWith("VISIT:")
-          ? "visit"
-          : "unknown";
+            ? "visit"
+            : "unknown";
 
         if (isConfigQr(scanBuffer)) {
           console.log("==== CONFIG QR DETECTED ====");
@@ -1278,8 +1288,7 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   health.ok = false;
 
-  const message =
-    reason && reason.message ? reason.message : JSON.stringify(reason);
+  const message = reason && reason.message ? reason.message : JSON.stringify(reason);
 
   health.scanner.last_error_at = nowIso();
   health.scanner.last_error_message = `Unhandled Rejection: ${message}`;
