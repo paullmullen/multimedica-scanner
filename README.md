@@ -329,3 +329,194 @@ curl http://127.0.0.1:3001/api/display
   - provisioning validation
   - troubleshooting kiosk behavior
   - validating overlays/colors/layouts
+
+
+
+
+# Operational Constants and Configuration
+
+The scanner/display appliance uses localized configuration objects within each subsystem rather than a single global configuration file.
+
+This design is intentional and prioritizes appliance reliability, startup resilience, and subsystem isolation.
+
+## Architectural Principle
+
+Each runtime surface owns its own operational policy:
+
+| Subsystem                     | Config Object           |
+| ----------------------------- | ----------------------- |
+| `scanner.js`                  | `SCANNER_CONFIG`        |
+| `kiosk-display/server.js`     | `DISPLAY_SERVER_CONFIG` |
+| `kiosk-display/public/app.js` | `DISPLAY_CONFIG`        |
+| `displayState.js`             | `DISPLAY_STATE_CONFIG`  |
+| `boot.html`                   | `BOOT_CONFIG`           |
+
+This avoids:
+- cross-runtime dependency chains
+- browser/server coupling
+- shared-config startup failures
+- fragile appliance initialization behavior
+
+---
+
+# Scanner Configuration (`scanner.js`)
+
+The scanner subsystem centralizes operational timing and retry behavior in `SCANNER_CONFIG`.
+
+Example structure:
+
+```js
+const SCANNER_CONFIG = {
+  startup: {
+    bootSyncDelayMs: 3_000,
+    retryMs: Number(process.env.SCANNER_RETRY_MS || 5_000),
+  },
+
+  overlays: {
+    scannerMissingRestoreMs: Number(
+      process.env.SCANNER_MISSING_OVERLAY_RESTORE_MS || 5_000
+    ),
+
+    transientRestoreMs: 2_500,
+
+    stationConfiguredRestoreMs: 2_000,
+
+    wifiConfigCloudRefreshDelayMs: 8_000,
+
+    stationConfigCloudRefreshDelayMs: 2_500,
+
+    cloudConfigCloudRefreshDelayMs: 2_500,
+
+    wifiOverlayRestoreMs: 30_000,
+
+    scannerRecoveredRestoreMs: 2_000,
+  },
+
+  polling: {
+    minIntervalMs: 5_000,
+    defaultIntervalMs: 30_000,
+    maxIntervalMs: 300_000,
+  },
+
+  command: {
+    timeoutMs: 30_000,
+    wifiTimeoutMs: 60_000,
+  },
+};
+```
+
+---
+
+# Configuration Categories
+
+## Startup
+
+Controls:
+- scanner startup retry behavior
+- initial cloud synchronization timing
+- appliance boot stabilization timing
+
+Examples:
+- `bootSyncDelayMs`
+- `retryMs`
+
+---
+
+## Overlay Timing
+
+Controls transient UI restoration behavior.
+
+Examples:
+- scanner disconnected overlays
+- WiFi configuration overlays
+- cloud configuration overlays
+- scanner recovered notifications
+
+Examples:
+- `transientRestoreMs`
+- `scannerMissingRestoreMs`
+- `wifiOverlayRestoreMs`
+
+---
+
+## Adaptive Polling
+
+Controls cloud synchronization polling intervals.
+
+Examples:
+- minimum polling interval
+- default active polling interval
+- long error backoff intervals
+
+Examples:
+- `minIntervalMs`
+- `defaultIntervalMs`
+- `maxIntervalMs`
+
+---
+
+## Command Execution
+
+Controls external command timeouts.
+
+Examples:
+- `nmcli` execution timeout
+- general child-process timeout behavior
+
+Examples:
+- `timeoutMs`
+- `wifiTimeoutMs`
+
+---
+
+# Design Philosophy
+
+Operational constants are centralized for:
+- maintainability
+- observability
+- safe tuning
+- explicit operational behavior
+
+However, configuration remains localized per subsystem to preserve:
+- appliance resilience
+- startup independence
+- runtime isolation
+- simplified debugging
+
+The current architecture intentionally favors reliability over maximal abstraction.
+
+---
+
+# Refactor Policy
+
+Configuration centralization passes should follow these rules:
+
+1. Preserve runtime behavior
+2. Preserve environment variable names
+3. Avoid unrelated refactors
+4. Prefer small safe edits
+5. Maintain appliance reliability as top priority
+
+Recommended progression:
+
+```text
+magic number
+→ named constant
+→ grouped config object
+→ optional shared policy later (only if truly cross-subsystem)
+```
+
+---
+
+# Shared Configuration Guidance
+
+Do NOT create shared configuration files unless:
+- the same operational policy must be coordinated across multiple runtimes
+- the maintenance burden outweighs subsystem isolation risks
+
+Examples of possible future shared policy:
+- stale/fresh trust thresholds
+- clinic closed grace periods
+- polling policy shared between cloud and appliance
+
+Most operational constants should remain local to their subsystem.

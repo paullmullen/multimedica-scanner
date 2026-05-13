@@ -98,6 +98,10 @@
     </div>
 
     <script>
+      const BOOT_CONFIG = Object.freeze({
+        serverRetryDelayMs: 1_000,
+      });
+
       async function waitForServer() {
         try {
           const response = await fetch("/api/display?boot=1", {
@@ -110,7 +114,7 @@
           }
         } catch (err) {}
 
-        setTimeout(waitForServer, 1000);
+        setTimeout(waitForServer, BOOT_CONFIG.serverRetryDelayMs);
       }
 
       waitForServer();

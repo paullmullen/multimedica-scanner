@@ -33,6 +33,42 @@ let STATION_ID = process.env.STATION_ID || "reg";
 let DEVICE_ID = process.env.DEVICE_ID || "scanner_pi_01";
 let LOCATION_ID = process.env.LOCATION_ID || "";
 
+const SCANNER_CONFIG = {
+  commands: {
+    defaultTimeoutMs: 30_000,
+    wifiConnectionTimeoutMs: 60_000,
+  },
+  displaySync: {
+    bootDelayMs: 3_000,
+    defaultDelayMs: 3_000,
+    configuredStationRefreshDelayMs: 2_000,
+    stationConfigCloudSyncDelayMs: 2_500,
+    wifiConfigCloudSyncDelayMs: 8_000,
+    cloudConfigCloudSyncDelayMs: 2_500,
+    defaultTransientOverlayRestoreMs: 2_500,
+    longConfigOverlayRestoreMs: 30_000,
+    scannerRecoveredOverlayRestoreMs: 2_000,
+    scannerMissingOverlayRestoreMs: Number(process.env.SCANNER_MISSING_OVERLAY_RESTORE_MS || 5_000),
+  },
+  polling: {
+    minIntervalMs: 5_000,
+    defaultIntervalMs: 30_000,
+    maxIntervalMs: 300_000,
+  },
+  scanner: {
+    retryMs: Number(process.env.SCANNER_RETRY_MS || 5_000),
+  },
+  preview: {
+    defaultMaxLength: 80,
+    displayErrorMaxLength: 160,
+    cloudResponseMaxLength: 300,
+  },
+};
+
+const SCANNER_RETRY_MS = SCANNER_CONFIG.scanner.retryMs;
+const SCANNER_MISSING_OVERLAY_RESTORE_MS =
+  SCANNER_CONFIG.displaySync.scannerMissingOverlayRestoreMs;
+
 if (!SHARED_SECRET) {
   throw new Error("Missing SHARED_SECRET environment variable");
 }
@@ -176,7 +212,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function previewValue(value, maxLength = 80) {
+function previewValue(value, maxLength = SCANNER_CONFIG.preview.defaultMaxLength) {
   if (value === null || value === undefined) return null;
 
   const text = String(value);
@@ -281,7 +317,7 @@ function delay(ms) {
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: options.timeout || 30000 }, (error, stdout, stderr) => {
+    execFile(command, args, { timeout: options.timeout || SCANNER_CONFIG.commands.defaultTimeoutMs }, (error, stdout, stderr) => {
       if (error) {
         reject({
           error,
@@ -400,7 +436,7 @@ async function applyWifiConfig({ ssid, password }) {
   ]);
 
   const result = await runCommand("sudo", ["/usr/bin/nmcli", "connection", "up", ssid], {
-    timeout: 60000,
+    timeout: SCANNER_CONFIG.commands.wifiConnectionTimeoutMs,
   });
 
   health.wifi.last_result = "success";
@@ -600,7 +636,7 @@ async function sendDisplayToKiosk(display) {
       health.display.last_error_at = nowIso();
       health.display.last_error_message = `HTTP ${result.statusCode}: ${previewValue(
         result.body,
-        160
+        SCANNER_CONFIG.preview.displayErrorMaxLength
       )}`;
 
       console.error("DISPLAY POST FAILED:", result.statusCode, result.body);
@@ -635,13 +671,13 @@ async function showStationConfigConfirmation() {
 
   setTimeout(() => {
     sendDisplayToKiosk(buildConfiguredStationDisplay());
-  }, 2000);
+  }, SCANNER_CONFIG.displaySync.configuredStationRefreshDelayMs);
 }
 async function showTransientOverlay({
   severity = "info",
   title = "Mensaje",
   detail = "",
-  restoreDelayMs = 2500,
+  restoreDelayMs = SCANNER_CONFIG.displaySync.defaultTransientOverlayRestoreMs,
 } = {}) {
   await sendDisplayToKiosk({
     mode: "overlay",
@@ -669,9 +705,9 @@ async function showTransientOverlay({
 let adaptivePollTimer = null;
 let adaptivePollInFlight = false;
 
-const MIN_POLL_INTERVAL_MS = 5000;
-const DEFAULT_POLL_INTERVAL_MS = 30000;
-const MAX_POLL_INTERVAL_MS = 300000;
+const MIN_POLL_INTERVAL_MS = SCANNER_CONFIG.polling.minIntervalMs;
+const DEFAULT_POLL_INTERVAL_MS = SCANNER_CONFIG.polling.defaultIntervalMs;
+const MAX_POLL_INTERVAL_MS = SCANNER_CONFIG.polling.maxIntervalMs;
 
 function cancelAdaptivePolling(reason = "cancel") {
   if (adaptivePollTimer) {
@@ -760,7 +796,10 @@ async function applyCloudDisplayResponse(parsed, sourceReason = "unknown", optio
 // DISPLAY SYNC
 // =========================
 
-async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
+async function syncDisplayFromCloud(
+  reason = "manual_sync",
+  delayMs = SCANNER_CONFIG.displaySync.defaultDelayMs
+) {
   console.log(`==== DISPLAY SYNC: ${reason} ====`);
 
   health.polling.last_poll_at = nowIso();
@@ -798,7 +837,7 @@ async function syncDisplayFromCloud(reason = "manual_sync", delayMs = 3000) {
 
     health.cloud.last_post_at = nowIso();
     health.cloud.last_post_status = result.statusCode;
-    health.cloud.last_response_preview = previewValue(result.body, 300);
+    health.cloud.last_response_preview = previewValue(result.body, SCANNER_CONFIG.preview.cloudResponseMaxLength);
 
     console.log("DISPLAY SYNC STATUS:", result.statusCode);
 
@@ -922,7 +961,7 @@ async function handleConfigScan(scanValue) {
 
     setTimeout(() => {
       syncDisplayFromCloud("station_config", 0);
-    }, 2500);
+    }, SCANNER_CONFIG.displaySync.stationConfigCloudSyncDelayMs);
 
     return true;
   }
@@ -935,7 +974,7 @@ async function handleConfigScan(scanValue) {
         severity: "info",
         title: "Cambiando WiFi",
         detail: `Conectando a ${result.runtime.ssid}...`,
-        restoreDelayMs: 30000,
+        restoreDelayMs: SCANNER_CONFIG.displaySync.longConfigOverlayRestoreMs,
       });
       await applyWifiConfig(result.runtime);
 
@@ -953,7 +992,7 @@ async function handleConfigScan(scanValue) {
 
       setTimeout(() => {
         syncDisplayFromCloud("wifi_config", 0);
-      }, 8000);
+      }, SCANNER_CONFIG.displaySync.wifiConfigCloudSyncDelayMs);
     } catch (err) {
       health.wifi.last_result = "error";
       health.wifi.last_error_at = nowIso();
@@ -987,7 +1026,7 @@ async function handleConfigScan(scanValue) {
       severity: "info",
       title: "Actualizando cloud",
       detail: "Aplicando configuración de nube...",
-      restoreDelayMs: 30000,
+      restoreDelayMs: SCANNER_CONFIG.displaySync.longConfigOverlayRestoreMs,
     });
 
     if (result.runtime && result.runtime.ENDPOINT_URL) {
@@ -1022,7 +1061,7 @@ async function handleConfigScan(scanValue) {
 
     setTimeout(() => {
       syncDisplayFromCloud("cloud_config", 0);
-    }, 2500);
+    }, SCANNER_CONFIG.displaySync.cloudConfigCloudSyncDelayMs);
 
     return true;
   }
@@ -1076,7 +1115,7 @@ async function postScan(scanValue) {
     });
 
     health.cloud.last_post_status = result.statusCode;
-    health.cloud.last_response_preview = previewValue(result.body, 300);
+    health.cloud.last_response_preview = previewValue(result.body, SCANNER_CONFIG.preview.cloudResponseMaxLength);
 
     console.log("POST STATUS:", result.statusCode);
 
@@ -1274,11 +1313,6 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
 });
 
-const SCANNER_RETRY_MS = Number(process.env.SCANNER_RETRY_MS || 5000);
-const SCANNER_MISSING_OVERLAY_RESTORE_MS = Number(
-  process.env.SCANNER_MISSING_OVERLAY_RESTORE_MS || 5000
-);
-
 let scannerMissingOverlayShown = false;
 async function showScannerMissingOverlay(errorMessage = "") {
   await sendDisplayToKiosk({
@@ -1342,7 +1376,7 @@ async function showScannerRecoveredOverlay() {
     severity: "success",
     title: "Scanner conectado",
     detail: "Lector listo",
-    restoreDelayMs: 2000,
+    restoreDelayMs: SCANNER_CONFIG.displaySync.scannerRecoveredOverlayRestoreMs,
   });
 }
 
@@ -1374,7 +1408,7 @@ async function scannerSupervisorLoop() {
 async function main() {
   startStatusServer();
 
-  await syncDisplayFromCloud("boot", 3000);
+  await syncDisplayFromCloud("boot", SCANNER_CONFIG.displaySync.bootDelayMs);
 
   await scannerSupervisorLoop();
 }

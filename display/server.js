@@ -8,12 +8,29 @@ const app = express();
 const PORT = Number(process.env.KIOSK_PORT || 3001);
 const STATE_FILE = path.join(__dirname, "state.json");
 
-const TRUST_CONFIG = {
-  staleMs: Number(process.env.DISPLAY_STALE_MS || 90_000),
-  veryStaleMs: Number(process.env.DISPLAY_VERY_STALE_MS || 180_000),
-};
 
-app.use(express.json({ limit: "1mb" }));
+const DISPLAY_SERVER_CONFIG = Object.freeze({
+  trust: Object.freeze({
+    staleMs: Number(process.env.DISPLAY_STALE_MS || 90_000),
+    veryStaleMs: Number(process.env.DISPLAY_VERY_STALE_MS || 180_000),
+  }),
+
+  network: Object.freeze({
+    wifiCheckTimeoutMs: 1_500,
+  }),
+
+  bodyParser: Object.freeze({
+    jsonLimit: "1mb",
+  }),
+
+  server: Object.freeze({
+    host: "0.0.0.0",
+  }),
+});
+
+const TRUST_CONFIG = DISPLAY_SERVER_CONFIG.trust;
+
+app.use(express.json({ limit: DISPLAY_SERVER_CONFIG.bodyParser.jsonLimit }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function nowIso() {
@@ -95,7 +112,7 @@ function safeWriteStateFile(state) {
 
 function getWifiStatus() {
   return new Promise((resolve) => {
-    execFile("nmcli", ["-t", "-f", "STATE", "general"], { timeout: 1500 }, (err, stdout) => {
+    execFile("nmcli", ["-t", "-f", "STATE", "general"], { timeout: DISPLAY_SERVER_CONFIG.network.wifiCheckTimeoutMs }, (err, stdout) => {
       if (err) {
         resolve(null);
         return;
@@ -394,7 +411,7 @@ app.get("/status/summary", async (req, res) => {
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, DISPLAY_SERVER_CONFIG.server.host, () => {
   console.log(`kiosk-display listening on port ${PORT}`);
   console.log(`kiosk-display state file: ${STATE_FILE}`);
 });

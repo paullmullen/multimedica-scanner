@@ -58,11 +58,28 @@ const DISPLAY_CONFIG = Object.freeze({
     stale_ms: 90 * 1000,
     very_stale_ms: 180 * 1000,
   }),
+
   refresh: Object.freeze({
-    clock_ms: 1000,
-    elapsed_ms: 1000,
-    health_ms: 1000,
-    display_poll_ms: 2000,
+    clock_ms: 1_000,
+    elapsed_ms: 1_000,
+    health_ms: 1_000,
+    display_poll_ms: 2_000,
+  }),
+
+  labels: Object.freeze({
+    defaultUnknownStatus: "Estado desconocido",
+    scannerDisconnected: "Scanner desconectado",
+    startupRoom: "Cargando",
+    startupStation: "Configuración",
+    startupBadge: "INI",
+    overlayBadge: "ALERTA",
+    clinicClosedBadge: "CLS",
+    untrustedRoom: "Revisar",
+    untrustedStation: "Configuración",
+  }),
+
+  timing: Object.freeze({
+    nowThresholdMs: 0,
   }),
 });
 

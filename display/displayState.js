@@ -37,6 +37,14 @@ let currentState = { ...roomState };
 
 let overlayTimer = null;
 
+
+const DISPLAY_STATE_CONFIG = Object.freeze({
+  overlay: Object.freeze({
+    defaultDurationMs: 4_000,
+  }),
+});
+
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -97,7 +105,7 @@ function normalizeOverlayPayload(payload = {}) {
   const durationMs =
     Number.isFinite(payload.duration_ms) && payload.duration_ms > 0
       ? payload.duration_ms
-      : 4000;
+      : DISPLAY_STATE_CONFIG.overlay.defaultDurationMs;
 
   const expiresAt = new Date(Date.now() + durationMs).toISOString();
 
