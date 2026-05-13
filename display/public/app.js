@@ -157,6 +157,9 @@ function renderHealthStrip(state) {
 
   const statusMessage = meta?.status_message || health?.label || "Estado desconocido";
 
+  const scannerConnected = health?.scanner_connected !== false;
+  const scannerMessage = health?.scanner_message || "Scanner desconectado";
+
   const lastCloudUpdate =
     meta?.last_cloud_update ||
     health?.last_cloud_sync_at ||
@@ -170,49 +173,58 @@ function renderHealthStrip(state) {
       : Date.now() - new Date(lastCloudUpdate).getTime();
 
   let level = "healthy";
-  let text = statusMessage;
+  let parts = [];
 
   // Clinic closed is intentionally calm
   if (operationalMode === "closed") {
     level = "healthy";
-    text = `○ ${statusMessage}`;
+    parts.push(`○ ${statusMessage}`);
   }
 
   // Explicit WiFi failure
   else if (wifiConnected === false) {
     level = "degraded";
-    text = "⚠ Sin conexión WiFi";
+    parts.push("⚠ Sin conexión WiFi");
   }
 
   // Offline cloud/cached state
   else if (trust === "offline") {
     level = "degraded";
-    text = `⚠ ${statusMessage}`;
+    parts.push(`⚠ ${statusMessage}`);
   }
 
   // Stale but still usable
   else if (trust === "stale") {
     level = "degraded";
-    text = `⚠ ${statusMessage} · ${formatAge(syncAgeMs)}`;
+    parts.push(`⚠ ${statusMessage} · ${formatAge(syncAgeMs)}`);
   }
 
   // Unknown/untrusted
   else if (trust === "unknown" || trust === "untrusted") {
     level = "untrusted";
-    text = `✖ ${statusMessage}`;
+    parts.push(`✖ ${statusMessage}`);
   }
 
   // Healthy/fresh
   else {
     if (source === "cached_cloud") {
-      text = `◔ ${statusMessage}`;
+      parts.push(`◔ ${statusMessage}`);
     } else {
-      text = `● ${statusMessage}`;
+      parts.push(`● ${statusMessage}`);
     }
   }
 
+  // Scanner disconnected is additive, not primary
+  if (!scannerConnected) {
+    if (level === "healthy") {
+      level = "degraded";
+    }
+
+    parts.push(`⚠ ${scannerMessage}`);
+  }
+
   strip.className = `health-strip health-${level}`;
-  strip.textContent = text;
+  strip.textContent = parts.join(" • ");
 }
 
 function pad2(value) {

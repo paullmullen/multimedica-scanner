@@ -233,44 +233,6 @@ function buildStatusSummary() {
 
     cloud_ok: cloudOk,
     display_ok: displayOk,
-    polling_active: health.polling.active,
-    polling_interval_ms: health.polling.current_interval_ms,
-
-    last_scan_at: health.scanner.last_scan_at,
-    last_scan_type: health.scanner.last_scan_type,
-
-    last_cloud_success_at: health.cloud.last_success_at,
-    last_cloud_error_at: health.cloud.last_error_at,
-
-    last_display_update_at: health.display.last_update_at,
-    last_display_result: health.display.last_update_result,
-  };
-}
-
-function buildStatusSummary() {
-  refreshRuntimeHealth();
-
-  const cloudOk = Boolean(health.cloud.last_success_at) && !health.cloud.last_error_message;
-
-  const displayOk =
-    health.display.last_update_result === "success" && !health.display.last_error_message;
-
-  return {
-    ok: health.ok,
-    timestamp: nowIso(),
-    service: health.service,
-    uptime_seconds: health.process.uptime_seconds,
-
-    station: health.config.station_id,
-    room: health.config.room_id,
-    device_id: health.config.device_id,
-    location_id: health.config.location_id,
-
-    scanner_connected: health.scanner.connected,
-    evtest_running: health.scanner.evtest_running,
-
-    cloud_ok: cloudOk,
-    display_ok: displayOk,
 
     polling_active: health.polling.active,
     polling_interval_ms: health.polling.current_interval_ms,
@@ -1191,6 +1153,7 @@ function startScannerListener() {
 
     health.scanner.evtest_running = true;
     health.scanner.evtest_exit_code = null;
+    showScannerRecoveredOverlay();
 
     function handleLine(line) {
       if (!line.includes("EV_KEY")) return;
@@ -1269,8 +1232,7 @@ function startScannerListener() {
 
       console.error(`evtest exited with code ${code}`);
 
-      await showScannerMissingOverlay("Scanner desconectado");
-
+      await showScannerMissingOverlayOnce("Scanner desconectado");
       reject(new Error(`evtest exited with code ${code}`));
     });
 
@@ -1281,6 +1243,8 @@ function startScannerListener() {
       health.scanner.last_error_message = err.message;
 
       console.error("Failed to start evtest:", err);
+
+      reject(err);
     });
 
     console.log("Listening for scans...");
@@ -1311,7 +1275,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const SCANNER_RETRY_MS = Number(process.env.SCANNER_RETRY_MS || 5000);
+const SCANNER_MISSING_OVERLAY_RESTORE_MS = Number(
+  process.env.SCANNER_MISSING_OVERLAY_RESTORE_MS || 5000
+);
 
+let scannerMissingOverlayShown = false;
 async function showScannerMissingOverlay(errorMessage = "") {
   await sendDisplayToKiosk({
     mode: "overlay",
@@ -1329,7 +1297,47 @@ async function showScannerMissingOverlay(errorMessage = "") {
   });
 }
 
+async function markScannerMissingHealth(errorMessage = "") {
+  await postLocalHealth({
+    scanner_connected: false,
+    scanner_status: "missing",
+    scanner_message: "Scanner no conectado",
+    scanner_error_message: errorMessage || null,
+    last_scanner_error_at: Date.now(),
+  });
+}
+
+async function markScannerConnectedHealth() {
+  await postLocalHealth({
+    scanner_connected: true,
+    scanner_status: "connected",
+    scanner_message: null,
+    scanner_error_message: null,
+    last_scanner_connected_at: Date.now(),
+  });
+}
+
+async function showScannerMissingOverlayOnce(errorMessage = "") {
+  await markScannerMissingHealth(errorMessage);
+
+  if (scannerMissingOverlayShown) {
+    return;
+  }
+
+  scannerMissingOverlayShown = true;
+
+  await showScannerMissingOverlay(errorMessage);
+
+  setTimeout(() => {
+    syncDisplayFromCloud("scanner_missing_overlay_restore", 0);
+  }, SCANNER_MISSING_OVERLAY_RESTORE_MS);
+}
+
 async function showScannerRecoveredOverlay() {
+  scannerMissingOverlayShown = false;
+
+  await markScannerConnectedHealth();
+
   await showTransientOverlay({
     severity: "success",
     title: "Scanner conectado",
@@ -1343,7 +1351,6 @@ async function scannerSupervisorLoop() {
     try {
       console.log("==== STARTING SCANNER LISTENER ====");
 
-      await showScannerRecoveredOverlay();
       await startScannerListener();
 
       return;
@@ -1355,7 +1362,7 @@ async function scannerSupervisorLoop() {
 
       console.error("SCANNER START FAILURE:", err.message);
 
-      await showScannerMissingOverlay(err.message);
+      await showScannerMissingOverlayOnce("Scanner desconectado");
 
       console.log(`Retrying scanner startup in ${SCANNER_RETRY_MS}ms`);
 

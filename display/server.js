@@ -165,6 +165,20 @@ function normalizeDisplayState(incoming = {}) {
   };
 }
 
+function mergeHealthStatus(baseHealth = {}, statusHealth = {}) {
+  return {
+    ...baseHealth,
+    ...statusHealth,
+
+    scanner_connected: baseHealth.scanner_connected,
+    scanner_status: baseHealth.scanner_status,
+    scanner_message: baseHealth.scanner_message,
+    scanner_error_message: baseHealth.scanner_error_message,
+    last_scanner_error_at: baseHealth.last_scanner_error_at,
+    last_scanner_connected_at: baseHealth.last_scanner_connected_at,
+  };
+}
+
 function evaluateTrustState(state, wifiConnected) {
   const next = {
     ...getInitialDisplayState(),
@@ -207,61 +221,61 @@ function evaluateTrustState(state, wifiConnected) {
     next.meta.trust = "fresh";
     next.meta.status_message = "Clínica cerrada";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "ok",
       label: "Clínica cerrada",
       updated_at: nowIso(),
-    };
+    });
   } else if (wifiConnected === false) {
     next.meta.source = next.meta.last_cloud_update ? "cached_cloud" : "local_only";
     next.meta.trust = "offline";
     next.meta.status_message = "Sin conexión WiFi";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "warning",
       label: "Sin conexión WiFi",
       updated_at: nowIso(),
-    };
+    });
   } else if (cacheAgeMs !== null && cacheAgeMs > TRUST_CONFIG.veryStaleMs) {
     next.meta.source = "cached_cloud";
     next.meta.trust = "offline";
     next.meta.status_message = "Sin conexión con la nube";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "warning",
       label: "Sin conexión con la nube",
       updated_at: nowIso(),
-    };
+    });
   } else if (cacheAgeMs !== null && cacheAgeMs > TRUST_CONFIG.staleMs) {
     next.meta.source = "cached_cloud";
     next.meta.trust = "stale";
     next.meta.status_message = "Usando datos guardados";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "warning",
       label: "Usando datos guardados",
       updated_at: nowIso(),
-    };
+    });
   } else if (next.meta.last_cloud_update) {
     next.meta.source = "cloud";
     next.meta.trust = "fresh";
     next.meta.status_message = "Sincronizado";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "ok",
       label: "Conectado",
       updated_at: nowIso(),
-    };
+    });
   } else {
     next.meta.source = "local_only";
     next.meta.trust = "unknown";
     next.meta.status_message = "Esperando sincronización";
 
-    next.health = {
+    next.health = mergeHealthStatus(next.health, {
       code: "warning",
       label: "Esperando sincronización",
       updated_at: nowIso(),
-    };
+    });
   }
 
   return next;
@@ -306,6 +320,31 @@ app.post("/api/display", async (req, res) => {
     last_cloud_update: next.updated_at || receivedAt,
     last_local_update: receivedAt,
   };
+
+  app.post("/api/health", async (req, res) => {
+    const receivedAt = nowIso();
+    const patch = req.body?.health && typeof req.body.health === "object" ? req.body.health : {};
+
+    displayState = {
+      ...displayState,
+      health: {
+        ...(displayState.health || {}),
+        ...patch,
+        updated_at: receivedAt,
+      },
+      meta: {
+        ...(displayState.meta || {}),
+        last_local_update: receivedAt,
+      },
+    };
+
+    const wifiConnected = await getWifiStatus();
+    displayState = evaluateTrustState(displayState, wifiConnected);
+
+    safeWriteStateFile(displayState);
+
+    res.json({ ok: true, health: displayState.health });
+  });
 
   const wifiConnected = await getWifiStatus();
   displayState = evaluateTrustState(next, wifiConnected);
