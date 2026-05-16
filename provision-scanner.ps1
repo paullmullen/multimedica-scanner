@@ -48,6 +48,21 @@ $ScpExe = $ScpCommand.Source
 Write-Host "Using SSH: $SshExe" -ForegroundColor DarkGray
 Write-Host "Using SCP: $ScpExe" -ForegroundColor DarkGray
 
+# First-time scanner setup note:
+# - StrictHostKeyChecking=accept-new automatically trusts a brand-new Pi host key.
+# - If the host key changes later, SSH will still stop and warn rather than silently trusting it.
+# - The sudoers install step may still ask once for the Pi password on a fresh device.
+$SshCommonArgs = @(
+    "-o", "StrictHostKeyChecking=accept-new"
+)
+
+Write-Host ""
+Write-Host "First-time connection note:" -ForegroundColor Yellow
+Write-Host "  SSH will automatically trust a brand-new scanner host key."
+Write-Host "  If this Pi was re-imaged and SSH warns about a changed host key, stop and verify the device."
+Write-Host "  You may be prompted once for the Pi password while the sudoers policy is installed."
+Write-Host ""
+
 function Invoke-Remote {
     param(
         [string]$Description,
@@ -57,7 +72,8 @@ function Invoke-Remote {
     )
 
     $args = @()
-    if ($Tty) { $args += "-t" }
+    $args += $SshCommonArgs
+    if ($Tty) { $args += "-tt" }
     $args += $PiHost
     $args += $RemoteCommand
 
@@ -70,7 +86,11 @@ function Copy-Remote {
         [string[]]$ScpArgs
     )
 
-    Invoke-Checked -Description $Description -Exe $ScpExe -CommandArgs $ScpArgs | Out-Null
+    $args = @()
+    $args += $SshCommonArgs
+    $args += $ScpArgs
+
+    Invoke-Checked -Description $Description -Exe $ScpExe -CommandArgs $args | Out-Null
 }
 
 Write-Host "Provisioning scanner on $PiHost ..." -ForegroundColor Cyan
@@ -96,6 +116,29 @@ if (-not $SkipEnv) {
 
 # Start from a clean remote staging directory.
 Invoke-Remote "Creating remote temp directory..." "rm -rf $RemoteTempDir && mkdir -p $RemoteTempDir"
+
+
+# =========================
+# Install appliance sudoers policy
+# =========================
+# A fresh Pi may prompt once here. After this policy is installed, later provisioning
+# commands should not repeatedly ask for the sudo password.
+$SudoersPolicy = @'
+# Multimedica scanner appliance provisioning/admin policy
+# Managed by provision-scanner.ps1
+multimedica_edge ALL=(ALL) NOPASSWD:ALL
+'@
+
+$LocalSudoersPolicy = Join-Path $env:TEMP "multimedica-scanner-sudoers"
+try {
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($LocalSudoersPolicy, $SudoersPolicy.Replace("`r`n", "`n"), $Utf8NoBom)
+} catch {
+    Set-Content -Path $LocalSudoersPolicy -Value $SudoersPolicy -Encoding UTF8
+}
+
+Copy-Remote "Copying appliance sudoers policy ..." @($LocalSudoersPolicy, "${PiHost}:${RemoteTempDir}/multimedica-scanner-sudoers")
+Invoke-Remote "Installing appliance sudoers policy ..." "echo 'Installing sudoers policy. Enter the Pi password if prompted.' && sudo -v && sudo install -o root -g root -m 0440 $RemoteTempDir/multimedica-scanner-sudoers /etc/sudoers.d/multimedica-scanner && sudo visudo -cf /etc/sudoers.d/multimedica-scanner" -Tty
 
 # =========================
 # Prepare fresh Raspberry Pi OS
@@ -148,7 +191,7 @@ echo "==> Base package installation complete"
     }
 
     Copy-Remote "Copying base package installer..." @($LocalBasePackageScript, "${PiHost}:${RemoteTempDir}/install-base-packages.sh")
-    Invoke-Remote "Running base package installer..." "chmod +x $RemoteTempDir/install-base-packages.sh && sudo bash $RemoteTempDir/install-base-packages.sh" -Tty
+    Invoke-Remote "Running base package installer..." "chmod +x $RemoteTempDir/install-base-packages.sh && sudo bash $RemoteTempDir/install-base-packages.sh"
 } else {
     log "Skipping base package installation because -InstallBasePackages was not specified."
 }
@@ -224,7 +267,7 @@ if (-not $SkipEnv) {
 Invoke-Remote "Setting remote permissions..." "chmod +x $RemoteTempDir/install-scanner.sh && find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
 
 # Installer uses sudo internally and may prompt once for password.
-Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir" -Tty
+Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir"
 
 # Configure tty1 console autologin so .bash_profile actually runs at boot.
 # Without this, the Pi stops at a console login prompt and the kiosk never starts.

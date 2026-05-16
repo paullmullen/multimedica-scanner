@@ -271,12 +271,13 @@ function formatShortTime(dateValue) {
 function formatFooterDateTime(dateValue) {
   const date = dateValue ? new Date(dateValue) : new Date();
 
-  return date.toLocaleString([], {
+  return date.toLocaleString("es-GT", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
     hour: "numeric",
+    hour12: false,
     minute: "2-digit",
   });
 }
