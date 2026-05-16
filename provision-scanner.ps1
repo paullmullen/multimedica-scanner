@@ -3,7 +3,8 @@ param(
     [string]$LocalProjectDir = ".",
     [string]$LocalEnvFile = ".env",
     [string]$RemoteTempDir = "/home/multimedica_edge/provisioning",
-    [switch]$SkipEnv
+    [switch]$SkipEnv,
+    [switch]$InstallBasePackages
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,13 +14,66 @@ function log($msg) {
     Write-Host "[$ts] ==> $msg"
 }
 
+function Invoke-Checked {
+    param(
+        [string]$Description,
+        [string]$Exe,
+        [string[]]$CommandArgs,
+        [switch]$AllowFailure
+    )
+
+    if ($Description) { log $Description }
+
+    Write-Host "    $Exe $($CommandArgs -join ' ')" -ForegroundColor DarkGray
+    & $Exe @CommandArgs
+    $exitCode = $LASTEXITCODE
+
+    if ((-not $AllowFailure) -and ($exitCode -ne 0)) {
+        throw "Command failed with exit code ${exitCode}: $Description"
+    }
+
+    return $exitCode
+}
+
+$SshCommand = Get-Command ssh.exe -ErrorAction SilentlyContinue
+if (-not $SshCommand) { $SshCommand = Get-Command ssh -ErrorAction SilentlyContinue }
+if (-not $SshCommand) { throw "ssh not found." }
+$SshExe = $SshCommand.Source
+
+$ScpCommand = Get-Command scp.exe -ErrorAction SilentlyContinue
+if (-not $ScpCommand) { $ScpCommand = Get-Command scp -ErrorAction SilentlyContinue }
+if (-not $ScpCommand) { throw "scp not found." }
+$ScpExe = $ScpCommand.Source
+
+Write-Host "Using SSH: $SshExe" -ForegroundColor DarkGray
+Write-Host "Using SCP: $ScpExe" -ForegroundColor DarkGray
+
+function Invoke-Remote {
+    param(
+        [string]$Description,
+        [string]$RemoteCommand,
+        [switch]$Tty,
+        [switch]$AllowFailure
+    )
+
+    $args = @()
+    if ($Tty) { $args += "-t" }
+    $args += $PiHost
+    $args += $RemoteCommand
+
+    Invoke-Checked -Description $Description -Exe $SshExe -CommandArgs $args -AllowFailure:$AllowFailure | Out-Null
+}
+
+function Copy-Remote {
+    param(
+        [string]$Description,
+        [string[]]$ScpArgs
+    )
+
+    Invoke-Checked -Description $Description -Exe $ScpExe -CommandArgs $ScpArgs | Out-Null
+}
+
 Write-Host "Provisioning scanner on $PiHost ..." -ForegroundColor Cyan
-
-$scp = Get-Command scp -ErrorAction SilentlyContinue
-$ssh = Get-Command ssh -ErrorAction SilentlyContinue
-
-if (-not $scp) { throw "scp not found." }
-if (-not $ssh) { throw "ssh not found." }
 
 $LocalProjectDir = (Resolve-Path $LocalProjectDir).Path
 
@@ -40,99 +94,164 @@ if (-not $SkipEnv) {
     $ResolvedEnvPath = (Resolve-Path $LocalEnvFile).Path
 }
 
-log "Creating remote temp directory..."
-ssh $PiHost "rm -rf $RemoteTempDir && mkdir -p $RemoteTempDir"
+# Start from a clean remote staging directory.
+Invoke-Remote "Creating remote temp directory..." "rm -rf $RemoteTempDir && mkdir -p $RemoteTempDir"
 
-function Copy-IfExists {
-    param(
-        [string]$RelativePath,
-        [switch]$Recursive
-    )
+# =========================
+# Prepare fresh Raspberry Pi OS
+# =========================
+if ($InstallBasePackages) {
+    $BasePackageScript = @'
+#!/usr/bin/env bash
+set -euo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+
+echo "==> Updating package lists"
+apt-get update
+
+echo "==> Installing base packages needed by scanner/kiosk"
+apt-get install -y \
+  nodejs \
+  npm \
+  git \
+  curl \
+  jq \
+  evtest \
+  network-manager \
+  xserver-xorg \
+  xinit \
+  openbox \
+  unclutter \
+  x11-xserver-utils
+
+echo "==> Installing Chromium if needed"
+if ! command -v chromium-browser >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1; then
+  apt-get install -y chromium-browser || apt-get install -y chromium
+fi
+
+echo "==> Verifying Node/npm"
+node -v
+npm -v
+
+echo "==> Base package installation complete"
+'@
+
+    $LocalBasePackageScript = Join-Path $env:TEMP "multimedica-install-base-packages.sh"
+
+    # Use UTF8 without BOM where supported; fall back safely for older Windows PowerShell.
+    try {
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($LocalBasePackageScript, $BasePackageScript.Replace("`r`n", "`n"), $Utf8NoBom)
+    } catch {
+        Set-Content -Path $LocalBasePackageScript -Value $BasePackageScript -Encoding UTF8
+    }
+
+    Copy-Remote "Copying base package installer..." @($LocalBasePackageScript, "${PiHost}:${RemoteTempDir}/install-base-packages.sh")
+    Invoke-Remote "Running base package installer..." "chmod +x $RemoteTempDir/install-base-packages.sh && sudo bash $RemoteTempDir/install-base-packages.sh" -Tty
+} else {
+    log "Skipping base package installation because -InstallBasePackages was not specified."
+}
+
+$FilesToCopy = @(
+    "scanner.js",
+    "configQr.js",
+    "package.json",
+    "package-lock.json"
+)
+
+foreach ($RelativePath in $FilesToCopy) {
+    $FullPath = Join-Path $LocalProjectDir $RelativePath
+    if (-not (Test-Path $FullPath)) {
+        throw "Required file not found: $FullPath"
+    }
+
+    Copy-Remote "Copying $RelativePath ..." @($FullPath, "${PiHost}:${RemoteTempDir}/")
+}
+
+$OptionalDirs = @(
+    "kiosk",
+    "display"
+)
+
+foreach ($RelativePath in $OptionalDirs) {
     $FullPath = Join-Path $LocalProjectDir $RelativePath
 
-    if (-not (Test-Path $FullPath)) {
-        return
-    }
-
-    log "Copying $RelativePath ..."
-
-    if ($Recursive) {
-        scp -r "$FullPath" "${PiHost}:${RemoteTempDir}/"
+    if (Test-Path $FullPath) {
+        Copy-Remote "Copying $RelativePath ..." @("-r", "$FullPath", "${PiHost}:${RemoteTempDir}/")
     } else {
-        scp "$FullPath" "${PiHost}:${RemoteTempDir}/"
+        Write-Host "Skipping optional directory not found: $RelativePath" -ForegroundColor Yellow
     }
 }
 
-# =========================
-# Copy core files
-# =========================
-Copy-IfExists "scanner.js"
-Copy-IfExists "configQr.js"
-Copy-IfExists "package.json"
-Copy-IfExists "package-lock.json"
-Copy-IfExists "update-scanner.sh"
+# Historical note:
+# The local repo folder is named "display", but the runtime folder on the Pi is "kiosk-display".
+Invoke-Remote "Preparing kiosk-display directory..." "if [ -d $RemoteTempDir/display ]; then mv $RemoteTempDir/display $RemoteTempDir/kiosk-display; fi"
 
-# =========================
-# Copy directories
-# =========================
-Copy-IfExists "kiosk" -Recursive
-Copy-IfExists "display" -Recursive
-
-# Rename display -> kiosk-display on remote
-ssh $PiHost "if [ -d $RemoteTempDir/display ]; then mv $RemoteTempDir/display $RemoteTempDir/kiosk-display; fi"
-
-# =========================
-# Copy systemd + installer
-# =========================
-log "Copying installer..."
-scp "$InstallerPath" "${PiHost}:${RemoteTempDir}/install-scanner.sh"
+Copy-Remote "Copying installer..." @("$InstallerPath", "${PiHost}:${RemoteTempDir}/install-scanner.sh")
 
 if (Test-Path $SystemdDir) {
-    log "Copying systemd files..."
-    scp -r "$SystemdDir" "${PiHost}:${RemoteTempDir}/"
+    Copy-Remote "Copying systemd files..." @("-r", "$SystemdDir", "${PiHost}:${RemoteTempDir}/")
+} else {
+    Write-Host "Skipping systemd directory not found: $SystemdDir" -ForegroundColor Yellow
 }
 
-# =========================
-# Copy .bash_profile
-# =========================
-Copy-IfExists ".bash_profile"
+# Generate the kiosk login profile instead of relying on a local dotfile.
+# This prevents a malformed local .bash_profile from breaking kiosk startup on a fresh Pi.
+$KioskBashProfile = @'
+if [[ -z "$DISPLAY" && -z "$SSH_CONNECTION" && "$(tty)" == "/dev/tty1" ]]; then
+  echo "Starting kiosk at $(date)" >> /home/multimedica_edge/kiosk.log
+  startx /opt/multimedica-scanner/kiosk/start-kiosk.sh -- >> /home/multimedica_edge/kiosk.log 2>&1
+fi
+'@
 
-# =========================
-# Copy .env
-# =========================
+$LocalBashProfile = Join-Path $env:TEMP "multimedica-kiosk-bash-profile"
+try {
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($LocalBashProfile, $KioskBashProfile.Replace("`r`n", "`n"), $Utf8NoBom)
+} catch {
+    Set-Content -Path $LocalBashProfile -Value $KioskBashProfile -Encoding UTF8
+}
+
+Copy-Remote "Copying generated .bash_profile ..." @("$LocalBashProfile", "${PiHost}:${RemoteTempDir}/.bash_profile")
+
 if (-not $SkipEnv) {
-    log "Copying .env ..."
-    scp "$ResolvedEnvPath" "${PiHost}:${RemoteTempDir}/.env"
+    Copy-Remote "Copying .env ..." @("$ResolvedEnvPath", "${PiHost}:${RemoteTempDir}/.env")
+} else {
+    Write-Host "Skipping .env copy because -SkipEnv was specified." -ForegroundColor Yellow
 }
 
-# =========================
-# Permissions
-# =========================
-log "Setting remote permissions..."
-ssh $PiHost "chmod +x $RemoteTempDir/install-scanner.sh"
-ssh $PiHost "find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
+Invoke-Remote "Setting remote permissions..." "chmod +x $RemoteTempDir/install-scanner.sh && find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
 
-# =========================
-# Run installer
-# =========================
-log "Running installer..."
-ssh -t $PiHost "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir"
+# Installer uses sudo internally and may prompt once for password.
+Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir" -Tty
 
-# =========================
-# Status check
-# =========================
-log "Checking scanner service..."
-ssh -t $PiHost "sudo systemctl --no-pager --full status multimedica-scanner.service || true"
+# Configure tty1 console autologin so .bash_profile actually runs at boot.
+# Without this, the Pi stops at a console login prompt and the kiosk never starts.
+$AutologinConf = @'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin multimedica_edge --noclear %I $TERM
+'@
 
-log "Checking kiosk display service..."
-ssh -t $PiHost "sudo systemctl --no-pager --full status kiosk-display.service || true"
+$LocalAutologinConf = Join-Path $env:TEMP "multimedica-getty-autologin.conf"
+try {
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($LocalAutologinConf, $AutologinConf.Replace("`r`n", "`n"), $Utf8NoBom)
+} catch {
+    Set-Content -Path $LocalAutologinConf -Value $AutologinConf -Encoding UTF8
+}
 
-log "Recent scanner logs..."
-ssh -t $PiHost "journalctl -u multimedica-scanner.service -n 40 --no-pager || true"
+Copy-Remote "Copying tty1 autologin config ..." @("$LocalAutologinConf", "${PiHost}:${RemoteTempDir}/autologin.conf")
+Invoke-Remote "Installing tty1 autologin config ..." "sudo mkdir -p /etc/systemd/system/getty@tty1.service.d && sudo cp $RemoteTempDir/autologin.conf /etc/systemd/system/getty@tty1.service.d/autologin.conf && sudo systemctl daemon-reload"
 
-log "Recent kiosk display logs..."
-ssh -t $PiHost "journalctl -u kiosk-display.service -n 40 --no-pager || true"
+Write-Host ""
+Write-Host "Provisioning finished. Checking services..." -ForegroundColor Cyan
 
-log "Provisioning complete"
+Invoke-Remote "Checking scanner service..." "sudo systemctl --no-pager --full status multimedica-scanner.service" -Tty -AllowFailure
+Invoke-Remote "Checking kiosk display service..." "sudo systemctl --no-pager --full status kiosk-display.service" -Tty -AllowFailure
+Invoke-Remote "Recent scanner logs..." "journalctl -u multimedica-scanner.service -n 40 --no-pager" -Tty -AllowFailure
+Invoke-Remote "Recent kiosk display logs..." "journalctl -u kiosk-display.service -n 40 --no-pager" -Tty -AllowFailure
+
+Write-Host ""
 Write-Host "Provisioning complete." -ForegroundColor Green

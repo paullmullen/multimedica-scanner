@@ -35,7 +35,7 @@ The scanner appliance:
 
 1. Accepts barcode scan events
 2. Sends events to cloud functions
-3. Receives authoritative workflow state
+3. Receives authoritative workflow state from the cloud
 4. Updates the local kiosk display
 5. Maintains synchronization with cloud state
 6. Supports field configuration via QR codes
@@ -54,7 +54,7 @@ The architecture is intentionally cloud-light:
 ## Barcode Workflow Processing
 
 - USB barcode scanner support
-- Keyboard-wedge scanner compatibility
+- Keyboard-wedge scanner compatibility (replaces a keyboard)
 - Scan-in / scan-out workflow handling
 - Cloud-authoritative workflow transitions
 - Retry-safe idempotent event handling
@@ -184,7 +184,7 @@ Detailed operational and architectural documentation lives under `/docs`.
 
 ---
 
-## Quick Start
+## [Quick Start](docs/quickstart.md)
 
 Fast-path deployment guide:
 
@@ -202,7 +202,7 @@ Covers:
 
 ---
 
-## Installation Guide
+## [Installation Guide](docs/installation.md)
 
 Complete installer/operator manual:
 
@@ -222,7 +222,7 @@ Covers:
 
 ---
 
-## Troubleshooting Guide
+## [Troubleshooting Guide](docs/troubleshooting.md)
 
 Operational diagnostics and SOPs:
 
@@ -241,7 +241,7 @@ Covers:
 
 ---
 
-## Architecture Guide
+## [Architecture Guide](docs/architecture.md)
 
 Technical deep dive:
 
@@ -260,7 +260,7 @@ Covers:
 
 ---
 
-# Quick Start Commands
+# [Quick Start Commands](docs/quickstart.md)
 
 Install local dependencies:
 
@@ -270,8 +270,14 @@ npm install
 
 Deploy to the Raspberry Pi:
 
+
+Use this if deploying to an already configured Pi
 ```powershell
 .\provision-scanner.ps1
+```
+Use this if deploying to a brand new  Pi (It will take MUCH longer)
+```powershell
+.\provision-scanner.ps1 -InstallBasePackages
 ```
 
 Check scanner service status on the Pi:
@@ -416,6 +422,7 @@ sudo systemctl status multimedica-scanner.service
 sudo systemctl status kiosk-display.service
 ```
 
+Display Logs
 ```bash
 journalctl -u multimedica-scanner.service -f
 journalctl -u kiosk-display.service -f
@@ -459,15 +466,15 @@ Detailed API examples should live under:
 
 # Common Display Status Codes
 
-| Status Code       | Meaning                      |
-| ----------------- | ---------------------------- |
-| `available`       | Station available            |
-| `in_process`      | Patient currently being seen |
-| `patient_waiting` | Another patient is waiting   |
-| `clinic_closed`   | Clinic closed                |
-| `offline`         | Cloud or device offline      |
-| `degraded`        | Partial operational failure  |
-| `error`           | Error state                  |
+| Status Code       | Meaning                                     |
+| ----------------- | ------------------------------------------- |
+| `available`       | Station available                           |
+| `in_process`      | Patient currently being seen                |
+| `patient_waiting` | Another patient is waiting (Room is empty)  |
+| `clinic_closed`   | Clinic closed                               |
+| `offline`         | Cloud or device offline                     |
+| `degraded`        | Partial operational failure                 |
+| `error`           | Error state                                 |
 
 ---
 
@@ -628,18 +635,6 @@ Future enhancements may include:
 
 ---
 
-# Current Documentation Priorities
-
-Near-term documentation work:
-
-1. Build an installation manual for someone other than the original developer to configure and install a scanner/Pi.
-2. Recheck and document GitHub startup software-update behavior.
-3. Split detailed API examples out of this README and into `/docs/kiosk-api.md`.
-4. Split observability details into `/docs/observability.md`.
-5. Split operational constants and configuration philosophy into `/docs/configuration.md`.
-6. Add troubleshooting SOPs for common Pi, scanner, WiFi, cloud, and kiosk failures.
-
----
 
 # Refactor Policy
 
@@ -690,140 +685,6 @@ Planned future capabilities:
 - advanced analytics
 - printer reliability improvements
 - automated provisioning
-
----
-
-# Markdown Documentation Linking
-
-Markdown files are usually connected using relative links.
-
-Example:
-
-```md
-[Installation Guide](docs/installation.md)
-```
-
-This creates a clickable link from README.md to:
-
-```text
-/docs/installation.md
-```
-
----
-
-## Relative Paths
-
-Markdown links are typically relative to the current file.
-
-Examples:
-
-### Link to a file in a subfolder
-
-```md
-[Architecture](docs/architecture.md)
-```
-
-### Link to a sibling file
-
-```md
-[Troubleshooting](troubleshooting.md)
-```
-
-### Link back upward
-
-```md
-[Back to README](../README.md)
-```
-
----
-
-## Linking to Headings
-
-Markdown can also link directly to section headings.
-
-Example:
-
-```md
-[Configuration Philosophy](#configuration-philosophy)
-```
-
-This jumps to:
-
-```md
-# Configuration Philosophy
-```
-
-GitHub automatically converts headings into anchors.
-
-Rules:
-
-```text
-Lowercase
-Spaces become hyphens
-Special characters removed
-```
-
-Example:
-
-```md
-# Current Documentation Priorities
-```
-
-becomes:
-
-```text
-#current-documentation-priorities
-```
-
----
-
-## Cross-Document Heading Links
-
-You can combine file paths and headings.
-
-Example:
-
-```md
-[Polling Details](architecture.md#polling-and-cloud-synchronization)
-```
-
-This opens:
-
-- `architecture.md`
-- then jumps to that heading
-
----
-
-## Typical Documentation Pattern
-
-A mature project usually evolves toward:
-
-```text
-README.md
-    ↓
-quickstart.md
-    ↓
-installation.md
-    ↓
-architecture.md
-    ↓
-specialized operational docs
-```
-
-The README becomes:
-
-- front door
-- orientation layer
-- navigation hub
-
-while detailed operational knowledge moves into focused documents.
-
-This prevents:
-
-- README sprawl
-- duplicated documentation
-- giant unmaintainable files
-- conflicting instructions
 
 ---
 

@@ -43,6 +43,8 @@ Recommended settings:
 - Raspberry Pi OS Lite
 - Enable SSH
 - Configure WiFi
+- Use password authentication
+- No Raspberry Pi Connect
 - Set hostname
 - Create user
 
@@ -53,13 +55,13 @@ Recommended settings:
 Verify:
 
 ```bash
-ping raspberrypi.local
+ping multimedicascanner1.local
 ```
 
 SSH into the Pi:
 
 ```bash
-ssh multimedica_edge@raspberrypi.local
+ssh multimedica_edge@multimedicascanner1.local
 ```
 
 ---
@@ -74,6 +76,12 @@ sudo git clone <repo-url> multimedica-scanner
 ---
 
 # 4. Run Provisioning Script
+
+You may need to create an SSH key to avoid typing the password over and over in the script below.  To do this run these two commands in the windows powershell.
+```powershell
+ssh-keygen -t ed25519
+type $HOME\.ssh\id_ed25519.pub | ssh multimedica_edge@multimedicascanner1.local "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
 
 From Windows:
 
@@ -100,7 +108,7 @@ curl http://127.0.0.1:3001/api/display | jq
 
 ---
 
-# 7. Configure Scanner via QR
+# 7. [Configure Scanner via QR](qr-configuration.md)
 
 Scan:
 
