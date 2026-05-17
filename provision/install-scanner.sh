@@ -2,59 +2,109 @@
 set -euo pipefail
 
 SOURCE_DIR="${1:-/home/multimedica_edge/provisioning}"
+GIT_BRANCH="${2:-production}"
 APP_DIR="/opt/multimedica-scanner"
 APP_USER="multimedica_edge"
 APP_GROUP="multimedica_edge"
 SYSTEMD_DIR="/etc/systemd/system"
 HOME_DIR="/home/${APP_USER}"
+GIT_REPO_URL="https://github.com/paullmullen/multimedica-scanner.git"
 
 log() {
   echo "==> $*"
 }
 
-copy_if_exists() {
-  local src="$1"
-  local dest="$2"
-  if [ -e "$src" ]; then
-    mkdir -p "$(dirname "$dest")"
-    cp -R "$src" "$dest"
+require_safe_branch_name() {
+  local branch="$1"
+
+  # Keep this intentionally conservative for command-line deployment input.
+  # Allows typical branch names like production, main, feature/qr-printing, release-2026-05.
+  if [[ ! "$branch" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "ERROR: Invalid Git branch name: $branch" >&2
+    exit 1
+  fi
+
+  if [[ "$branch" == /* || "$branch" == *..* || "$branch" == *//* || "$branch" == -* || "$branch" == *.lock ]]; then
+    echo "ERROR: Unsafe Git branch name: $branch" >&2
+    exit 1
   fi
 }
 
 log "Installing scanner bundle from: $SOURCE_DIR"
 log "Target app dir: $APP_DIR"
+log "Git repo: $GIT_REPO_URL"
+log "Git branch: $GIT_BRANCH"
+
+require_safe_branch_name "$GIT_BRANCH"
 
 if ! id "$APP_USER" >/dev/null 2>&1; then
   echo "User $APP_USER does not exist. Create it first or adjust APP_USER in install-scanner.sh." >&2
   exit 1
 fi
 
-mkdir -p "$APP_DIR"
-mkdir -p "$APP_DIR/kiosk"
-
-# =========================
-# COPY FILES
-# =========================
-
-log "Copying scanner runtime files"
-copy_if_exists "$SOURCE_DIR/scanner.js" "$APP_DIR/scanner.js"
-copy_if_exists "$SOURCE_DIR/configQr.js" "$APP_DIR/configQr.js"
-copy_if_exists "$SOURCE_DIR/package.json" "$APP_DIR/package.json"
-copy_if_exists "$SOURCE_DIR/package-lock.json" "$APP_DIR/package-lock.json"
-copy_if_exists "$SOURCE_DIR/update-scanner.sh" "$APP_DIR/update-scanner.sh"
-
-if [ -d "$SOURCE_DIR/kiosk" ]; then
-  rm -rf "$APP_DIR/kiosk"
-  cp -R "$SOURCE_DIR/kiosk" "$APP_DIR/kiosk"
+if ! command -v git >/dev/null 2>&1; then
+  echo "git not found. Install git on the Pi before provisioning." >&2
+  exit 1
 fi
 
-if [ -d "$SOURCE_DIR/kiosk-display" ]; then
-  rm -rf "$APP_DIR/kiosk-display"
-  cp -R "$SOURCE_DIR/kiosk-display" "$APP_DIR/kiosk-display"
+# =========================
+# GIT-BACKED APPLICATION INSTALL
+# =========================
+
+if [ -d "$APP_DIR/.git" ]; then
+  log "Existing git-backed app directory detected"
+  chown -R "$APP_USER:$APP_GROUP" "$APP_DIR"
+
+  pushd "$APP_DIR" >/dev/null
+
+  log "Ensuring repository remote is correct"
+  if sudo -u "$APP_USER" git remote get-url origin >/dev/null 2>&1; then
+    sudo -u "$APP_USER" git remote set-url origin "$GIT_REPO_URL"
+  else
+    sudo -u "$APP_USER" git remote add origin "$GIT_REPO_URL"
+  fi
+
+  log "Fetching latest branch from origin"
+  sudo -u "$APP_USER" git fetch origin "$GIT_BRANCH"
+
+  log "Checking out local branch: $GIT_BRANCH"
+  if sudo -u "$APP_USER" git show-ref --verify --quiet "refs/heads/$GIT_BRANCH"; then
+    sudo -u "$APP_USER" git checkout "$GIT_BRANCH"
+  else
+    sudo -u "$APP_USER" git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH"
+  fi
+
+  log "Pulling latest code with fast-forward only"
+  sudo -u "$APP_USER" git pull --ff-only origin "$GIT_BRANCH"
+
+  popd >/dev/null
+else
+  log "No git-backed app directory found"
+
+  if [ -d "$APP_DIR" ]; then
+    BACKUP_DIR="${APP_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
+    log "Backing up existing app directory to: $BACKUP_DIR"
+    mv "$APP_DIR" "$BACKUP_DIR"
+  fi
+
+  log "Preparing empty app directory for clone"
+  mkdir -p "$APP_DIR"
+  chown "$APP_USER:$APP_GROUP" "$APP_DIR"
+
+  log "Cloning branch '$GIT_BRANCH' from GitHub"
+  sudo -u "$APP_USER" git clone -b "$GIT_BRANCH" "$GIT_REPO_URL" "$APP_DIR"
 fi
+
+# =========================
+# LOCAL DEVICE-SPECIFIC FILES
+# =========================
+
+# Runtime application files are now authoritative from GitHub.
+# Keep only local/provisioning files that are intentionally device-specific
+# or host-level configuration.
 
 if [ -f "$SOURCE_DIR/.bash_profile" ]; then
-  log "Installing .bash_profile"
+  log "Installing generated .bash_profile"
   cp "$SOURCE_DIR/.bash_profile" "$HOME_DIR/.bash_profile"
   chown "$APP_USER:$APP_GROUP" "$HOME_DIR/.bash_profile"
 fi
@@ -76,20 +126,20 @@ if command -v npm >/dev/null 2>&1; then
     log "Installing scanner npm dependencies"
     pushd "$APP_DIR" >/dev/null
     if [ -f package-lock.json ]; then
-      sudo -u "$APP_USER" npm ci
+      sudo -u "$APP_USER" npm ci --omit=dev
     else
-      sudo -u "$APP_USER" npm install
+      sudo -u "$APP_USER" npm install --omit=dev
     fi
     popd >/dev/null
   fi
 
-  if [ -f "$APP_DIR/kiosk-display/package.json" ]; then
-    log "Installing kiosk-display npm dependencies"
-    pushd "$APP_DIR/kiosk-display" >/dev/null
+  if [ -f "$APP_DIR/display/package.json" ]; then
+    log "Installing display npm dependencies"
+    pushd "$APP_DIR/display" >/dev/null
     if [ -f package-lock.json ]; then
-      sudo -u "$APP_USER" npm ci
+      sudo -u "$APP_USER" npm ci --omit=dev
     else
-      sudo -u "$APP_USER" npm install
+      sudo -u "$APP_USER" npm install --omit=dev
     fi
     popd >/dev/null
   fi
@@ -155,10 +205,10 @@ fi
 # =========================
 
 log "Installing scanner sudoers rules"
-cat >/etc/sudoers.d/multimedica-scanner <<'EOF'
+cat >/etc/sudoers.d/multimedica-scanner <<'SUDOERS'
 multimedica_edge ALL=(root) NOPASSWD: /usr/bin/evtest
 multimedica_edge ALL=(root) NOPASSWD: /usr/bin/nmcli
-EOF
+SUDOERS
 
 chown root:root /etc/sudoers.d/multimedica-scanner
 chmod 0440 /etc/sudoers.d/multimedica-scanner
@@ -190,6 +240,19 @@ done
 # =========================
 
 log "Running post-install validation"
+
+log "Checking git repository status"
+pushd "$APP_DIR" >/dev/null
+CURRENT_BRANCH="$(sudo -u "$APP_USER" git branch --show-current)"
+CURRENT_COMMIT="$(sudo -u "$APP_USER" git log -1 --oneline)"
+echo "Current branch: $CURRENT_BRANCH"
+echo "Current commit: $CURRENT_COMMIT"
+
+if [ "$CURRENT_BRANCH" != "$GIT_BRANCH" ]; then
+  echo "ERROR: Expected branch '$GIT_BRANCH' but found '$CURRENT_BRANCH'." >&2
+  exit 1
+fi
+popd >/dev/null
 
 log "Checking sudoers syntax"
 visudo -c
@@ -238,6 +301,6 @@ if [ "$DISPLAY_HEALTH_OK" = true ]; then
 else
   echo "WARNING: kiosk display health endpoint did not respond successfully."
 fi
-log "Post-install validation complete"
 
+log "Post-install validation complete"
 log "Installation complete"
