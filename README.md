@@ -634,7 +634,89 @@ Future enhancements may include:
 - OTA deployment orchestration
 
 ---
+## Git-Backed Production Deployment
 
+The scanner appliance is deployed as a Git-backed runtime checkout.
+
+The Raspberry Pi tracks a designated Git branch:
+
+```text
+production
+```
+
+The Pi is considered an operational appliance, not a development environment.
+
+Local runtime code on the Pi should never become authoritative.
+
+---
+
+### Branch Strategy
+
+Recommended workflow:
+
+| Branch       | Purpose                            |
+| ------------ | ---------------------------------- |
+| `main`       | Active development branch          |
+| `production` | Stable appliance deployment branch |
+
+Typical promotion flow:
+
+```bash
+git checkout production
+git merge --ff-only main
+git push origin production
+```
+
+This creates a clean linear production history while keeping the deployed fleet deterministic.
+
+---
+
+### Provisioning Behavior
+
+During provisioning:
+
+1. The Pi fetches the configured Git branch from GitHub
+2. The local checkout is reset to match the remote branch exactly
+3. Untracked files are removed
+4. Runtime services are restarted
+
+The Pi converges toward the authoritative GitHub deployment state.
+
+---
+
+### Graceful GitHub Failure Handling
+
+If GitHub cannot be reached during reprovisioning or boot-time synchronization:
+
+- the existing local runtime code remains active
+- provisioning continues using the currently installed version
+- scanner/display services continue operating normally
+
+This behavior is intentional and prioritizes clinic operational continuity over strict update enforcement.
+
+First-time installation still requires GitHub access because no local runtime exists yet.
+
+---
+
+### Appliance Philosophy
+
+The deployment model intentionally favors:
+
+- operational resilience
+- deterministic deployments
+- field recoverability
+- simple rollback behavior
+- minimized configuration drift
+
+The appliance should always be reproducible from:
+
+```text
+GitHub production branch
++
+persistent local .env configuration
+```
+
+rather than relying on local manual edits.
 
 # Refactor Policy
 
