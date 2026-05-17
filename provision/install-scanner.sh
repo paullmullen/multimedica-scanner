@@ -65,17 +65,24 @@ if [ -d "$APP_DIR/.git" ]; then
   fi
 
   log "Fetching latest branch from origin"
-  sudo -u "$APP_USER" git fetch origin "$GIT_BRANCH"
 
-  log "Checking out local branch: $GIT_BRANCH"
-  if sudo -u "$APP_USER" git show-ref --verify --quiet "refs/heads/$GIT_BRANCH"; then
-    sudo -u "$APP_USER" git checkout "$GIT_BRANCH"
+  if sudo -u "$APP_USER" git fetch origin "$GIT_BRANCH"; then
+    log "Checking out local branch: $GIT_BRANCH"
+
+    if sudo -u "$APP_USER" git show-ref --verify --quiet "refs/heads/$GIT_BRANCH"; then
+      sudo -u "$APP_USER" git checkout "$GIT_BRANCH"
+    else
+      sudo -u "$APP_USER" git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH"
+    fi
+
+    log "Resetting local checkout to origin/$GIT_BRANCH"
+    sudo -u "$APP_USER" git reset --hard "origin/$GIT_BRANCH"
+
+    log "Cleaning untracked files"
+    sudo -u "$APP_USER" git clean -fd
   else
-    sudo -u "$APP_USER" git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH"
+    echo "WARNING: Could not fetch origin/$GIT_BRANCH. Continuing with currently installed local code." >&2
   fi
-
-  log "Pulling latest code with fast-forward only"
-  sudo -u "$APP_USER" git pull --ff-only origin "$GIT_BRANCH"
 
   popd >/dev/null
 else
