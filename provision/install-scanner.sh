@@ -74,11 +74,8 @@ if [ -d "$APP_DIR/.git" ]; then
     sudo -u "$APP_USER" git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH"
   fi
 
-  log "Resetting local checkout to origin/$GIT_BRANCH"
-  sudo -u "$APP_USER" git reset --hard "origin/$GIT_BRANCH"
-
-  log "Cleaning untracked files"
-  sudo -u "$APP_USER" git clean -fd
+  log "Pulling latest code with fast-forward only"
+  sudo -u "$APP_USER" git pull --ff-only origin "$GIT_BRANCH"
 
   popd >/dev/null
 else
@@ -136,9 +133,9 @@ if command -v npm >/dev/null 2>&1; then
     popd >/dev/null
   fi
 
-  if [ -f "$APP_DIR/display/package.json" ]; then
-    log "Installing display npm dependencies"
-    pushd "$APP_DIR/display" >/dev/null
+  if [ -f "$APP_DIR/kiosk-display/package.json" ]; then
+    log "Installing kiosk-display npm dependencies"
+    pushd "$APP_DIR/kiosk-display" >/dev/null
     if [ -f package-lock.json ]; then
       sudo -u "$APP_USER" npm ci --omit=dev
     else
