@@ -264,8 +264,7 @@ if (-not $SkipEnv) {
     Write-Host "Skipping .env copy because -SkipEnv was specified." -ForegroundColor Yellow
 }
 
-Invoke-Remote "Setting remote permissions..." "chmod +x $RemoteTempDir/install-scanner.sh && find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
-
+Invoke-Remote "Setting remote permissions..." "find $RemoteTempDir -type f -name '*.sh' -exec sed -i 's/\r$//' {} \; && chmod +x $RemoteTempDir/install-scanner.sh && find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
 # Installer uses sudo internally and may prompt once for password.
 Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir"
 

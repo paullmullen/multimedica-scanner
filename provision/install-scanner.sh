@@ -74,8 +74,11 @@ if [ -d "$APP_DIR/.git" ]; then
     sudo -u "$APP_USER" git checkout -b "$GIT_BRANCH" "origin/$GIT_BRANCH"
   fi
 
-  log "Pulling latest code with fast-forward only"
-  sudo -u "$APP_USER" git pull --ff-only origin "$GIT_BRANCH"
+  log "Resetting local checkout to origin/$GIT_BRANCH"
+  sudo -u "$APP_USER" git reset --hard "origin/$GIT_BRANCH"
+
+  log "Cleaning untracked files"
+  sudo -u "$APP_USER" git clean -fd
 
   popd >/dev/null
 else
