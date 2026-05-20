@@ -211,6 +211,8 @@ function normalizeDisplayState(incoming = {}) {
       ...(source.timing || {}),
     },
 
+    identity: source.identity === undefined ? displayState?.identity || null : source.identity,
+
     overlay: source.overlay === undefined ? displayState?.overlay || null : source.overlay,
 
     health: {
