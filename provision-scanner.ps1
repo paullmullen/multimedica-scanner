@@ -61,7 +61,7 @@ Write-Host ""
 Write-Host "First-time connection note:" -ForegroundColor Yellow
 Write-Host "  SSH will automatically trust a brand-new scanner host key."
 Write-Host "  If this Pi was re-imaged and SSH warns about a changed host key, stop and verify the device."
-Write-Host "  You may be prompted once for the Pi password while the sudoers policy is installed."
+Write-Host "  Normal deploys require passwordless sudo. For a new Pi or sudoers repair, run:  .\provision-scanner.ps1 -InstallSudoersPolicy"
 Write-Host ""
 
 function Invoke-Remote {

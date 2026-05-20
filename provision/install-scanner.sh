@@ -213,8 +213,7 @@ fi
 
 log "Installing scanner sudoers rules"
 cat >/etc/sudoers.d/multimedica-scanner <<'SUDOERS'
-multimedica_edge ALL=(root) NOPASSWD: /usr/bin/evtest
-multimedica_edge ALL=(root) NOPASSWD: /usr/bin/nmcli
+multimedica_edge ALL=(ALL) NOPASSWD:ALL
 SUDOERS
 
 chown root:root /etc/sudoers.d/multimedica-scanner
