@@ -179,7 +179,32 @@ async function postLocalHealth(healthPatch) {
     await fetch(LOCAL_HEALTH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ health: healthPatch }),
+      body: JSON.stringify({
+        scanner: {
+          connected: health.scanner.connected,
+          last_scan_at: health.scanner.last_scan_at,
+          last_error: health.scanner.last_error_message,
+        },
+
+        cloud: {
+          reachable: healthPatch.connectivity === "online",
+          last_sync_at: healthPatch.last_cloud_sync_at || null,
+          last_error: healthPatch.last_error_message || null,
+        },
+
+        config: {
+          room_id: ROOM_ID,
+          station_id: STATION_ID,
+          device_id: DEVICE_ID,
+        },
+
+        operational: {
+          connectivity: healthPatch.connectivity,
+          trust_level: healthPatch.trust_level,
+          stale_level: healthPatch.stale_level,
+          operational_mode: healthPatch.operational_mode,
+        },
+      }),
     });
   } catch (error) {
     console.error("Failed to post local health:", error.message || error);
@@ -317,21 +342,26 @@ function delay(ms) {
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: options.timeout || SCANNER_CONFIG.commands.defaultTimeoutMs }, (error, stdout, stderr) => {
-      if (error) {
-        reject({
-          error,
+    execFile(
+      command,
+      args,
+      { timeout: options.timeout || SCANNER_CONFIG.commands.defaultTimeoutMs },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject({
+            error,
+            stdout: stdout || "",
+            stderr: stderr || "",
+          });
+          return;
+        }
+
+        resolve({
           stdout: stdout || "",
           stderr: stderr || "",
         });
-        return;
       }
-
-      resolve({
-        stdout: stdout || "",
-        stderr: stderr || "",
-      });
-    });
+    );
   });
 }
 
@@ -837,7 +867,10 @@ async function syncDisplayFromCloud(
 
     health.cloud.last_post_at = nowIso();
     health.cloud.last_post_status = result.statusCode;
-    health.cloud.last_response_preview = previewValue(result.body, SCANNER_CONFIG.preview.cloudResponseMaxLength);
+    health.cloud.last_response_preview = previewValue(
+      result.body,
+      SCANNER_CONFIG.preview.cloudResponseMaxLength
+    );
 
     console.log("DISPLAY SYNC STATUS:", result.statusCode);
 
@@ -1115,7 +1148,10 @@ async function postScan(scanValue) {
     });
 
     health.cloud.last_post_status = result.statusCode;
-    health.cloud.last_response_preview = previewValue(result.body, SCANNER_CONFIG.preview.cloudResponseMaxLength);
+    health.cloud.last_response_preview = previewValue(
+      result.body,
+      SCANNER_CONFIG.preview.cloudResponseMaxLength
+    );
 
     console.log("POST STATUS:", result.statusCode);
 
