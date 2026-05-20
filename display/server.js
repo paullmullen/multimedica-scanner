@@ -3,6 +3,9 @@ const path = require("path");
 const fs = require("fs");
 const { execFile } = require("child_process");
 
+const os = require("os");
+const { execSync } = require("child_process");
+
 const app = express();
 
 const PORT = Number(process.env.KIOSK_PORT || 3001);
@@ -397,11 +400,82 @@ app.post("/api/display", async (req, res) => {
   res.json({ ok: true, display: displayState });
 });
 
+function envPresent(name) {
+  return Boolean(process.env[name] && String(process.env[name]).trim());
+}
+
+function safeExec(command) {
+  try {
+    return execSync(command, {
+      cwd: "/opt/multimedica-scanner",
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function getIdentityHealth() {
+  return {
+    device_id: process.env.DEVICE_ID || null,
+    room_id: process.env.ROOM_ID || null,
+    station_id: process.env.STATION_ID || null,
+
+    hostname: os.hostname(),
+    ip_address: getLanIpAddress(),
+
+    app_dir: "/opt/multimedica-scanner",
+  };
+}
+
+function getConfigHealth() {
+  return {
+    env_loaded: envPresent("DEVICE_ID") || envPresent("ROOM_ID") || envPresent("STATION_ID"),
+    has_endpoint_url: envPresent("ENDPOINT_URL"),
+    has_shared_secret: envPresent("SHARED_SECRET"),
+    has_qr_admin_token: envPresent("SCANNER_QR_ADMIN_TOKEN"),
+  };
+}
+
+function getSoftwareHealth() {
+  return {
+    git_branch: safeExec("git rev-parse --abbrev-ref HEAD"),
+    git_commit: safeExec("git rev-parse --short HEAD"),
+    git_remote: safeExec("git remote get-url origin"),
+  };
+}
+
+function getLanIpAddress() {
+  try {
+    const interfaces = os.networkInterfaces();
+
+    for (const name of Object.keys(interfaces)) {
+      for (const net of interfaces[name] || []) {
+        const isIpv4 = net.family === "IPv4" || net.family === 4;
+
+        if (isIpv4 && !net.internal) {
+          return net.address;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 app.get("/api/health", (req, res) => {
   res.json({
     ...latestHealthState,
+
     ok: computeHealthOk(latestHealthState),
     updated_at: nowIso(),
+
+    identity: getIdentityHealth(),
+    config: getConfigHealth(),
+    software: getSoftwareHealth(),
   });
 });
 
