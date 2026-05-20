@@ -51,7 +51,7 @@ User=$USER
 WorkingDirectory=/opt/multimedica-scanner/kiosk-display
 EnvironmentFile=-/home/$USER/scanner/.env
 Environment=KIOSK_PORT=3001
-ExecStart=/usr/bin/node /opt/multimedica-scanner/display/server.js
+ExecStart=/usr/bin/node /opt/multimedica-scanner/kiosk-display/server.js
 Restart=always
 RestartSec=5
 
