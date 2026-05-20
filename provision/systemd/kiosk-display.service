@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=multimedica_edge
-WorkingDirectory=/opt/multimedica-scanner/display
+WorkingDirectory=/opt/multimedica-scanner/kiosk-display
 EnvironmentFile=-/home/multimedica_edge/scanner/.env
-ExecStart=/usr/bin/node /opt/multimedica-scanner/display/server.js
+ExecStart=/usr/bin/node /opt/multimedica-scanner/kiosk-display/server.js
 Restart=always
 RestartSec=5
 Environment=KIOSK_PORT=3001
