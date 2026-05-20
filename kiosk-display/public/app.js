@@ -95,6 +95,7 @@ const DISPLAY_CLASS_NAMES = Object.freeze([
   "overlay-info",
   "trust-untrusted",
   "state-startup",
+  "state-identity",
 ]);
 
 function clearDisplayClasses() {
@@ -102,10 +103,67 @@ function clearDisplayClasses() {
   appEl.classList.remove(...DISPLAY_CLASS_NAMES);
 }
 
+function renderIdentityScreen(state) {
+  if (!appEl) return;
+
+  clearDisplayClasses();
+  appEl.classList.add("state-identity");
+
+  lastMode = "identity";
+  lastStatusCode = null;
+  startedAtMs = null;
+
+  const identity = state?.identity || {};
+
+  const lines = [
+    `Device: ${identity.device_id || "Unknown"}`,
+    `Room: ${identity.room_id || "Unknown"}`,
+    `Station: ${identity.station_id || "Unknown"}`,
+    `Hostname: ${identity.hostname || "Unknown"}`,
+    `IP: ${identity.ip_address || "Unknown"}`,
+    `Commit: ${identity.commit || "Unknown"}`,
+  ];
+
+  if (statusTextEl) {
+    statusTextEl.textContent = "IDENTIDAD\nDEL SCANNER";
+  }
+
+  if (patientNameEl) {
+    patientNameEl.textContent = lines.join("\n");
+  }
+
+  if (roomValueEl) {
+    roomValueEl.textContent = identity.room_id || "—";
+  }
+
+  if (stationValueEl) {
+    stationValueEl.textContent = identity.station_id || "—";
+  }
+
+  if (stationBadgeEl) {
+    stationBadgeEl.textContent = "ID";
+  }
+
+  if (elapsedValueEl) {
+    elapsedValueEl.textContent = "Diagnóstico";
+  }
+
+  if (updatedValueEl) {
+    updatedValueEl.textContent = formatShortTime(Date.now());
+  }
+
+  if (dateTimeValueEl) {
+    dateTimeValueEl.textContent = identity.health_url || formatFooterDateTime(Date.now());
+  }
+}
+
 function getRenderMode(state) {
   const operationalMode = state?.operational_mode || state?.health?.operational_mode || "open";
   if (state?.mode === "startup") {
     return "startup";
+  }
+  if (state?.mode === "identity") {
+    return "identity";
   }
   if (state?.health?.trust_level === "untrusted") {
     return "untrusted";
@@ -493,6 +551,9 @@ function setDisplayState(state) {
   switch (getRenderMode(state)) {
     case "startup":
       renderStartupScreen(state);
+      return;
+    case "identity":
+      renderIdentityScreen(state);
       return;
     case "untrusted":
       renderUntrustedScreen(state);

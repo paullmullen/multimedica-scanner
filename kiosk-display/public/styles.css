@@ -69,6 +69,14 @@ body {
   background: var(--unavailable-bg);
 }
 
+.state-identity {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+#patientName {
+  white-space: pre-line;
+}
+
 /* =========================
    Overlay states
 ========================= */
