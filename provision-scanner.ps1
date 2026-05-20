@@ -236,7 +236,7 @@ foreach ($RelativePath in $FilesToCopy) {
 
 $OptionalDirs = @(
     "kiosk",
-    "display"
+    "kiosk-display"
 )
 
 foreach ($RelativePath in $OptionalDirs) {
@@ -249,9 +249,9 @@ foreach ($RelativePath in $OptionalDirs) {
     }
 }
 
-# Historical note:
-# The local repo folder is named "display", but the runtime folder on the Pi is "kiosk-display".
-Invoke-Remote "Preparing kiosk-display directory..." "if [ -d $RemoteTempDir/display ]; then mv $RemoteTempDir/display $RemoteTempDir/kiosk-display; fi"
+# kiosk-display now uses the same name locally and remotely.
+Write-Host "kiosk-display directory name already aligned." -ForegroundColor DarkGray
+
 
 Copy-Remote "Copying installer..." @("$InstallerPath", "${PiHost}:${RemoteTempDir}/install-scanner.sh")
 
