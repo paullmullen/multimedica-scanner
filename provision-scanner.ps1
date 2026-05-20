@@ -4,7 +4,8 @@ param(
     [string]$LocalEnvFile = ".env",
     [string]$RemoteTempDir = "/home/multimedica_edge/provisioning",
     [switch]$SkipEnv,
-    [switch]$InstallBasePackages
+    [switch]$InstallBasePackages,
+    [switch]$InstallSudoersPolicy
 )
 
 $ErrorActionPreference = "Stop"
@@ -121,24 +122,45 @@ Invoke-Remote "Creating remote temp directory..." "rm -rf $RemoteTempDir && mkdi
 # =========================
 # Install appliance sudoers policy
 # =========================
-# A fresh Pi may prompt once here. After this policy is installed, later provisioning
-# commands should not repeatedly ask for the sudo password.
-$SudoersPolicy = @'
+if ($InstallSudoersPolicy) {
+
+    $SudoersPolicy = @'
 # Multimedica scanner appliance provisioning/admin policy
 # Managed by provision-scanner.ps1
 multimedica_edge ALL=(ALL) NOPASSWD:ALL
 '@
 
-$LocalSudoersPolicy = Join-Path $env:TEMP "multimedica-scanner-sudoers"
-try {
-    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($LocalSudoersPolicy, $SudoersPolicy.Replace("`r`n", "`n"), $Utf8NoBom)
-} catch {
-    Set-Content -Path $LocalSudoersPolicy -Value $SudoersPolicy -Encoding UTF8
+    $LocalSudoersPolicy = Join-Path $env:TEMP "multimedica-scanner-sudoers"
+
+    try {
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText(
+            $LocalSudoersPolicy,
+            $SudoersPolicy.Replace("`r`n", "`n"),
+            $Utf8NoBom
+        )
+    } catch {
+        Set-Content -Path $LocalSudoersPolicy -Value $SudoersPolicy -Encoding UTF8
+    }
+
+    Copy-Remote `
+        "Copying appliance sudoers policy ..." `
+        @($LocalSudoersPolicy, "${PiHost}:${RemoteTempDir}/multimedica-scanner-sudoers")
+
+    Invoke-Remote `
+        "Installing appliance sudoers policy ..." `
+        "echo 'Installing sudoers policy. This step may ask for the Pi password once.' && sudo -v && sudo install -o root -g root -m 0440 $RemoteTempDir/multimedica-scanner-sudoers /etc/sudoers.d/multimedica-scanner && sudo visudo -cf /etc/sudoers.d/multimedica-scanner" `
+        -Tty
+
+} else {
+
+    Write-Host "Skipping appliance sudoers policy install. Use -InstallSudoersPolicy to run it."
+
+    Invoke-Remote `
+        "Verifying passwordless sudo is available ..." `
+        "sudo -n true || { echo 'Passwordless sudo is not available. Re-run with -InstallSudoersPolicy.'; exit 1; }"
 }
 
-Copy-Remote "Copying appliance sudoers policy ..." @($LocalSudoersPolicy, "${PiHost}:${RemoteTempDir}/multimedica-scanner-sudoers")
-Invoke-Remote "Installing appliance sudoers policy ..." "echo 'Installing sudoers policy. Enter the Pi password if prompted.' && sudo -v && sudo install -o root -g root -m 0440 $RemoteTempDir/multimedica-scanner-sudoers /etc/sudoers.d/multimedica-scanner && sudo visudo -cf /etc/sudoers.d/multimedica-scanner" -Tty
 
 # =========================
 # Prepare fresh Raspberry Pi OS

@@ -8,7 +8,6 @@ const app = express();
 const PORT = Number(process.env.KIOSK_PORT || 3001);
 const STATE_FILE = path.join(__dirname, "state.json");
 
-
 const DISPLAY_SERVER_CONFIG = Object.freeze({
   trust: Object.freeze({
     staleMs: Number(process.env.DISPLAY_STALE_MS || 90_000),
@@ -29,6 +28,35 @@ const DISPLAY_SERVER_CONFIG = Object.freeze({
 });
 
 const TRUST_CONFIG = DISPLAY_SERVER_CONFIG.trust;
+
+let latestHealthState = {
+  ok: true,
+  updated_at: new Date().toISOString(),
+  source: "kiosk-display",
+  display: {
+    server_running: true,
+    last_display_update_at: null,
+    current_mode: null,
+  },
+  scanner: {
+    last_health_update_at: null,
+    last_scan_at: null,
+    last_cloud_sync_at: null,
+    last_error: null,
+  },
+  config: {
+    room_id: process.env.ROOM_ID || null,
+    station_id: process.env.STATION_ID || null,
+    device_id: process.env.DEVICE_ID || null,
+  },
+  cloud: {
+    reachable: null,
+    last_error: null,
+  },
+  version: {
+    app: process.env.APP_VERSION || process.env.GIT_SHA || null,
+  },
+};
 
 app.use(express.json({ limit: DISPLAY_SERVER_CONFIG.bodyParser.jsonLimit }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -88,6 +116,14 @@ function getInitialDisplayState() {
 
 let displayState = getInitialDisplayState();
 
+function computeHealthOk(health) {
+  if (health?.scanner?.last_error) return false;
+  if (health?.cloud?.reachable === false) return false;
+  if (!health?.config?.room_id || !health?.config?.station_id || !health?.config?.device_id)
+    return false;
+  return true;
+}
+
 function safeReadStateFile() {
   try {
     if (!fs.existsSync(STATE_FILE)) return null;
@@ -112,17 +148,22 @@ function safeWriteStateFile(state) {
 
 function getWifiStatus() {
   return new Promise((resolve) => {
-    execFile("nmcli", ["-t", "-f", "STATE", "general"], { timeout: DISPLAY_SERVER_CONFIG.network.wifiCheckTimeoutMs }, (err, stdout) => {
-      if (err) {
-        resolve(null);
-        return;
-      }
+    execFile(
+      "nmcli",
+      ["-t", "-f", "STATE", "general"],
+      { timeout: DISPLAY_SERVER_CONFIG.network.wifiCheckTimeoutMs },
+      (err, stdout) => {
+        if (err) {
+          resolve(null);
+          return;
+        }
 
-      const state = String(stdout || "")
-        .trim()
-        .toLowerCase();
-      resolve(state === "connected");
-    });
+        const state = String(stdout || "")
+          .trim()
+          .toLowerCase();
+        resolve(state === "connected");
+      }
+    );
   });
 }
 
@@ -338,37 +379,60 @@ app.post("/api/display", async (req, res) => {
     last_local_update: receivedAt,
   };
 
-  app.post("/api/health", async (req, res) => {
-    const receivedAt = nowIso();
-    const patch = req.body?.health && typeof req.body.health === "object" ? req.body.health : {};
-
-    displayState = {
-      ...displayState,
-      health: {
-        ...(displayState.health || {}),
-        ...patch,
-        updated_at: receivedAt,
-      },
-      meta: {
-        ...(displayState.meta || {}),
-        last_local_update: receivedAt,
-      },
-    };
-
-    const wifiConnected = await getWifiStatus();
-    displayState = evaluateTrustState(displayState, wifiConnected);
-
-    safeWriteStateFile(displayState);
-
-    res.json({ ok: true, health: displayState.health });
-  });
-
   const wifiConnected = await getWifiStatus();
   displayState = evaluateTrustState(next, wifiConnected);
+
+  latestHealthState = {
+    ...latestHealthState,
+    display: {
+      ...(latestHealthState.display || {}),
+      server_running: true,
+      last_display_update_at: receivedAt,
+      current_mode: displayState?.mode || null,
+    },
+  };
 
   safeWriteStateFile(displayState);
 
   res.json({ ok: true, display: displayState });
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    ...latestHealthState,
+    ok: computeHealthOk(latestHealthState),
+    updated_at: nowIso(),
+  });
+});
+
+app.post("/api/health", express.json(), (req, res) => {
+  const receivedAt = nowIso();
+
+  latestHealthState = {
+    ...latestHealthState,
+    ...req.body,
+    updated_at: receivedAt,
+    scanner: {
+      ...(latestHealthState.scanner || {}),
+      ...(req.body.scanner || {}),
+      last_health_update_at: receivedAt,
+    },
+    config: {
+      ...(latestHealthState.config || {}),
+      ...(req.body.config || {}),
+    },
+    cloud: {
+      ...(latestHealthState.cloud || {}),
+      ...(req.body.cloud || {}),
+    },
+    display: {
+      ...(latestHealthState.display || {}),
+      server_running: true,
+      current_mode: displayState?.mode || null,
+    },
+  };
+
+  res.json({ ok: true, health: latestHealthState });
 });
 
 app.get("/status", async (req, res) => {

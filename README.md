@@ -202,6 +202,75 @@ Covers:
 
 ---
 
+## Provisioning Script Options
+
+`provision-scanner.ps1` supports switches for different deployment situations.
+
+### Normal code deployment
+
+Use this for routine updates to an already configured Pi:
+
+```powershell
+.\provision-scanner.ps1
+```
+
+This updates application files and restarts services without reinstalling base system dependencies or sudoers policy.
+
+### First-time Pi setup or base package repair
+
+Use this when provisioning a new Pi or when required Linux packages may be missing:
+
+```powershell
+.\provision-scanner.ps1 -InstallBasePackages
+```
+
+This may take significantly longer.
+
+### Sudoers policy install or repair
+
+Use this only when setting up a new Pi or repairing passwordless sudo behavior:
+
+```powershell
+.\provision-scanner.ps1 -InstallSudoersPolicy
+```
+
+This step may ask for the Pi password once.
+
+### Skip environment file deployment
+
+Use this when you want to deploy code without overwriting the Pi’s existing `.env` file:
+
+```powershell
+.\provision-scanner.ps1 -SkipEnv
+```
+
+### Custom Pi host
+
+Use this when deploying to a different scanner appliance:
+
+```powershell
+.\provision-scanner.ps1 -PiHost "multimedica_edge@some-other-pi.local"
+```
+
+### Custom local environment file
+
+Use this when deploying a specific environment file:
+
+```powershell
+.\provision-scanner.ps1 -LocalEnvFile ".env.zone3"
+```
+
+### Recommended Usage Patterns
+
+```text
+Normal deploy:              no switches
+Brand-new Pi:               -InstallBasePackages -InstallSudoersPolicy
+Do not overwrite .env:      -SkipEnv
+Different Pi target:        -PiHost ...
+```
+
+---
+
 ## [Installation Guide](docs/installation.md)
 
 Complete installer/operator manual:
@@ -695,6 +764,122 @@ If GitHub cannot be reached during reprovisioning or boot-time synchronization:
 This behavior is intentional and prioritizes clinic operational continuity over strict update enforcement.
 
 First-time installation still requires GitHub access because no local runtime exists yet.
+
+---
+
+## Patient Ticket Printing
+
+Patient ticket printing supports two formats:
+
+- `letter` — browser-based printing for standard printers
+- `ticket` — ESC/POS thermal ticket printing through the local print server
+
+Print behavior is configured per service location in Settings → Locations.
+
+### Location print configuration
+
+Each location may include:
+
+```js
+printing: {
+  format: "letter" | "ticket",
+  ticketPrinterHost: "192.168.x.x",
+  ticketPrinterPort: 9100,
+  serverUrl: "http://localhost:3333"
+}
+```
+
+`ticketPrinterHost` and `ticketPrinterPort` identify the thermal printer used by that location.
+
+### Print architecture
+
+Clinical workflow components do not call printer hardware directly.
+
+The print flow is:
+
+```txt
+Registro / Anfitrion
+  → printPatientTicket()
+  → browser print OR local ESC/POS print bridge
+  → physical printer
+```
+
+`TicketPrint.jsx` renders the ticket layout.
+
+`printPatientTicket.js` decides whether to use browser printing or ESC/POS printing.
+
+The local print server receives the patient ticket payload and printer target, then sends raw ESC/POS commands to the configured thermal printer.
+
+### Local print server
+
+The local print server defaults to:
+
+```txt
+http://localhost:3333
+```
+
+The React app sends the printer target with each ticket print request:
+
+```js
+printer: {
+  host: location.printing?.ticketPrinterHost,
+  port: location.printing?.ticketPrinterPort || 9100
+}
+```
+
+The server may also fall back to `.env` values:
+
+```env
+PRINT_SERVER_PORT=3333
+PRINTER_HOST=192.168.x.x
+PRINTER_PORT=9100
+```
+
+Request-level printer configuration takes priority over `.env`.
+
+### Local print server is a separate "app"
+The current local print server is a windows app that has to be separately started with 
+
+```txt
+npm start
+```
+from within the `local-print-server` folder. 
+
+### Testing the local print server
+
+Health check:
+
+```bash
+curl http://localhost:3333/health
+```
+
+Print bridge endpoint:
+
+```txt
+POST /print/patient-ticket
+```
+
+Expected request shape:
+
+```json
+{
+  "patient": {
+    "pt_no": "123456",
+    "patient_name": "Patient Name",
+    "visit_type_label": "Consulta",
+    "location_name": "Clínica",
+    "location_message": "Optional message"
+  },
+  "printer": {
+    "host": "192.168.x.x",
+    "port": 9100
+  }
+}
+```
+
+### Design note
+
+The location manager owns printer configuration. The print orchestration layer owns print routing. The ticket renderer only owns layout.
 
 ---
 
