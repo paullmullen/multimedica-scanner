@@ -686,6 +686,15 @@ async function sendDisplayToKiosk(display) {
   }
 }
 
+async function showIdentityDisplay() {
+  console.log("SHOWING IDENTITY DISPLAY");
+
+  await sendDisplayToKiosk({
+    mode: "identity",
+    updated_at: Date.now(),
+  });
+}
+
 async function showStationConfigConfirmation() {
   await sendDisplayToKiosk({
     mode: "overlay",
@@ -971,6 +980,20 @@ async function handleConfigScan(scanValue) {
   health.config_qr.last_result = "success";
   health.config_qr.last_error_message = null;
 
+  if (result.kind === "show_identity") {
+    console.log("IDENTITY QR DETECTED");
+
+    await showIdentityDisplay();
+
+    return true;
+  }
+  if (result.kind === "show_identity") {
+    console.log("IDENTITY QR DETECTED");
+
+    await showIdentityDisplay();
+
+    return true;
+  }
   if (result.kind === "station_config") {
     console.log("CONFIG QR APPLIED:", result.applied);
 

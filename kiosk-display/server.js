@@ -177,6 +177,21 @@ function getAgeMs(isoDate) {
   return Date.now() - parsed;
 }
 
+function getDisplayIdentity() {
+  const ipAddress = getLanIpAddress();
+  const software = getSoftwareHealth();
+
+  return {
+    device_id: process.env.DEVICE_ID || null,
+    room_id: process.env.ROOM_ID || null,
+    station_id: process.env.STATION_ID || null,
+    hostname: os.hostname(),
+    ip_address: ipAddress,
+    health_url: ipAddress ? `http://${ipAddress}:${PORT}/api/health` : null,
+    commit: software.git_commit || null,
+  };
+}
+
 function normalizeDisplayState(incoming = {}) {
   const safeIncoming = incoming && typeof incoming === "object" ? incoming : {};
   const sourceCandidate = safeIncoming.display || safeIncoming.state || safeIncoming;
@@ -374,6 +389,10 @@ app.post("/api/display", async (req, res) => {
   const receivedAt = nowIso();
 
   const next = normalizeDisplayState(req.body);
+
+  if (next.mode === "identity") {
+    next.identity = getDisplayIdentity();
+  }
 
   next.meta = {
     ...(next.meta || {}),

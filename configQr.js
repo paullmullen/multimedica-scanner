@@ -171,13 +171,10 @@ function validateWifiConfigPayload(payload) {
   }
 
   if (!payload.ssid) return { ok: false, error: "Missing ssid" };
-  if (payload.password === undefined)
-    return { ok: false, error: "Missing password" };
+  if (payload.password === undefined) return { ok: false, error: "Missing password" };
 
   return { ok: true };
 }
-
-
 
 function handleWifiConfig(data) {
   const p = data.payload || {};
@@ -203,7 +200,6 @@ function handleWifiConfig(data) {
 // ------------------
 // MAIN HANDLER
 // ------------------
-
 function handleConfigQr(scanValue) {
   try {
     const json = scanValue.replace(/^MMCFG:/, "");
@@ -220,6 +216,15 @@ function handleConfigQr(scanValue) {
     const authResult = requireAdminAuth(data);
     if (!authResult.ok) return authResult;
 
+    if (data.kind === "show_identity") {
+      return {
+        ok: true,
+        kind: "show_identity",
+        applied: {},
+        runtime: {},
+      };
+    }
+
     if (data.kind === "cloud_config") return handleCloudConfig(data);
     if (data.kind === "station_config") return handleStationConfig(data);
     if (data.kind === "wifi_config") return handleWifiConfig(data);
@@ -229,7 +234,6 @@ function handleConfigQr(scanValue) {
     return { ok: false, error: err.message };
   }
 }
-
 module.exports = {
   isConfigQr,
   handleConfigQr,
