@@ -153,6 +153,52 @@ Perform diagnostics
 
 ---
 
+# Scanner Display Screens
+
+| Screen          | Description                                                      |
+| --------------- | ---------------------------------------------------------------- |
+| Available       | Room is available and ready for the next patient.                |
+| Patient Waiting | Another patient is waiting for this station.                     |
+| In Process      | Patient is currently being seen.                                 |
+| Closed          | Clinic or location is currently closed.                          |
+| Identity        | Diagnostic identity screen for installers and support personnel. |
+
+### Available
+
+![Available Screen](docs/images/station_available_screenshot.png)
+
+The room is available and ready to receive the next patient.
+
+---
+
+### Patient Waiting
+
+![Patient Waiting Screen](docs/images/patient_waiting_screenshot.png)
+
+A patient is waiting for this station but the room is currently empty.
+
+---
+
+### In Process
+
+![In Process Screen](docs/images/in_process_screenshot.png)
+
+A patient is currently being seen in the room.
+
+
+### Clinic Closed
+
+![Closed Screen](docs/images/clinic_closed_screenshot.png)
+
+The clinic is currently closed (no active patients for more than 15 minutes.)
+
+### Scanner Identity
+
+![In Process Screen](docs/images/scanner_identity_screenshot.png)
+
+The details of the scanner configuration (including IP address).  Displayed in response to a scanner identity QR code and usually part of the scanner configuration or debugging.
+---
+
 # High-Level Architecture
 
 ```text
