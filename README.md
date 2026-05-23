@@ -79,6 +79,8 @@ Supported QR configuration payloads:
 - station configuration
 - WiFi configuration
 - cloud endpoint configuration
+- scanner identity display
+
 
 Features:
 
@@ -86,6 +88,47 @@ Features:
 - persistent local configuration
 - overlay confirmation feedback
 - field provisioning without keyboard access
+- installer diagnostics and observability support
+
+
+### Scanner Identity QR
+
+The scanner supports a diagnostic/admin QR payload:
+
+```json
+{
+  "kind": "show_identity",
+  "version": 1
+}
+```
+
+When scanned by an authorized device, the kiosk display switches into Identity Mode and displays:
+
+- Device ID
+- Room ID
+- Station ID
+- Hostname
+- IP address
+- Health endpoint URL
+- Current Git commit identifier
+
+This allows installers and support personnel to discover the appliance identity and network address without SSH access.
+
+The identity display remains visible until replaced by a subsequent scanner event, cloud synchronization update, or another display command.
+
+Typical workflow:
+
+```text
+Print identity QR
+        ↓
+Scan identity QR
+        ↓
+Display shows IP and device identity
+        ↓
+Open http://<ip>:3001/api/health
+        ↓
+Perform diagnostics
+```
 
 ---
 
@@ -152,7 +195,7 @@ multimedica-scanner/
 ├── package.json
 ├── provisioning/
 ├── kiosk-display/
-├── display/
+├── display/           (legacy)
 ├── docs/
 ├── scripts/
 ├── services/
@@ -260,10 +303,27 @@ Use this when deploying a specific environment file:
 .\provision-scanner.ps1 -LocalEnvFile ".env.zone3"
 ```
 
+### Deploy a specific Git branch
+
+Use this when testing development or feature branches:
+
+```powershell
+.\provision-scanner.ps1 -GitBranch main
+```
+
+Example feature branch:
+
+```powershell
+.\provision-scanner.ps1 -GitBranch feature/show-identity
+```
+
+The Raspberry Pi will fetch and deploy the specified Git branch during provisioning.
+
 ### Recommended Usage Patterns
 
 ```text
 Normal deploy:              no switches
+Development branch:         -GitBranch main
 Brand-new Pi:               -InstallBasePackages -InstallSudoersPolicy
 Do not overwrite .env:      -SkipEnv
 Different Pi target:        -PiHost ...
@@ -716,6 +776,10 @@ production
 The Pi is considered an operational appliance, not a development environment.
 
 Local runtime code on the Pi should never become authoritative.
+
+Developers should not rely on manually copied runtime files remaining in place after provisioning.
+
+Provisioning resets the runtime checkout to the configured Git branch. Changes should be committed and pushed before reprovisioning.
 
 ---
 

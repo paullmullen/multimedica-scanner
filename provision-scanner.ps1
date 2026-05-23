@@ -1,6 +1,7 @@
 param(
     [string]$PiHost = "multimedica_edge@multimedicascanner1.local",
     [string]$LocalProjectDir = ".",
+    [string]$GitBranch = "production",
     [string]$LocalEnvFile = ".env",
     [string]$RemoteTempDir = "/home/multimedica_edge/provisioning",
     [switch]$SkipEnv,
@@ -95,6 +96,7 @@ function Copy-Remote {
 }
 
 Write-Host "Provisioning scanner on $PiHost ..." -ForegroundColor Cyan
+Write-Host "Git branch: $GitBranch" -ForegroundColor Cyan
 
 $LocalProjectDir = (Resolve-Path $LocalProjectDir).Path
 
@@ -288,14 +290,7 @@ if (-not $SkipEnv) {
 
 Invoke-Remote "Setting remote permissions..." "find $RemoteTempDir -type f -name '*.sh' -exec sed -i 's/\r$//' {} \; && chmod +x $RemoteTempDir/install-scanner.sh && find $RemoteTempDir -type f -name '*.sh' -exec chmod +x {} \;"
 # Installer uses sudo internally and may prompt once for password.
-Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir"
-Invoke-Remote `
-    "Syncing kiosk-display runtime files ..." `
-    "sudo mkdir -p /opt/multimedica-scanner/kiosk-display && sudo cp -a $RemoteTempDir/kiosk-display/. /opt/multimedica-scanner/kiosk-display/ && sudo chown -R multimedica_edge:multimedica_edge /opt/multimedica-scanner/kiosk-display"
-
-Invoke-Remote `
-    "Installing kiosk-display dependencies if needed ..." `
-    "if [ -f /opt/multimedica-scanner/kiosk-display/package.json ]; then cd /opt/multimedica-scanner/kiosk-display && npm install --omit=dev; fi"
+Invoke-Remote "Running installer..." "sudo $RemoteTempDir/install-scanner.sh $RemoteTempDir $GitBranch"
 
 # Configure tty1 console autologin so .bash_profile actually runs at boot.
 # Without this, the Pi stops at a console login prompt and the kiosk never starts.
