@@ -883,6 +883,7 @@ Patient ticket printing supports two formats:
 
 - `letter` — browser-based printing for standard printers
 - `ticket` — ESC/POS thermal ticket printing through the local print server
+- ![Sample Ticket](docs/images/sample_ticket.png)
 
 Print behavior is configured per service location in Settings → Locations.
 
