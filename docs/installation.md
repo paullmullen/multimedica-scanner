@@ -201,7 +201,7 @@ The USB-C cable enters from the side and immediately turns downward.
 We will address the placement of the electronics assembly in the enclosure in a future update of this document.
 
 ---
-## Software Installation Overview
+# Software Installation Overview
 
 This installation process will transform a brand-new Raspberry Pi into a Multimedica scanner appliance. We break it down into three phases, each with a distinct purpose:
 
@@ -217,62 +217,136 @@ Throughout the instructions, we’ll guide you step-by-step, so you’ll know wh
 
 ## Generate Configuration QR Codes
 
+**Execution Context: [WINDOWS]**
+
+Before preparing the Raspberry Pi, generate the QR codes that will be used to configure the scanner.
+
+Open the Multimedica web application:
+
+```text
+http://multimedica.org
+```
+
+Log in using your Multimedica user account.
+
 Navigate to:
 
-Admin → Sistema de escáner
+```text
+Admin
+  → Sistema de escáner
+```
 
-Generate and print:
+### Access Requirements
+
+The QR code generator is only available to users with administrative permissions.
+
+> ⚠️ **Important**
+>
+> If you do not see the **Admin** page or the **Sistema de escáner** section, your account does not currently have the required permissions.
+>
+> Contact a member of the clinic leadership team and request access before continuing.
+
+Generate and print the following QR codes.
+
+---
 
 ### WiFi Configuration QR
 
+Purpose:
+
+* Configures the scanner's WiFi connection.
+
 Contains:
 
-- SSID
-- Password
-- Security type
+* SSID
+* Password
+* Security type
+
+> 🔒 **Security Note**
+>
+> This QR code contains WiFi credentials.
+>
+> Store printed copies securely and destroy unused copies.
+
+---
 
 ### Cloud Configuration QR
 
+Purpose:
+
+* Connects the scanner to Multimedica cloud services.
+
 Contains:
 
-- Cloud endpoint configuration
-- Shared secret
+* Cloud endpoint configuration
+* Shared secret
+
+> 🔒 **Security Note**
+>
+> This QR code contains production connectivity information.
+>
+> Store printed copies securely and destroy unused copies.
+
+---
 
 ### Station Configuration QR
 
+Purpose:
+
+* Assigns the scanner to a specific clinic station.
+
 Contains:
 
-- Location
-- Station
-- Room ID
-- Device ID
+* Location
+* Station
+* Room ID
+* Device ID
 
 Example:
 
-- Location: Clínica Alfarero Z3
-- Station: Enf
-- Room ID: Zone3_nur_room_1
-- Device ID: scanner_Zone3_nur_01
+```text
+Location: Clínica Alfarero Z3
+Station: Enf
+Room ID: Zone3_nur_room_1
+Device ID: scanner_Zone3_nur_01
+```
+
+---
 
 ### Identity QR
 
+Purpose:
+
+* Displays scanner identity information for installation and troubleshooting.
+
 Used to display:
 
-- Device ID
-- Room ID
-- Station ID
-- Hostname
-- IP address
-- Health URL
-- Software version
+* Device ID
+* Room ID
+* Station ID
+* Hostname
+* IP address
+* Health URL
+* Software version
 
-Prepare an installation packet containing all four QR codes.
+Installers should keep a printed copy of this QR code.
+
+---
 
 
-💡 **Tip**
-```
-The hostname and the Device ID serve different purposes. The hostname identifies the Raspberry Pi on the network. The Device ID identifies the scanner appliance within the Multimedica system. These values do not need to match, although many deployments choose a naming convention that keeps them similar.
-```
+
+These QR codes will be used later during scanner provisioning.
+
+> 💡 **Tip**
+>
+> The hostname and the Device ID serve different purposes.
+>
+> The hostname identifies the Raspberry Pi on the network.
+>
+> The Device ID identifies the scanner appliance within the Multimedica system.
+>
+> These values do not need to match, although many deployments choose a naming convention that keeps them similar.
+
 
 ## Install Raspberry Pi Imager
 
