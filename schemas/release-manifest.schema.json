@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/release-manifest.schema.json",
+  "title": "Release Manifest",
+  "description": "manifest.json embedded at the root of every release artifact tarball",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "sha256",
+    "os_id",
+    "arch",
+    "pi_model",
+    "node_semver",
+    "config_schema_version",
+    "qr_schema_version",
+    "min_bootstrap_version",
+    "entry_point",
+    "health_endpoint",
+    "candidate_port",
+    "built_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "os_id": { "type": "string" },
+    "arch": { "type": "string", "enum": ["arm64"] },
+    "pi_model": { "type": "string", "enum": ["rpi4"] },
+    "node_semver": { "type": "string" },
+    "config_schema_version": { "type": "integer", "minimum": 1 },
+    "qr_schema_version": { "type": "integer", "minimum": 1 },
+    "min_bootstrap_version": { "type": "string" },
+    "entry_point": { "type": "string" },
+    "health_endpoint": { "type": "string", "pattern": "^http://" },
+    "candidate_port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+    "built_at": { "type": "string", "format": "date-time" }
+  }
+}

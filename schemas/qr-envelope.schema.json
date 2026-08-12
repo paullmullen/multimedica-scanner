@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/qr-envelope.schema.json",
+  "title": "QR Envelope",
+  "description": "Common wrapper for all MMCFG: provisioning QR payloads",
+  "type": "object",
+  "required": ["kind", "version", "auth"],
+  "additionalProperties": true,
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["wifi_config", "station_config", "cloud_config", "show_identity"]
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "payload": {
+      "type": "object"
+    },
+    "auth": {
+      "type": "object",
+      "required": ["admin_token"],
+      "properties": {
+        "admin_token": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

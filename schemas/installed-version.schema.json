@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/installed-version.schema.json",
+  "title": "Installed Version Record",
+  "description": "Records current, previous, and last-known-good release versions",
+  "type": "object",
+  "required": ["current_symlink"],
+  "additionalProperties": false,
+  "properties": {
+    "current_version": { "type": ["string", "null"] },
+    "current_dir": { "type": ["string", "null"] },
+    "current_symlink": { "type": "string" },
+    "previous_version": { "type": ["string", "null"] },
+    "previous_dir": { "type": ["string", "null"] },
+    "last_known_good_version": { "type": ["string", "null"] },
+    "last_known_good_dir": { "type": ["string", "null"] },
+    "last_activation_at": { "type": ["string", "null"] },
+    "last_activation_txn": { "type": ["string", "null"] }
+  }
+}

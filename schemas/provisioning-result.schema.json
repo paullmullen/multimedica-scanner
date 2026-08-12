@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/provisioning-result.schema.json",
+  "title": "Provisioning Result",
+  "description": "Machine-readable output written by provision-scanner.ps1 to provisioning-result.json",
+  "type": "object",
+  "required": [
+    "mode",
+    "timestamp",
+    "pi_host",
+    "exit_code",
+    "bootstrap_complete",
+    "commissioning_complete",
+    "errors",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["Install", "Verify", "Commission", "Repair", "InstallRelease", "RollbackRelease"]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "pi_host": { "type": "string" },
+    "exit_code": { "type": "integer" },
+    "bootstrap_complete": { "type": "boolean" },
+    "commissioning_complete": { "type": "boolean" },
+    "platform_verified": { "type": ["boolean", "null"] },
+    "services_healthy": { "type": ["boolean", "null"] },
+    "reboot_verified": { "type": ["boolean", "null"] },
+    "scanner_device_detected": {
+      "type": ["boolean", "null"],
+      "description": "True when scanner USB device appears in /proc/bus/input/devices"
+    },
+    "provisioning_qr_parsed": {
+      "type": ["boolean", "null"],
+      "description": "True when installer confirmed a QR was scanned and parsed. null means not tested in this run."
+    },
+    "network_connected": { "type": ["boolean", "null"] },
+    "release_installed": { "type": ["boolean", "null"] },
+    "release_version": { "type": ["string", "null"] },
+    "production_healthy": { "type": ["boolean", "null"] },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } }
+  }
+}

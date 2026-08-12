@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/scan-request.schema.json",
+  "title": "POST /api/scan Request",
+  "description": "Request body sent by the controller to the production service",
+  "type": "object",
+  "required": [
+    "event_id",
+    "visit_id",
+    "raw_scan_value",
+    "room_id",
+    "station_id",
+    "device_id",
+    "event_type",
+    "source_type",
+    "device_timestamp_utc"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "visit_id": { "type": "string" },
+    "raw_scan_value": { "type": "string" },
+    "location_id": { "type": ["string", "null"] },
+    "room_id": { "type": "string" },
+    "station_id": { "type": "string" },
+    "device_id": { "type": "string" },
+    "event_type": { "type": "string", "const": "scan_received" },
+    "source_type": { "type": "string", "const": "PI_SCANNER" },
+    "device_timestamp_utc": { "type": "string", "format": "date-time" }
+  }
+}

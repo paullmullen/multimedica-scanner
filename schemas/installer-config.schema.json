@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/installer-config.schema.json",
+  "title": "Windows Installer Configuration",
+  "description": "multimedica-installer.json — read by provision-scanner.ps1; never logged",
+  "type": "object",
+  "required": ["qr_admin_token", "shared_secret", "endpoint_url"],
+  "additionalProperties": false,
+  "properties": {
+    "qr_admin_token": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fleet-wide QR admin token. Never log."
+    },
+    "shared_secret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Cloud endpoint bearer token. Never log."
+    },
+    "endpoint_url": {
+      "type": "string",
+      "pattern": "^https://",
+      "description": "Cloud endpoint URL"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "description": "Malformed JSON after MMCFG: prefix — parser must return ok:false with a parse error",
+  "qrString": "MMCFG:not-valid-json",
+  "expectedResult": {
+    "ok": false
+  }
+}

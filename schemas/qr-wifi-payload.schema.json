@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/qr-wifi-payload.schema.json",
+  "title": "wifi_config QR Payload",
+  "type": "object",
+  "required": ["ssid", "password"],
+  "additionalProperties": true,
+  "properties": {
+    "ssid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "password": {
+      "type": "string",
+      "description": "Empty string permitted for open networks"
+    },
+    "security": {
+      "type": "string",
+      "enum": ["wpa-psk", "none"],
+      "default": "wpa-psk"
+    }
+  }
+}

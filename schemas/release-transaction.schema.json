@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/release-transaction.schema.json",
+  "title": "Release Transaction Record",
+  "description": "Written atomically before each activation stage; used for interruption recovery",
+  "type": "object",
+  "required": ["txn_id", "started_at", "target_version", "stage", "stages_completed"],
+  "additionalProperties": false,
+  "properties": {
+    "txn_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "format": "date-time" },
+    "target_version": { "type": "string" },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "resolving",
+        "downloaded",
+        "checksum_verified",
+        "compatibility_verified",
+        "extracted",
+        "deps_installed",
+        "candidate_started",
+        "readiness_passed",
+        "health_passed",
+        "candidate_stopped",
+        "version_dir_renamed",
+        "symlink_updated",
+        "production_started",
+        "production_health_passed",
+        "known_good_promoted",
+        "complete",
+        "download_failed",
+        "checksum_failed",
+        "compatibility_failed",
+        "extraction_failed",
+        "deps_failed",
+        "readiness_failed",
+        "production_start_failed",
+        "rolled_back"
+      ]
+    },
+    "stages_completed": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "artifact_path": { "type": ["string", "null"] },
+    "staging_dir": { "type": ["string", "null"] },
+    "candidate_pid": { "type": ["integer", "null"] },
+    "error": { "type": ["string", "null"] },
+    "completed_at": { "type": ["string", "null"] }
+  }
+}

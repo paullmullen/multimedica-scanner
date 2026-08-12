@@ -1,7 +1,22 @@
 {
+  "scripts": {
+    "test": "jest --forceExit",
+    "test:watch": "jest --watch"
+  },
   "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ]
   }
 }

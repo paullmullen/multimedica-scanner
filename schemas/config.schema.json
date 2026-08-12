@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/config.schema.json",
+  "title": "Device Config",
+  "description": "Non-secret operational and commissioning values stored in config.json",
+  "type": "object",
+  "required": ["schema_version", "bootstrap_version", "commissioning_state"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "bootstrap_version": {
+      "type": "string"
+    },
+    "commissioning_state": {
+      "type": "string",
+      "enum": [
+        "bootstrap_installed",
+        "network_configured",
+        "identity_configured",
+        "cloud_configured",
+        "ready_to_download",
+        "release_installed",
+        "operational"
+      ]
+    },
+    "location_id": {
+      "type": ["string", "null"]
+    },
+    "room_id": {
+      "type": ["string", "null"]
+    },
+    "station_id": {
+      "type": ["string", "null"]
+    },
+    "device_id": {
+      "type": ["string", "null"]
+    },
+    "endpoint_url": {
+      "type": ["string", "null"]
+    },
+    "wifi_ssid": {
+      "type": ["string", "null"]
+    },
+    "wifi_security": {
+      "type": ["string", "null"]
+    },
+    "qr_schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "config_schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

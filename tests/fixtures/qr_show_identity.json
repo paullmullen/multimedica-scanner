@@ -1,0 +1,10 @@
+{
+  "description": "show_identity — no payload fields required; returns empty applied and runtime",
+  "qrString": "MMCFG:{\"kind\":\"show_identity\",\"version\":1,\"payload\":{},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": true,
+    "kind": "show_identity",
+    "applied": {},
+    "runtime": {}
+  }
+}

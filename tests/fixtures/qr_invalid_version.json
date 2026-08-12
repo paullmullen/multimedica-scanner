@@ -1,0 +1,7 @@
+{
+  "description": "version:2 is unsupported — parser must reject any version other than 1",
+  "qrString": "MMCFG:{\"kind\":\"wifi_config\",\"version\":2,\"payload\":{\"ssid\":\"TestNet\",\"password\":\"pass\"},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/scan-response.schema.json",
+  "title": "POST /api/scan Response",
+  "description": "Response from the production service to the controller",
+  "type": "object",
+  "required": ["ok", "disposition", "duplicate"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "disposition": {
+      "type": "string",
+      "enum": ["accepted", "rejected", "duplicate", "unavailable"]
+    },
+    "duplicate": { "type": "boolean" },
+    "reason": { "type": ["string", "null"] }
+  }
+}

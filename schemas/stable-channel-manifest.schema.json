@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/stable-channel-manifest.schema.json",
+  "title": "Stable Channel Manifest",
+  "description": "Hosted at https://raw.githubusercontent.com/paullmullen/multimedica-scanner/main/release/stable-channel.json",
+  "type": "object",
+  "required": [
+    "channel",
+    "approved_version",
+    "artifact_url",
+    "sha256",
+    "min_bootstrap_version",
+    "os_id",
+    "arch",
+    "pi_model",
+    "node_semver",
+    "config_schema_version",
+    "qr_schema_version",
+    "published_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "channel": {
+      "type": "string",
+      "const": "stable"
+    },
+    "approved_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_url": {
+      "type": "string",
+      "pattern": "^https://"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "min_bootstrap_version": {
+      "type": "string"
+    },
+    "os_id": {
+      "type": "string"
+    },
+    "arch": {
+      "type": "string",
+      "enum": ["arm64"]
+    },
+    "pi_model": {
+      "type": "string",
+      "enum": ["rpi4"]
+    },
+    "node_semver": {
+      "type": "string"
+    },
+    "config_schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "qr_schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

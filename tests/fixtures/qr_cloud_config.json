@@ -1,0 +1,12 @@
+{
+  "description": "cloud_config — applied.SHARED_SECRET must be redacted; runtime contains raw value but is not checked here",
+  "qrString": "MMCFG:{\"kind\":\"cloud_config\",\"version\":1,\"payload\":{\"endpoint_url\":\"https://example.invalid/receiveRoomScanEvent\",\"shared_secret\":\"test-shared-secret\"},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": true,
+    "kind": "cloud_config",
+    "applied": {
+      "ENDPOINT_URL": "https://example.invalid/receiveRoomScanEvent",
+      "SHARED_SECRET": "[REDACTED]"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multimedica.org/schemas/commissioning-result.schema.json",
+  "title": "Commissioning Result",
+  "description": "Machine-readable result of a commissioning check run",
+  "type": "object",
+  "required": ["timestamp", "overall", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": { "type": "string", "format": "date-time" },
+    "overall": { "type": "string", "enum": ["PASS", "FAIL", "WARNING"] },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "result"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "result": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "WARNING", "NOT_APPLICABLE"]
+          },
+          "detail": { "type": ["string", "null"] },
+          "remediation": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

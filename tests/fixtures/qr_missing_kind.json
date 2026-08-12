@@ -1,0 +1,7 @@
+{
+  "description": "Missing kind field — parser must return Invalid config format",
+  "qrString": "MMCFG:{\"version\":1,\"payload\":{},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": false
+  }
+}

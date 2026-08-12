@@ -1,0 +1,14 @@
+{
+  "description": "station_config with all four required fields",
+  "qrString": "MMCFG:{\"kind\":\"station_config\",\"version\":1,\"payload\":{\"location_id\":\"loc1\",\"room_id\":\"loc1_nursing_room_1\",\"station_id\":\"nursing\",\"device_id\":\"scanner_loc1_nursing_01\"},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": true,
+    "kind": "station_config",
+    "applied": {
+      "LOCATION_ID": "loc1",
+      "ROOM_ID": "loc1_nursing_room_1",
+      "STATION_ID": "nursing",
+      "DEVICE_ID": "scanner_loc1_nursing_01"
+    }
+  }
+}

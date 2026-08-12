@@ -1,0 +1,14 @@
+{
+  "description": "wifi_config with security field — generator includes security; parser must pass it through",
+  "qrString": "MMCFG:{\"kind\":\"wifi_config\",\"version\":1,\"payload\":{\"ssid\":\"TestNet\",\"password\":\"test-pass\",\"security\":\"wpa-psk\"},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": true,
+    "kind": "wifi_config",
+    "applied": { "SSID": "TestNet" },
+    "runtime": {
+      "ssid": "TestNet",
+      "password": "test-pass",
+      "security": "wpa-psk"
+    }
+  }
+}

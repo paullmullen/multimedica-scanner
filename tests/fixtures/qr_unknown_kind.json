@@ -1,0 +1,7 @@
+{
+  "description": "Unknown kind value — parser must return Unknown config kind error",
+  "qrString": "MMCFG:{\"kind\":\"unknown_kind\",\"version\":1,\"payload\":{},\"auth\":{\"admin_token\":\"test-token\"}}",
+  "expectedResult": {
+    "ok": false
+  }
+}
