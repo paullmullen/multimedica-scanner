@@ -10,6 +10,7 @@
     "pi_host",
     "exit_code",
     "bootstrap_complete",
+    "configuration_complete",
     "commissioning_complete",
     "errors",
     "warnings"
@@ -24,7 +25,16 @@
     "pi_host": { "type": "string" },
     "exit_code": { "type": "integer" },
     "bootstrap_complete": { "type": "boolean" },
-    "commissioning_complete": { "type": "boolean" },
+    "configuration_complete": {
+      "type": "boolean",
+      "description": "True when all three provisioning QRs (wifi_config, station_config, cloud_config) have been accepted"
+    },
+    "commissioning_complete": {
+      "type": "boolean",
+      "description": "True when configuration_complete AND release_installed AND production_ready are all true"
+    },
+    "release_installed": { "type": ["boolean", "null"] },
+    "production_ready": { "type": ["boolean", "null"] },
     "platform_verified": { "type": ["boolean", "null"] },
     "services_healthy": { "type": ["boolean", "null"] },
     "reboot_verified": { "type": ["boolean", "null"] },
@@ -37,7 +47,6 @@
       "description": "True when installer confirmed a QR was scanned and parsed. null means not tested in this run."
     },
     "network_connected": { "type": ["boolean", "null"] },
-    "release_installed": { "type": ["boolean", "null"] },
     "release_version": { "type": ["string", "null"] },
     "production_healthy": { "type": ["boolean", "null"] },
     "errors": { "type": "array", "items": { "type": "string" } },

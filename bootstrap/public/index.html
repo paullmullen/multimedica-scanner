@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multimedica Scanner — Bootstrap</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Multimedica Scanner</h1>
+        <span id="last-updated"></span>
+      </header>
+
+      <main>
+        <div id="status-card">
+          <div id="state-label" class="state">Starting&hellip;</div>
+          <div id="message-box"></div>
+          <ul id="missing-list" aria-label="Required configuration"></ul>
+        </div>
+
+        <section id="identity-panel" class="hidden" aria-label="Device identity">
+          <h2>Device Identity</h2>
+          <dl id="identity-dl"></dl>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

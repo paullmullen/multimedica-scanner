@@ -1,0 +1,28 @@
+[Unit]
+Description=Multimedica Production Scanner
+Documentation=https://github.com/paullmullen/multimedica-scanner
+# Production service starts only after network is fully available.
+# Managed by the controller in Milestone 5+.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=multimedica_edge
+Group=multimedica_edge
+WorkingDirectory=/opt/multimedica-scanner/current
+Environment=MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state
+ExecStart=/usr/bin/node /opt/multimedica-scanner/current/scanner.js
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=multimedica-production
+
+# This service is disabled by default.
+# It is activated during release installation (Milestone 5).
+[Install]
+WantedBy=multi-user.target

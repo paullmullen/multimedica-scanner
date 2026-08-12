@@ -1,0 +1,27 @@
+[Unit]
+Description=Multimedica Bootstrap Controller
+Documentation=https://github.com/paullmullen/multimedica-scanner
+After=network.target multimedica-display.service
+Wants=multimedica-display.service
+
+[Service]
+Type=simple
+User=multimedica_edge
+Group=multimedica_edge
+WorkingDirectory=/opt/multimedica-scanner/bootstrap
+Environment=MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state
+Environment=CONTROLLER_PORT=3000
+Environment=DISPLAY_URL=http://127.0.0.1:3001
+ExecStart=/usr/bin/node /opt/multimedica-scanner/bootstrap/controller.js
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Logging — journald is authoritative
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=multimedica-controller
+
+[Install]
+WantedBy=multi-user.target
