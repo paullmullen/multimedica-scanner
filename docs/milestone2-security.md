@@ -14,7 +14,7 @@ Two candidate values exist in the `alfarero_clinic` repository:
 
 | Identifier | Source | Byte length | Notes |
 |---|---|---|---|
-| `<redacted-ascii-candidate>` | `alfarero_clinic/.env` `REACT_APP_SCANNER_QR_ADMIN_TOKEN` | 36 bytes | US-ASCII |
+| `<redacted-candidate>` | Cloud Function Secret Manager binding `SCANNER_QR_ADMIN_TOKEN` | not recorded here | authoritative backend value |
 | `<redacted-unicode-candidate>` | `alfarero_clinic/edge_device_secret_token.txt` | 38 bytes (UTF-8) | Contains multi-byte characters |
 
 These are distinct byte sequences. A Pi provisioned with one value will reject
@@ -27,9 +27,10 @@ candidate reference files once the authoritative value is confirmed.
 
 ### 2. Rotate the token before commissioning
 
-The current `SCANNER_QR_ADMIN_TOKEN` value is exposed in the compiled React
-browser bundle (via `REACT_APP_SCANNER_QR_ADMIN_TOKEN`). Anyone who inspects
-the production build can extract it.
+The current implementation must not expose `SCANNER_QR_ADMIN_TOKEN` in the
+compiled React browser bundle. The React application authenticates the caller
+with a Firebase ID token; the QR administrator token remains backend-owned and
+is embedded only in protected configuration QR payloads.
 
 **Action:** Before deploying bootstrap to a real device:
 
@@ -66,9 +67,8 @@ After confirming the authoritative rotated value:
 - Remove `alfarero_clinic/edge_device_secret_token.txt` from the `alfarero_clinic`
   repository, or replace its content with a clear notice that the file has been
   superseded.
-- Ensure `REACT_APP_SCANNER_QR_ADMIN_TOKEN` is not committed to the `alfarero_clinic`
-  repository in any `.env`, `.env.production`, or other environment file. Use
-  a secrets management system or CI environment variable instead.
+- Ensure `REACT_APP_SCANNER_QR_ADMIN_TOKEN` is absent from frontend source,
+  build artifacts, and frontend environment files.
 - Confirm that `SCANNER_QR_ADMIN_TOKEN` does not appear in any source file, log,
   or build artifact that is publicly accessible.
 

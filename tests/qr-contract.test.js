@@ -104,9 +104,9 @@ describe("handleConfigQr token isolation", () => {
   test("env var set to test-token does not affect rejection of wrong token in QR", () => {
     process.env.SCANNER_QR_ADMIN_TOKEN = TEST_TOKEN;
     const qr = `MMCFG:${JSON.stringify({
-      kind: "show_identity",
+      kind: "wifi_config",
       version: 1,
-      payload: {},
+      payload: { ssid: "Net", password: "pass" },
       auth: { admin_token: "wrong-token" },
     })}`;
     // Must still reject because the QR contains the wrong token
@@ -118,20 +118,43 @@ describe("handleConfigQr token isolation", () => {
   test("works correctly with no env var present", () => {
     delete process.env.SCANNER_QR_ADMIN_TOKEN;
     const qr = `MMCFG:${JSON.stringify({
-      kind: "show_identity",
+      kind: "wifi_config",
       version: 1,
-      payload: {},
+      payload: { ssid: "Net", password: "pass" },
       auth: { admin_token: TEST_TOKEN },
     })}`;
     const result = handleConfigQr(qr, TEST_TOKEN);
     expect(result.ok).toBe(true);
   });
 
-  test("rejects when explicit adminToken is null (no token configured)", () => {
+  test("show_identity does not require auth", () => {
     const qr = `MMCFG:${JSON.stringify({
       kind: "show_identity",
       version: 1,
       payload: {},
+    })}`;
+    expect(handleConfigQr(qr, null)).toMatchObject({
+      ok: true,
+      kind: "show_identity",
+      applied: {},
+      runtime: {},
+    });
+  });
+
+  test("show_identity rejects configuration fields", () => {
+    const qr = `MMCFG:${JSON.stringify({
+      kind: "show_identity",
+      version: 1,
+      payload: { endpoint_url: "https://example.invalid" },
+    })}`;
+    expect(handleConfigQr(qr, null).ok).toBe(false);
+  });
+
+  test("rejects when explicit adminToken is null (no token configured)", () => {
+    const qr = `MMCFG:${JSON.stringify({
+      kind: "wifi_config",
+      version: 1,
+      payload: { ssid: "Net", password: "pass" },
       auth: { admin_token: TEST_TOKEN },
     })}`;
     const result = handleConfigQr(qr, null);
@@ -327,9 +350,9 @@ describe("envelope validation", () => {
 
   test("rejects completely missing auth", () => {
     const qr = `MMCFG:${JSON.stringify({
-      kind: "show_identity",
+      kind: "wifi_config",
       version: 1,
-      payload: {},
+      payload: { ssid: "Net", password: "pass" },
     })}`;
     expect(handleConfigQr(qr, TEST_TOKEN).ok).toBe(false);
   });

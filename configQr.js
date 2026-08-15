@@ -213,10 +213,14 @@ function handleConfigQr(scanValue) {
       return { ok: false, error: `Unsupported version: ${data.version}` };
     }
 
-    const authResult = requireAdminAuth(data);
-    if (!authResult.ok) return authResult;
-
     if (data.kind === "show_identity") {
+      if (
+        !data.payload ||
+        typeof data.payload !== "object" ||
+        Object.keys(data.payload).length > 0
+      ) {
+        return { ok: false, error: "show_identity payload must be empty" };
+      }
       return {
         ok: true,
         kind: "show_identity",
@@ -224,6 +228,9 @@ function handleConfigQr(scanValue) {
         runtime: {},
       };
     }
+
+    const authResult = requireAdminAuth(data);
+    if (!authResult.ok) return authResult;
 
     if (data.kind === "cloud_config") return handleCloudConfig(data);
     if (data.kind === "station_config") return handleStationConfig(data);

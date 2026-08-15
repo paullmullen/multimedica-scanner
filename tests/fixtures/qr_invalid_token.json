@@ -1,6 +1,6 @@
 {
   "description": "Wrong admin_token — must be rejected even when all other fields are valid",
-  "qrString": "MMCFG:{\"kind\":\"show_identity\",\"version\":1,\"payload\":{},\"auth\":{\"admin_token\":\"wrong-token\"}}",
+  "qrString": "MMCFG:{\"kind\":\"wifi_config\",\"version\":1,\"payload\":{\"ssid\":\"TestNet\",\"password\":\"test-pass\"},\"auth\":{\"admin_token\":\"wrong-token\"}}",
   "expectedResult": {
     "ok": false
   }

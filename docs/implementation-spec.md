@@ -32,20 +32,19 @@
 - Repository: `alfarero_clinic`
 - File: `functions/generateScannerCloudQr.js`
 - Exported handler: `generateScannerCloudQr` (Firebase `onRequest`)
-- Handles kinds: `cloud_config` (default), `station_config`
-- Authorization: requires `Authorization: Bearer <SCANNER_QR_ADMIN_TOKEN>` header matching its own server-side `SCANNER_QR_ADMIN_TOKEN` environment variable
+- Handles kinds: `cloud_config` (default), `station_config`, and `wifi_config`
+- Authorization: requires `Authorization: Bearer <Firebase ID token>`; the function verifies Firebase Authentication and requires `users/{uid}.permissions.settings`
 - Constructs QR strings via `buildQrValue(payload)` → `` `MMCFG:${JSON.stringify(payload)}` ``
-- For `cloud_config`: reads `SCANNER_ENDPOINT_URL`, `SCANNER_SHARED_SECRET`, and `SCANNER_QR_ADMIN_TOKEN` from Cloud Function environment; embeds all three into the QR payload
+- For `cloud_config`: reads server-owned `SCANNER_ENDPOINT_URL`, `SCANNER_SHARED_SECRET`, and `SCANNER_QR_ADMIN_TOKEN`; embeds them into the QR payload
 - For `station_config`: takes `location_id`, `room_id`, `station_id`, `device_id` from the POST request body; embeds `SCANNER_QR_ADMIN_TOKEN` as `auth.admin_token`
+- For `wifi_config`: validates `ssid`, `password`, and `security` from the POST request; embeds `SCANNER_QR_ADMIN_TOKEN` as `auth.admin_token`
 
 **React component generator**
 
 - Repository: `alfarero_clinic`
 - File: `src/pages/settings/sections/ScannerQRGenerator.jsx`
-- Handles kinds locally: `wifi_config`, `show_identity`
-- Reads `CLOUD_QR_ADMIN_TOKEN = process.env.REACT_APP_SCANNER_QR_ADMIN_TOKEN` at React build time; this value is **bundled into the browser JavaScript**
-- Constructs QR strings directly in browser as `` `MMCFG:${JSON.stringify(localPayloadObject)}` ``
-- For `cloud_config` and `station_config`: calls the Cloud Function via `fetch(CLOUD_QR_ENDPOINT, { headers: { Authorization: \`Bearer ${CLOUD_QR_ADMIN_TOKEN}\` } })` and renders the returned `qrValue`
+- Handles `show_identity` locally without an `auth` object; it is a non-configuration command
+- Calls the Cloud Function for `cloud_config`, `station_config`, and `wifi_config` with a Firebase ID token and renders the returned `qrValue`
 
 ### 1.2 QR parser
 
@@ -53,15 +52,14 @@
 - File: `configQr.js` (to be moved to `bootstrap/lib/qr-contract.js`)
 - Entry functions: `isConfigQr(scanValue)`, `handleConfigQr(scanValue)`
 - `isConfigQr`: returns `true` if `scanValue.startsWith("MMCFG:")`
-- `handleConfigQr`: strips prefix, parses JSON, validates version and token, dispatches by kind
+- `handleConfigQr`: strips prefix, parses JSON, validates version, requires `auth.admin_token` for protected kinds, and dispatches by kind
 
 ### 1.3 Token source and exposure
 
 - `SCANNER_QR_ADMIN_TOKEN` is a single fleet-wide secret shared by all Pi devices and the Cloud Function
-- It is present in `alfarero_clinic/.env` as `REACT_APP_SCANNER_QR_ADMIN_TOKEN`
-- Because it uses the `REACT_APP_` prefix it is bundled into the compiled React browser application and is accessible to anyone who inspects the bundle
-- **Security note (v1 accepted, not a blocker):** fleet-wide browser-accessible token is the approved current model; per-device enrollment is deferred
-- **Token character mismatch to confirm before implementation:** `alfarero_clinic/.env` uses plain ASCII; `alfarero_clinic/edge_device_secret_token.txt` uses accented characters. These are different strings. Confirm which value is deployed to the Cloud Function and existing Pis before writing any token-handling code.
+- The backend stores it as a Secret Manager-bound `SCANNER_QR_ADMIN_TOKEN`; the React application does not receive or contain this value
+- The installer transfers the same value as `qr_admin_token` into the Pi secrets store
+- The backend caller credential is a Firebase ID token and is separate from the QR bearer credential
 
 ### 1.4 Current scanner runtime
 
@@ -258,7 +256,7 @@ MMCFG:{"kind":"cloud_config","version":1,"payload":{"endpoint_url":"https://us-c
 **Literal current QR string:**
 
 ```
-MMCFG:{"kind":"show_identity","version":1,"payload":{},"auth":{"admin_token":"<redacted>"}}
+MMCFG:{"kind":"show_identity","version":1,"payload":{}}
 ```
 
 **Literal decoded JSON:**
@@ -268,15 +266,12 @@ MMCFG:{"kind":"show_identity","version":1,"payload":{},"auth":{"admin_token":"<r
   "kind": "show_identity",
   "version": 1,
   "payload": {},
-  "auth": {
-    "admin_token": "<redacted>"
-  }
 }
 ```
 
 **Generator/parser mismatch:** None.
 
-**Required:** `kind`, `version`, `auth.admin_token` (envelope only)  
+**Required:** `kind`, `version`, and an empty `payload`; no `auth` object is required
 **Optional:** `payload` key present but empty; parser does not inspect payload contents  
 **Persistent storage:** none; no config mutations  
 **Side effects:** display enters identity mode  
@@ -396,10 +391,10 @@ Contract tests verify that `handleConfigQr` called with `SCANNER_QR_ADMIN_TOKEN=
 ### 3.1 Current token distribution
 
 1. The token is stored in the Cloud Function deployment environment as `SCANNER_QR_ADMIN_TOKEN` (server-side, not public)
-2. The same token value is in `alfarero_clinic/.env` as `REACT_APP_SCANNER_QR_ADMIN_TOKEN` (bundled into React browser build)
+2. The same token value is installed on the Pi as `qr_admin_token` in the validated secrets store
 3. The Cloud Function embeds the token into every generated QR payload as `auth.admin_token`
-4. The Pi reads the token from its local environment at runtime to validate incoming QRs
-5. Currently the token reaches the Pi via the `.env` file transferred by the PowerShell installer
+4. The Pi reads the token from its validated secrets store at runtime to validate protected QRs
+5. The token reaches the Pi through the existing PowerShell installer transfer flow
 
 ### 3.2 Proposed v1 trust flow
 
@@ -1943,8 +1938,8 @@ docs/installer-config.md
 
 The following cannot be resolved from repository evidence alone and require explicit product-owner input before the relevant milestone begins.
 
-1. **Token character encoding (must resolve before Milestone 1).**  
-   `alfarero_clinic/.env` contains `REACT_APP_SCANNER_QR_ADMIN_TOKEN` with plain ASCII; `alfarero_clinic/edge_device_secret_token.txt` contains accented characters. These are different strings. The deployed Cloud Function environment must be inspected directly to confirm the exact byte sequence in use. The wrong value will silently reject every provisioning QR.
+1. **QR administrator token authority (must resolve before Milestone 2 hardware acceptance).**
+  `SCANNER_QR_ADMIN_TOKEN` is backend-owned and must be supplied to the Cloud Function through its Secret Manager binding. The exact same value must be installed as `qr_admin_token` in the Pi secrets store. The React application is not an authority for this value and must not contain it.
 
 2. **Exact OS image (must resolve before Milestone 3 closes).**  
    The exact Raspberry Pi OS Lite 64-bit image version, release date, download URL, and SHA-256 are hardware-qualification outputs. The implementation must not proceed to Milestone 5 until these values are committed to `docs/bootstrap-architecture.md` and `bootstrap/lib/platform-check.js`.

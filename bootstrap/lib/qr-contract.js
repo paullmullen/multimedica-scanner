@@ -194,12 +194,21 @@ function handleConfigQr(scanValue, adminToken) {
       return { ok: false, error: `Unsupported version: ${data.version}` };
     }
 
+    if (data.kind === "show_identity") {
+      if (
+        !data.payload ||
+        typeof data.payload !== "object" ||
+        Object.keys(data.payload).length > 0
+      ) {
+        return { ok: false, error: "show_identity payload must be empty" };
+      }
+      return { ok: true, kind: "show_identity", applied: {}, runtime: {} };
+    }
+
     const auth = requireAdminAuth(data, adminToken);
     if (!auth.ok) return auth;
 
     switch (data.kind) {
-      case "show_identity":
-        return { ok: true, kind: "show_identity", applied: {}, runtime: {} };
       case "cloud_config":
         return handleCloudConfig(data);
       case "station_config":

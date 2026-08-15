@@ -4,7 +4,7 @@
   "title": "QR Envelope",
   "description": "Common wrapper for all MMCFG: provisioning QR payloads",
   "type": "object",
-  "required": ["kind", "version", "auth"],
+  "required": ["kind", "version", "payload"],
   "additionalProperties": true,
   "properties": {
     "kind": {
@@ -28,5 +28,27 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "show_identity"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "maxProperties": 0
+          }
+        }
+      },
+      "else": {
+        "required": ["auth"]
+      }
+    }
+  ]
 }
