@@ -32,7 +32,10 @@
 # DOES NOT:
 #   - Install or touch the production scanner (scanner.js / configQr.js).
 #   - Require shared_secret or endpoint_url.
-#   - Require network connectivity (bootstrap token is the only credential).
+#   - Require cloud credentials beyond the bootstrap token.
+#
+# A clean Raspberry Pi OS image does require package-repository access during
+# first installation so the bootstrap runtime dependencies can be installed.
 # =============================================================================
 
 set -euo pipefail
@@ -68,11 +71,50 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --- preflight ---
+# --- preflight and clean-image runtime dependencies ---
 [[ $EUID -eq 0 ]] || fail "Must be run as root"
 
-command -v "$NODE_BIN" >/dev/null 2>&1 || fail "Node.js not found at $NODE_BIN"
-command -v "$NPM_BIN"  >/dev/null 2>&1 || fail "npm not found at $NPM_BIN"
+MISSING_PACKAGES=()
+[[ -x "$NODE_BIN" ]] || MISSING_PACKAGES+=(nodejs)
+[[ -x "$NPM_BIN" ]]  || MISSING_PACKAGES+=(npm)
+command -v rsync >/dev/null 2>&1 || MISSING_PACKAGES+=(rsync)
+command -v curl  >/dev/null 2>&1 || MISSING_PACKAGES+=(curl)
+command -v sudo  >/dev/null 2>&1 || MISSING_PACKAGES+=(sudo)
+command -v evtest >/dev/null 2>&1 || MISSING_PACKAGES+=(evtest)
+command -v Xorg  >/dev/null 2>&1 || MISSING_PACKAGES+=(xserver-xorg)
+command -v xinit >/dev/null 2>&1 || MISSING_PACKAGES+=(xinit)
+command -v xset  >/dev/null 2>&1 || MISSING_PACKAGES+=(x11-xserver-utils)
+command -v unclutter >/dev/null 2>&1 || MISSING_PACKAGES+=(unclutter)
+if ! command -v chromium >/dev/null 2>&1 && \
+   ! command -v chromium-browser >/dev/null 2>&1 && \
+   [[ ! -x /usr/lib/chromium/chromium ]]; then
+  MISSING_PACKAGES+=(chromium)
+fi
+
+if [[ ${#MISSING_PACKAGES[@]} -gt 0 ]]; then
+  command -v apt-get >/dev/null 2>&1 || fail "Required packages are missing and apt-get is unavailable: ${MISSING_PACKAGES[*]}"
+  log "Installing clean-image prerequisites: ${MISSING_PACKAGES[*]}"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update || fail "apt-get update failed; verify Ethernet and package-repository access"
+  apt-get install -y --no-install-recommends "${MISSING_PACKAGES[@]}" \
+    || fail "Failed to install clean-image prerequisites: ${MISSING_PACKAGES[*]}"
+fi
+
+[[ -x "$NODE_BIN" ]] || fail "Node.js installation did not provide $NODE_BIN"
+[[ -x "$NPM_BIN" ]]  || fail "npm installation did not provide $NPM_BIN"
+command -v rsync >/dev/null 2>&1 || fail "rsync installation failed"
+command -v curl  >/dev/null 2>&1 || fail "curl installation failed"
+command -v sudo  >/dev/null 2>&1 || fail "sudo installation failed"
+command -v evtest >/dev/null 2>&1 || fail "evtest installation failed"
+command -v Xorg  >/dev/null 2>&1 || fail "Xorg installation failed"
+command -v xinit >/dev/null 2>&1 || fail "xinit installation failed"
+command -v xset  >/dev/null 2>&1 || fail "xset installation failed"
+command -v unclutter >/dev/null 2>&1 || fail "unclutter installation failed"
+if ! command -v chromium >/dev/null 2>&1 && \
+   ! command -v chromium-browser >/dev/null 2>&1 && \
+   [[ ! -x /usr/lib/chromium/chromium ]]; then
+  fail "Chromium installation failed"
+fi
 
 [[ -f "$SRC_DIR/controller.js" ]] || fail "Source directory does not contain controller.js: $SRC_DIR"
 
@@ -88,6 +130,11 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
           --shell /bin/bash \
           "$APP_USER"
 fi
+
+# Barcode scanners expose /dev/input/event* as root:input. Grant only the
+# supplementary device group required by the non-root controller service.
+getent group input >/dev/null 2>&1 || groupadd --system input
+usermod -a -G input "$APP_USER"
 
 log "Creating state directory $STATE_DIR"
 mkdir -p \
@@ -258,6 +305,7 @@ The installer did NOT modify or stop any existing service."
 
   for svc in multimedica-controller.service \
              multimedica-display.service \
+             multimedica-kiosk.service \
              multimedica-production.service; do
     if [[ -f "$UNIT_SRC/$svc" ]]; then
       cp "$UNIT_SRC/$svc" "$SYSTEMD_DIR/$svc"
@@ -275,14 +323,20 @@ fi
 log "Enabling bootstrap services"
 systemctl enable multimedica-display.service     2>/dev/null || true
 systemctl enable multimedica-controller.service  2>/dev/null || true
+systemctl enable multimedica-kiosk.service       2>/dev/null || true
 # Production service is NOT enabled here — activated by Milestone 5
 systemctl disable multimedica-production.service 2>/dev/null || true
+# tty1 belongs to the appliance kiosk. SSH remains available for recovery.
+systemctl disable getty@tty1.service             2>/dev/null || true
 
 log "Starting display service"
 systemctl restart multimedica-display.service
 
 log "Starting controller service"
 systemctl restart multimedica-controller.service
+
+log "Starting physical kiosk service"
+systemctl restart multimedica-kiosk.service
 
 # =============================================================================
 # 8. Post-install verification
@@ -293,7 +347,7 @@ sleep 4
 
 FAIL=0
 
-for svc in multimedica-display.service multimedica-controller.service; do
+for svc in multimedica-display.service multimedica-controller.service multimedica-kiosk.service; do
   if systemctl is-active --quiet "$svc"; then
     log "$svc is active"
   else

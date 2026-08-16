@@ -11,6 +11,10 @@
         -InstallRelease Install a specific named release artifact    (Milestone 5)
         -RollbackRelease Roll back to a prior installed release      (Milestone 5)
 
+    One SSH setup utility:
+        -ConfigureSshAccess  Install and verify the workstation's dedicated
+                             provisioning public key on the Pi
+
 .NOTES
     The QR administrator token is supplied via -InstallerConfig.
     It is NEVER passed as a CLI argument, printed, or written to logs.
@@ -48,6 +52,9 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'RollbackRelease')]
     [switch]$RollbackRelease,
 
+    [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
+    [switch]$ConfigureSshAccess,
+
     # Required in all SSH modes
     [Parameter(Mandatory, ParameterSetName = 'Install')]
     [Parameter(Mandatory, ParameterSetName = 'Verify')]
@@ -55,6 +62,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Repair')]
     [Parameter(Mandatory, ParameterSetName = 'InstallRelease')]
     [Parameter(Mandatory, ParameterSetName = 'RollbackRelease')]
+    [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
     [string]$PiHost,
 
     # ReleaseVersion: declared ONCE; required for release modes, optional for Commission
@@ -75,6 +83,7 @@ param(
     [Parameter(ParameterSetName = 'Repair')]
     [Parameter(ParameterSetName = 'InstallRelease')]
     [Parameter(ParameterSetName = 'RollbackRelease')]
+    [Parameter(ParameterSetName = 'ConfigureSshAccess')]
     [int]$PiPort = 22,
 
     [Parameter(ParameterSetName = 'Install')]
@@ -98,7 +107,11 @@ param(
 
     # Utility: create installer-config file interactively (no SSH required)
     [Parameter(ParameterSetName = 'CreateInstallerConfig')]
-    [switch]$CreateInstallerConfig
+    [switch]$CreateInstallerConfig,
+
+    [Parameter(ParameterSetName = 'CreateInstallerConfig')]
+    [ValidatePattern('^[a-z][a-z0-9-]{3,28}[a-z0-9]$')]
+    [string]$FirebaseProjectId
 )
 
 Set-StrictMode -Version Latest
@@ -163,6 +176,81 @@ function Read-InstallerConfig { param([string]$Path)
     }
     return $cfg }
 
+function Resolve-FirebaseExecutable {
+    foreach ($name in @('firebase.cmd', 'firebase.exe', 'firebase')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command -and $command.Source) { return $command.Source }
+    }
+    throw 'Firebase CLI executable not found. Install Firebase CLI or omit -FirebaseProjectId for offline recovery.'
+}
+
+function Get-FirebaseSecretToken {
+    param([string]$ProjectId)
+
+    if ($ProjectId -notmatch '^[a-z][a-z0-9-]{3,28}[a-z0-9]$') {
+        throw 'Invalid Firebase project ID.'
+    }
+
+    $firebase = Resolve-FirebaseExecutable
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $firebase
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.Arguments = "functions:secrets:access SCANNER_QR_ADMIN_TOKEN --project $ProjectId"
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw 'Firebase CLI could not be started.' }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.Result
+        $null = $stderrTask.Result
+
+        if ($process.ExitCode -ne 0) {
+            throw 'Firebase CLI could not access SCANNER_QR_ADMIN_TOKEN.'
+        }
+
+        $token = $stdout -replace '(\r\n|\n|\r)$', ''
+        if ([string]::IsNullOrEmpty($token) -or $token.Contains("`r") -or $token.Contains("`n")) {
+            throw 'Firebase CLI returned an invalid token response.'
+        }
+        return $token
+    } catch [System.Management.Automation.RuntimeException] {
+        throw $_.Exception.Message
+    } catch {
+        throw 'Firebase CLI secret retrieval failed.'
+    } finally {
+        if ($process) { $process.Dispose() }
+        $stdout = $null
+        $stderr = $null
+        $stdoutTask = $null
+        $stderrTask = $null
+    }
+}
+
+function Protect-InstallerConfigFile {
+    param([string]$Path)
+
+    # Set only the discretionary access rules. Set-Acl can attempt to write
+    # audit-control data on some Windows configurations, which unnecessarily
+    # requires SeSecurityPrivilege. icacls restricts this user-owned file
+    # without requiring an elevated PowerShell process.
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
+    if (-not (Test-Path $icacls)) {
+        throw 'Windows ACL utility not found.'
+    }
+
+    $output = & $icacls $Path '/inheritance:r' '/grant:r' "${identity}:(F)" '*S-1-5-18:(F)' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not restrict installer config permissions: $($output -join ' ')"
+    }
+}
+
 function New-InstallerConfigInteractive {
     Write-Phase 'Creating multimedica-installer.json'
     Write-Host ''
@@ -172,32 +260,68 @@ function New-InstallerConfigInteractive {
     Write-Host ''
     $savePath = Read-Host 'Save path [default: .\multimedica-installer.json]'
     if (-not $savePath) { $savePath = '.\multimedica-installer.json' }
-    $tokenSS = Read-Host 'QR administrator token (exact SCANNER_QR_ADMIN_TOKEN value)' -AsSecureString
-
-    $BSTR1  = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenSS)
-    $token  = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR1)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR1)
-
-    if ([string]::IsNullOrWhiteSpace($token)) { throw 'QR administrator token must not be empty' }
-
-    $cfg  = [ordered]@{ qr_admin_token = $token }
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
     $dest = Join-Path (Get-Location).Path $savePath
-    [System.IO.File]::WriteAllText($dest, ($cfg | ConvertTo-Json), $utf8)
+    if (Test-Path $dest) {
+        $replace = Read-Host 'Installer config exists. Replace it? [yes/no]'
+        if ($replace -notmatch '^(?i:yes)$') { throw 'Existing installer config was not replaced.' }
+    }
 
-    $token = $null; $cfg = $null; [System.GC]::Collect()
-
+    $token = $null
+    $candidate = "$dest.candidate"
+    $backup = $null
+    $replaceCompleted = $false
     try {
-        $acl  = Get-Acl $savePath
-        $acl.SetAccessRuleProtection($true, $false)
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
-            'FullControl', 'Allow')
-        $acl.AddAccessRule($rule); Set-Acl -Path $savePath -AclObject $acl
-    } catch { Write-Warn "Could not restrict ACL: $_" }
+        if ($FirebaseProjectId) {
+            Write-Phase "Retrieving SCANNER_QR_ADMIN_TOKEN metadata for project $FirebaseProjectId"
+            $token = Get-FirebaseSecretToken -ProjectId $FirebaseProjectId
+        } else {
+            $tokenSS = Read-Host 'QR administrator token (exact SCANNER_QR_ADMIN_TOKEN value)' -AsSecureString
+            $BSTR1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($tokenSS)
+            try { $token = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR1) }
+            finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR1) }
+        }
 
-    Write-Ok "Configuration saved to $savePath"
-    Write-Host 'IMPORTANT: Keep this file secure. Do not commit to source control.' -ForegroundColor Yellow }
+        if ([string]::IsNullOrWhiteSpace($token)) { throw 'QR administrator token must not be empty' }
+        $cfg = [ordered]@{ qr_admin_token = $token }
+        if ($cfg.Keys.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$cfg.qr_admin_token)) {
+            throw 'Installer config validation failed.'
+        }
+
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($candidate, ($cfg | ConvertTo-Json), $utf8)
+        Protect-InstallerConfigFile -Path $candidate
+
+        if (Test-Path $dest) {
+            $backup = "$dest.backup.$([Guid]::NewGuid().ToString('N'))"
+            [System.IO.File]::Replace($candidate, $dest, $backup)
+            Protect-InstallerConfigFile -Path $dest
+            $replaceCompleted = $true
+            [System.IO.File]::Delete($backup)
+            $backup = $null
+        } else {
+            [System.IO.File]::Move($candidate, $dest)
+        }
+        Write-Ok "Configuration saved to $savePath"
+        Write-Host 'IMPORTANT: Keep this file secure. Do not commit to source control.' -ForegroundColor Yellow
+    } catch {
+        if (Test-Path $candidate) { Remove-Item -Force $candidate -ErrorAction SilentlyContinue }
+        throw $_.Exception.Message
+    } finally {
+        if ($backup -and (Test-Path $backup)) {
+            if (-not $replaceCompleted) {
+                if (Test-Path $dest) { [System.IO.File]::Delete($dest) }
+                [System.IO.File]::Move($backup, $dest)
+            } else {
+                [System.IO.File]::Delete($backup)
+            }
+        }
+        $token = $null
+        $cfg = $null
+        $tokenSS = $null
+        $BSTR1 = $null
+        [System.GC]::Collect()
+    }
+}
 
 # ---------------------------------------------------------------------------
 # SSH helpers
@@ -206,8 +330,10 @@ function New-InstallerConfigInteractive {
 $script:SshExe    = $null
 $script:ScpExe    = $null
 $script:SshCommon = @()
+$script:ScpCommon = @()
+$script:ProvisioningKey = Join-Path $env:USERPROFILE '.ssh\multimedica_scanner_ed25519'
 
-function Initialize-Ssh { param([int]$Port)
+function Initialize-Ssh { param([int]$Port, [switch]$AllowPassword)
     $cmd = Get-Command ssh.exe -EA SilentlyContinue
     if (-not $cmd) { $cmd = Get-Command ssh -EA SilentlyContinue }
     if (-not $cmd) { throw 'ssh not found. Install OpenSSH for Windows.' }
@@ -216,16 +342,75 @@ function Initialize-Ssh { param([int]$Port)
     if (-not $cmd2) { $cmd2 = Get-Command scp -EA SilentlyContinue }
     if (-not $cmd2) { throw 'scp not found. Install OpenSSH for Windows.' }
     $script:ScpExe = $cmd2.Source
-    $script:SshCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-p', "$Port")
+    $identityArgs = @()
+    if (Test-Path -LiteralPath $script:ProvisioningKey) {
+        $identityArgs = @('-i', $script:ProvisioningKey, '-o', 'IdentitiesOnly=yes')
+    }
+    $script:SshCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-p', "$Port") + $identityArgs
+    $script:ScpCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-P', "$Port") + $identityArgs
+    if (-not $AllowPassword) {
+        if (-not $identityArgs.Count) {
+            throw 'Provisioning SSH key not found. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
+        }
+        $testArgs = $script:SshCommon + @('-o', 'BatchMode=yes', $PiHost, 'true')
+        & $script:SshExe @testArgs 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Key-based SSH verification failed. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
+        }
+    }
     Write-Host "    SSH: $($script:SshExe)" -ForegroundColor DarkGray }
+
+function Invoke-ConfigureSshAccess {
+    $keyDir = Split-Path -Parent $script:ProvisioningKey
+    if (-not (Test-Path -LiteralPath $keyDir)) {
+        New-Item -ItemType Directory -Path $keyDir -Force | Out-Null
+    }
+
+    if (-not (Test-Path -LiteralPath $script:ProvisioningKey)) {
+        $keygen = Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue
+        if (-not $keygen) { $keygen = Get-Command ssh-keygen -ErrorAction SilentlyContinue }
+        if (-not $keygen) { throw 'ssh-keygen not found. Install OpenSSH for Windows.' }
+        Write-Phase 'Creating dedicated Multimedica provisioning SSH key'
+        & $keygen.Source -q -t ed25519 -f $script:ProvisioningKey -N '""' -C 'multimedica-scanner-provisioning'
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to create provisioning SSH key.' }
+    } else {
+        Write-Ok 'Dedicated Multimedica provisioning SSH key already exists'
+    }
+
+    if (-not (Test-Path -LiteralPath "$($script:ProvisioningKey).pub")) {
+        throw 'Provisioning SSH public key is missing.'
+    }
+
+    Initialize-Ssh -Port $PiPort -AllowPassword
+    Write-Phase 'Installing provisioning public key on Pi (one password entry expected)'
+    $publicKeyText = (Get-Content -LiteralPath "$($script:ProvisioningKey).pub" -Raw).TrimEnd() + "`n"
+    $publicKeyBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($publicKeyText))
+    $remote = 'set -e; umask 077; mkdir -p $HOME/.ssh; touch $HOME/.ssh/authorized_keys; printf %s ' +
+              $publicKeyBase64 +
+              ' | base64 -d > $HOME/.ssh/.multimedica_key_candidate; grep -qxF -f $HOME/.ssh/.multimedica_key_candidate $HOME/.ssh/authorized_keys || cat $HOME/.ssh/.multimedica_key_candidate >> $HOME/.ssh/authorized_keys; rm -f $HOME/.ssh/.multimedica_key_candidate; chmod 700 $HOME/.ssh; chmod 600 $HOME/.ssh/authorized_keys'
+    $installArgs = $script:SshCommon + @($PiHost, $remote)
+    & $script:SshExe @installArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install provisioning public key on Pi.' }
+
+    $testArgs = $script:SshCommon + @('-o', 'BatchMode=yes', $PiHost, 'true')
+    & $script:SshExe @testArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Provisioning public key was installed but verification failed.' }
+    Write-Ok 'Key-based SSH verified; provisioning will not prompt for the Pi password'
+}
 
 # Run remote command; return exit code; stdout goes to console
 function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail)
     if ($Desc) { Write-Phase $Desc }
     $a = $script:SshCommon + @($PiHost, $Cmd)
-    & $script:SshExe @a
-    if (-not $AllowFail -and $LASTEXITCODE -ne 0) { throw "SSH command failed ($LASTEXITCODE): $Desc" }
-    return $LASTEXITCODE }
+    $remoteOutput = @(& $script:SshExe @a 2>&1)
+    $remoteExitCode = $LASTEXITCODE
+    foreach ($line in $remoteOutput) { Write-Host $line }
+    if (-not $AllowFail -and $remoteExitCode -ne 0) {
+        $detail = ($remoteOutput | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } | Select-Object -Last 1)
+        if ($detail) { throw "SSH command failed ($remoteExitCode): $Desc -- Remote: $detail" }
+        throw "SSH command failed ($remoteExitCode): $Desc"
+    }
+    return $remoteExitCode }
 
 # Run remote command; capture and return stdout as string
 function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
@@ -237,16 +422,20 @@ function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
 function Copy-ToRemote { param([string]$Desc, [string]$Local, [string]$Remote)
     if ($Desc) { Write-Phase $Desc }
     $dest = $PiHost + ':' + $Remote
-    $a = $script:SshCommon + @($Local, $dest)
-    & $script:ScpExe @a
-    if ($LASTEXITCODE -ne 0) { throw "scp failed ($LASTEXITCODE): $Desc" } }
+    $a = $script:ScpCommon + @($Local, $dest)
+    $copyOutput = @(& $script:ScpExe @a 2>&1)
+    $copyExitCode = $LASTEXITCODE
+    foreach ($line in $copyOutput) { Write-Host $line }
+    if ($copyExitCode -ne 0) { throw "scp failed ($copyExitCode): $Desc" } }
 
 function Copy-DirToRemote { param([string]$Desc, [string]$Local, [string]$Remote)
     if ($Desc) { Write-Phase $Desc }
     $dest = $PiHost + ':' + $Remote
-    $a = $script:SshCommon + @('-r', $Local, $dest)
-    & $script:ScpExe @a
-    if ($LASTEXITCODE -ne 0) { throw "scp -r failed ($LASTEXITCODE): $Desc" } }
+    $a = $script:ScpCommon + @('-r', $Local, $dest)
+    $copyOutput = @(& $script:ScpExe @a 2>&1)
+    $copyExitCode = $LASTEXITCODE
+    foreach ($line in $copyOutput) { Write-Host $line }
+    if ($copyExitCode -ne 0) { throw "scp -r failed ($copyExitCode): $Desc" } }
 
 # ---------------------------------------------------------------------------
 # Bootstrap installation (shared by Install and Repair)
@@ -255,7 +444,7 @@ function Copy-DirToRemote { param([string]$Desc, [string]$Local, [string]$Remote
 function Install-Bootstrap { param([hashtable]$Result, [object]$Cfg, [switch]$IsRepair)
     $proj = (Get-Location).Path
     $tmp  = '/tmp/mm-bootstrap-xfr'
-    Invoke-Remote 'Preparing remote staging' "rm -rf $tmp && mkdir -p $tmp"
+    $null = Invoke-Remote 'Preparing remote staging' "rm -rf $tmp && mkdir -p $tmp"
     Copy-DirToRemote 'Copying bootstrap source' "$proj\bootstrap" "$tmp/bootstrap"
     Copy-DirToRemote 'Copying schemas'           "$proj\schemas"   "$tmp/schemas"
     Copy-ToRemote    'Copying package.json'      "$proj\package.json" "$tmp/package.json"
@@ -274,10 +463,11 @@ function Install-Bootstrap { param([hashtable]$Result, [object]$Cfg, [switch]$Is
         if (Test-Path $stLocal) { Remove-Item -Force $stLocal }
     }
 
-    Invoke-Remote 'Fixing line endings' "find $tmp -name '*.sh' -exec sed -i 's/
-//' {} \; && chmod +x $tmp/bootstrap/install-bootstrap.sh"
+    $null = Invoke-Remote 'Fixing line endings' "find $tmp -name '*.sh' -exec sed -i 's/\x0D$//' {} \; && chmod +x $tmp/bootstrap/install-bootstrap.sh"
     $ff = if ($IsRepair -or $Force) { '--force' } else { '' }
-    Invoke-Remote 'Running bootstrap installer' "sudo bash $tmp/bootstrap/install-bootstrap.sh --src $tmp/bootstrap --secrets $stRemote $ff 2>&1" }
+    Write-Warn 'The first clean-image bootstrap can take several minutes while OS and npm packages are installed.'
+    Write-Warn 'Do not interrupt the installer while package output continues; later reruns should be faster.'
+    $null = Invoke-Remote 'Running bootstrap installer' "sudo bash $tmp/bootstrap/install-bootstrap.sh --src $tmp/bootstrap --secrets $stRemote $ff 2>&1" }
 
 # ---------------------------------------------------------------------------
 # Service health check
@@ -286,7 +476,7 @@ function Install-Bootstrap { param([hashtable]$Result, [object]$Cfg, [switch]$Is
 function Test-Services { param([hashtable]$Result)
     Write-Phase 'Checking bootstrap services'
     $ok = $true
-    foreach ($svc in @('multimedica-display.service', 'multimedica-controller.service')) {
+    foreach ($svc in @('multimedica-display.service', 'multimedica-controller.service', 'multimedica-kiosk.service')) {
         $rc = Invoke-Remote '' "systemctl is-active --quiet $svc" -AllowFail
         if ($rc -eq 0) { Write-Ok "$svc active" }
         else { Write-Fail "$svc NOT active"; $Result.errors.Add("$svc not active"); $ok = $false }
@@ -295,6 +485,10 @@ function Test-Services { param([hashtable]$Result)
     $rc = Invoke-Remote '' 'curl -fs http://127.0.0.1:3001/api/health -o /dev/null 2>/dev/null' -AllowFail
     if ($rc -eq 0) { Write-Ok 'Display health endpoint OK' }
     else { Write-Warn 'Display health endpoint unreachable'; $Result.warnings.Add('Display health unreachable') }
+    # The HTTP endpoint alone does not prove that the physical screen is showing it.
+    $rc = Invoke-Remote '' "pgrep -u multimedica_edge -f 'chromium.*127.0.0.1:3001' >/dev/null" -AllowFail
+    if ($rc -eq 0) { Write-Ok 'Physical kiosk browser process active' }
+    else { Write-Fail 'Physical kiosk browser process NOT active'; $Result.errors.Add('Physical kiosk browser not active'); $ok = $false }
     $Result.services_healthy = $ok; return $ok }
 
 # ---------------------------------------------------------------------------
@@ -302,12 +496,18 @@ function Test-Services { param([hashtable]$Result)
 # ---------------------------------------------------------------------------
 
 function Test-Scanner { param([hashtable]$Result)
-    $rc = Invoke-Remote '' "grep -rl 'BF SCAN SCAN KEYBOARD' /proc/bus/input/ 2>/dev/null | head -1" -AllowFail
-    $Result.scanner_device_detected = ($rc -eq 0)
-    if ($rc -eq 0) { Write-Ok 'Scanner device detected' }
-    else { Write-Warn 'Scanner device not found'; $Result.warnings.Add('Scanner device not detected') }
+    Write-Phase 'Checking scanner input path'
+    $deviceRc = Invoke-Remote '' "grep -Fq 'BF SCAN SCAN KEYBOARD' /proc/bus/input/devices 2>/dev/null" -AllowFail
+    $readerRc = Invoke-Remote '' "pgrep -u multimedica_edge -x evtest >/dev/null" -AllowFail
+    $scannerOk = ($deviceRc -eq 0 -and $readerRc -eq 0)
+    $Result.scanner_device_detected = $scannerOk
+    if ($deviceRc -eq 0) { Write-Ok 'Scanner USB device detected' }
+    else { Write-Fail 'Scanner USB device not found'; $Result.errors.Add('Scanner USB device not detected') }
+    if ($readerRc -eq 0) { Write-Ok 'Scanner evtest reader active' }
+    else { Write-Fail 'Scanner evtest reader NOT active'; $Result.errors.Add('Scanner evtest reader not active') }
     # provisioning_qr_parsed requires installer interaction; cannot be automated
-    $Result.provisioning_qr_parsed = $null }
+    $Result.provisioning_qr_parsed = $null
+    return $scannerOk }
 
 # ---------------------------------------------------------------------------
 # Reboot and reconnect
@@ -337,12 +537,13 @@ function Invoke-Install { param([hashtable]$R)
     $R.warnings.Add('Full platform qualification deferred to Milestone 3')
     Install-Bootstrap -Result $R -Cfg $cfg
     $ok = Test-Services -Result $R
-    Test-Scanner -Result $R
-    if (-not $NoReboot -and $ok) {
+    $scannerOk = Test-Scanner -Result $R
+    if (-not $NoReboot -and $ok -and $scannerOk) {
         $rb = Invoke-Reboot -Result $R
         if ($rb) {
             Test-Services -Result $R | Out-Null
-            $R.reboot_verified = $R.services_healthy
+            $scannerAfterReboot = Test-Scanner -Result $R
+            $R.reboot_verified = ($R.services_healthy -and $scannerAfterReboot)
         } else {
             $R.reboot_verified = $false
         }
@@ -352,6 +553,7 @@ function Invoke-Install { param([hashtable]$R)
     }
     $R.bootstrap_complete = ($R.platform_verified -and
                              ($R.services_healthy -eq $true) -and
+                             ($R.scanner_device_detected -eq $true) -and
                              ($R.reboot_verified -ne $false))
     $R.exit_code = if ($R.bootstrap_complete) { 0 } elseif ($R.services_healthy) { 10 } else { 20 }
     return $R }
@@ -377,7 +579,12 @@ function Invoke-Verify { param([hashtable]$R)
         $R.warnings.Add('Device status unparseable; controller may not be running')
         $R.exit_code = 10
     }
-    Test-Services -Result $R | Out-Null
+    $servicesOk = Test-Services -Result $R
+    $scannerOk = Test-Scanner -Result $R
+    if (-not $servicesOk -or -not $scannerOk) {
+        $R.bootstrap_complete = $false
+        $R.exit_code = 20
+    }
     return $R }
 
 # ---------------------------------------------------------------------------
@@ -390,9 +597,10 @@ function Invoke-Repair { param([hashtable]$R)
     Write-Redacted 'qr_admin_token'
     Install-Bootstrap -Result $R -Cfg $cfg -IsRepair
     $ok = Test-Services -Result $R
+    $scannerOk = Test-Scanner -Result $R
     $R.services_healthy    = $ok
-    $R.bootstrap_complete  = $ok
-    $R.exit_code = if ($ok) { 0 } else { 20 }
+    $R.bootstrap_complete  = ($ok -and $scannerOk)
+    $R.exit_code = if ($R.bootstrap_complete) { 0 } else { 20 }
     return $R }
 
 # ---------------------------------------------------------------------------
@@ -414,6 +622,15 @@ function Invoke-Commission { param([hashtable]$R)
 
 if ($PSCmdlet.ParameterSetName -eq 'CreateInstallerConfig') {
     New-InstallerConfigInteractive; exit 0 }
+
+if ($PSCmdlet.ParameterSetName -eq 'ConfigureSshAccess') {
+    Write-Host ''
+    Write-Host 'Multimedica Scanner - Configure SSH Access' -ForegroundColor Cyan
+    Write-Host "Target: $PiHost" -ForegroundColor Cyan
+    Write-Host ''
+    try { Invoke-ConfigureSshAccess; exit 0 }
+    catch { Write-Fail $_.Exception.Message; exit 20 }
+}
 
 Write-Host ''
 Write-Host "Multimedica Scanner - $($PSCmdlet.ParameterSetName)" -ForegroundColor Cyan

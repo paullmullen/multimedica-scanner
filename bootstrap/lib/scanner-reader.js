@@ -3,7 +3,8 @@
 /**
  * Scanner Reader — Multimedica Scanner Bootstrap Layer
  *
- * Reads USB barcode scanner events via `sudo evtest` on Linux.
+ * Reads USB barcode scanner events via `evtest` on Linux. The controller
+ * service receives least-privilege access through the system `input` group.
  * Decodes keystroke events into scan strings and invokes onScan(rawString)
  * for every complete scan (terminated by KEY_ENTER).
  *
@@ -98,16 +99,17 @@ function findInputDeviceByName(targetName) {
  *
  * @param {function(string): void|Promise<void>} onScan
  */
-function start(onScan) {
+function start(onScan, onStatus) {
   if (process.platform !== "linux") {
     console.warn("[scanner-reader] non-Linux platform; scanner reader not started");
+    if (onStatus) onStatus({ device_detected: false, reader_active: false });
     return Promise.resolve();
   }
 
-  return _startLoop(onScan);
+  return _startLoop(onScan, onStatus);
 }
 
-function _startLoop(onScan) {
+function _startLoop(onScan, onStatus) {
   return new Promise((resolve) => {
     let devicePath;
     try {
@@ -118,7 +120,8 @@ function _startLoop(onScan) {
         err.message,
         `— retrying in ${SCANNER_RETRY_MS}ms`
       );
-      setTimeout(() => _startLoop(onScan).then(resolve), SCANNER_RETRY_MS);
+      if (onStatus) onStatus({ device_detected: false, reader_active: false });
+      setTimeout(() => _startLoop(onScan, onStatus).then(resolve), SCANNER_RETRY_MS);
       return;
     }
 
@@ -128,7 +131,25 @@ function _startLoop(onScan) {
     let lineRemainder = "";
     let shiftActive = false;
 
-    const evtest = spawn("sudo", ["evtest", devicePath]);
+    const evtest = spawn("evtest", [devicePath]);
+    let retryScheduled = false;
+
+    function scheduleRetry(reason) {
+      if (retryScheduled) return;
+      retryScheduled = true;
+      if (onStatus) {
+        onStatus({
+          device_detected: true,
+          reader_active: false,
+          error: reason || "scanner reader stopped",
+        });
+      }
+      setTimeout(() => _startLoop(onScan, onStatus).then(resolve), SCANNER_RETRY_MS);
+    }
+
+    evtest.on("spawn", () => {
+      if (onStatus) onStatus({ device_detected: true, reader_active: true });
+    });
 
     function handleLine(line) {
       if (!line.includes("EV_KEY")) return;
@@ -141,7 +162,7 @@ function _startLoop(onScan) {
         return;
       }
       if (val !== 1) return;
-      if (key === "KEY_ENTER") {
+      if (key === "KEY_ENTER" || key === "KEY_KPENTER") {
         if (scanBuffer.length > 0) {
           const scan = scanBuffer;
           scanBuffer = "";
@@ -167,11 +188,16 @@ function _startLoop(onScan) {
       if (text) console.log("[scanner-reader] evtest:", text);
     });
 
+    evtest.on("error", (err) => {
+      console.error("[scanner-reader] evtest start failed:", err.message);
+      scheduleRetry(err.message);
+    });
+
     evtest.on("close", (code) => {
       console.error(
         `[scanner-reader] evtest exited (code ${code}) — retrying in ${SCANNER_RETRY_MS}ms`
       );
-      setTimeout(() => _startLoop(onScan).then(resolve), SCANNER_RETRY_MS);
+      scheduleRetry(`evtest exited with code ${code}`);
     });
   });
 }

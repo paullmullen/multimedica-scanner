@@ -8,6 +8,7 @@ Wants=multimedica-display.service
 Type=simple
 User=multimedica_edge
 Group=multimedica_edge
+SupplementaryGroups=input
 WorkingDirectory=/opt/multimedica-scanner/bootstrap
 Environment=MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state
 Environment=CONTROLLER_PORT=3000

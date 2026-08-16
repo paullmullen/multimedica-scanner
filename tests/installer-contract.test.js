@@ -19,6 +19,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const Ajv = require("ajv");
 const addFormats = require("ajv-formats");
 
@@ -47,6 +48,62 @@ function makeValidator() {
   const ajv = new (Ajv.default || Ajv)({ strict: false, allErrors: true });
   (addFormats.default || addFormats)(ajv);
   return ajv;
+}
+
+function makeFakeFirebaseDir(mode) {
+  const dir = makeTempDir();
+  const script = [
+    "@echo off",
+    `if \"%FAKE_FIREBASE_MODE%\"==\"success\" (echo fake-token&exit /b 0)`,
+    `if \"%FAKE_FIREBASE_MODE%\"==\"empty\" (exit /b 0)`,
+    `if \"%FAKE_FIREBASE_MODE%\"==\"whitespace\" (set /p \"= \" <nul&exit /b 0)`,
+    `if \"%FAKE_FIREBASE_MODE%\"==\"multiline\" (echo first-line&echo second-line&exit /b 0)`,
+    `if \"%FAKE_FIREBASE_MODE%\"==\"extra\" (echo info&echo fake-token&exit /b 0)`,
+    `if \"%FAKE_FIREBASE_MODE%\"==\"failure\" (echo fake-secret-error 1>&2&exit /b 7)`,
+    "exit /b 1",
+  ].join("\r\n");
+  fs.writeFileSync(path.join(dir, "firebase.cmd"), script);
+  return dir;
+}
+
+function runCreateInstallerConfig({
+  mode,
+  cwd,
+  projectId = "fake-project-123",
+  input = "config.json\n",
+  fakeFirebase = true,
+}) {
+  const fakeFirebaseDir = fakeFirebase ? makeFakeFirebaseDir(mode) : null;
+  const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
+  const env = {
+    ...process.env,
+    FAKE_FIREBASE_MODE: mode,
+    PATH: `${fakeFirebaseDir || path.join(cwd, "no-firebase")};${process.env.PATH}`,
+  };
+  const result = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+      "-CreateInstallerConfig",
+      "-FirebaseProjectId",
+      projectId,
+    ],
+    { cwd, env, input, encoding: "utf8" }
+  );
+  if (fakeFirebaseDir) rmTempDir(fakeFirebaseDir);
+  return result;
+}
+
+function runPowerShell(script, cwd) {
+  return spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    { cwd, encoding: "utf8" }
+  );
 }
 
 // Standard mock display client
@@ -87,6 +144,105 @@ describe("installer-config.schema.json", () => {
   test("schema additionalProperties is false", () => {
     const schema = loadSchema("installer-config.schema.json");
     expect(schema.additionalProperties).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Secure Firebase Secret Manager retrieval
+// ---------------------------------------------------------------------------
+
+describe("CreateInstallerConfig Firebase retrieval", () => {
+  const powershellAvailable =
+    spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+      encoding: "utf8",
+    }).status === 0;
+
+  test("PowerShell script parses with the Windows PowerShell AST parser", () => {
+    if (!powershellAvailable) return;
+    const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
+    const command = [
+      "$tokens=$null;$errors=$null;",
+      `[System.Management.Automation.Language.Parser]::ParseFile('${scriptPath.replace(/'/g, "''")}',[ref]$tokens,[ref]$errors)|Out-Null;`,
+      "if($errors.Count -gt 0){exit 1}; exit 0",
+    ].join("");
+    const result = runPowerShell(command, path.join(__dirname, ".."));
+    expect(result.status).toBe(0);
+  });
+
+  test("retrieves a fake Firebase secret and creates token-only config", () => {
+    if (!powershellAvailable) return;
+    const cwd = makeTempDir();
+    try {
+      const result = runCreateInstallerConfig({ mode: "success", cwd });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("fake-token");
+      expect(result.stderr).not.toContain("fake-token");
+      const config = JSON.parse(fs.readFileSync(path.join(cwd, "config.json"), "utf8"));
+      expect(config).toEqual({ qr_admin_token: "fake-token" });
+    } finally {
+      rmTempDir(cwd);
+    }
+  });
+
+  test.each([
+    ["missing executable", "success", "fake-project-123"],
+    ["invalid project", "success", "BAD PROJECT"],
+    ["nonzero Firebase exit", "failure", "fake-project-123"],
+    ["empty stdout", "empty", "fake-project-123"],
+    ["invalid token", "whitespace", "fake-project-123"],
+    ["multiline stdout", "multiline", "fake-project-123"],
+    ["extra informational stdout", "extra", "fake-project-123"],
+  ])("fails safely for %s", (_label, mode, projectId) => {
+    if (!powershellAvailable) return;
+    const cwd = makeTempDir();
+    try {
+      if (_label === "missing executable") {
+        const result = runCreateInstallerConfig({ mode, cwd, projectId, fakeFirebase: false });
+        expect(result.status).not.toBe(0);
+        expect(result.stdout + result.stderr).not.toContain("fake-token");
+      } else {
+        const result = runCreateInstallerConfig({ mode, cwd, projectId });
+        expect(result.status).not.toBe(0);
+        expect(result.stdout + result.stderr).not.toContain("fake-secret-error");
+      }
+      expect(fs.existsSync(path.join(cwd, "config.json"))).toBe(false);
+    } finally {
+      rmTempDir(cwd);
+    }
+  });
+
+  test("does not silently overwrite an existing installer config", () => {
+    if (!powershellAvailable) return;
+    const cwd = makeTempDir();
+    try {
+      const configPath = path.join(cwd, "config.json");
+      fs.writeFileSync(configPath, JSON.stringify({ qr_admin_token: "existing-token" }));
+      const result = runCreateInstallerConfig({ mode: "success", cwd, input: "config.json\nno\n" });
+      expect(result.status).not.toBe(0);
+      expect(JSON.parse(fs.readFileSync(configPath, "utf8"))).toEqual({
+        qr_admin_token: "existing-token",
+      });
+    } finally {
+      rmTempDir(cwd);
+    }
+  });
+
+  test("offline hidden-prompt path remains present", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain(
+      "Read-Host 'QR administrator token (exact SCANNER_QR_ADMIN_TOKEN value)' -AsSecureString"
+    );
+    expect(source).toContain("FirebaseProjectId");
+  });
+
+  test("secret-bearing process output and provisioning result are not used", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("RedirectStandardOutput = $true");
+    expect(source).toContain("RedirectStandardError = $true");
+    expect(source).toContain("$null = $stderrTask.Result");
+    expect(source).not.toMatch(/Write-ProvisioningResult.*token/i);
+    expect(source).toContain("$token = $null");
+    expect(source).toContain("Remove-Item -Force $candidate");
   });
 });
 

@@ -1,0 +1,25 @@
+{
+    "network_connected":  null,
+    "production_healthy":  null,
+    "warnings":  [
+
+                 ],
+    "production_ready":  false,
+    "commissioning_complete":  false,
+    "services_healthy":  true,
+    "release_installed":  false,
+    "timestamp":  "2026-08-15T21:32:33.5004330-05:00",
+    "scanner_device_detected":  true,
+    "mode":  "Repair",
+    "errors":  [
+
+               ],
+    "platform_verified":  null,
+    "configuration_complete":  false,
+    "exit_code":  0,
+    "reboot_verified":  null,
+    "provisioning_qr_parsed":  null,
+    "release_version":  null,
+    "pi_host":  "multimedica_edge@multimedicascanner1",
+    "bootstrap_complete":  true
+}

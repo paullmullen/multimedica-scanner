@@ -1,0 +1,30 @@
+[Unit]
+Description=Multimedica Physical Kiosk Display
+Documentation=https://github.com/paullmullen/multimedica-scanner
+Requires=multimedica-display.service
+After=systemd-user-sessions.service network.target multimedica-display.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=multimedica_edge
+Group=multimedica_edge
+WorkingDirectory=/opt/multimedica-scanner/bootstrap
+Environment=HOME=/home/multimedica_edge
+Environment=DISPLAY=:0
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/bin/xinit /opt/multimedica-scanner/bootstrap/start-kiosk.sh -- :0 vt1 -keeptty -nolisten tcp
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

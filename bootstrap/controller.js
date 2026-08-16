@@ -300,7 +300,25 @@ async function main() {
   // Start scanner reader on Linux
   if (process.platform === "linux") {
     const scannerReader = require("./lib/scanner-reader");
-    await scannerReader.start(ctrl.handleScan);
+    const _displayClient = require("./lib/display-client");
+    scannerReader
+      .start(ctrl.handleScan, (status) => {
+        health.setField("scanner_device_detected", status.device_detected === true);
+        health.setField("scanner_reader_active", status.reader_active === true);
+        if (status.reader_active) {
+          _displayClient
+            .showMessage({ kind: "info", text: "Scanner ready. Scan Wi‑Fi configuration QR." })
+            .catch(() => {});
+        } else {
+          _displayClient
+            .showMessage({ kind: "error", text: "Scanner unavailable. Check the USB connection." })
+            .catch(() => {});
+        }
+      })
+      .catch((err) => {
+        console.error("[controller] scanner reader fatal:", err.message);
+        health.setField("scanner_reader_active", false);
+      });
   } else {
     console.log("[controller] scanner reader not started (non-Linux)");
   }
