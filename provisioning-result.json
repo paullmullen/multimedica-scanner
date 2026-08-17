@@ -4,23 +4,23 @@
     "scanner_device_detected":  true,
     "release_installed":  false,
     "bootstrap_complete":  true,
-    "exit_code":  0,
+    "exit_code":  20,
     "pi_host":  "multimedica_edge@multimedicascanner1",
     "errors":  [
-
+                   "Hardware observation was not explicitly confirmed."
                ],
     "commissioning_complete":  false,
     "platform_verified":  null,
     "production_ready":  false,
     "release_version":  null,
-    "timestamp":  "2026-08-16T21:45:03.1069967-05:00",
+    "timestamp":  "2026-08-17T08:28:53.9075796-05:00",
     "mode":  "ValidateProductionCandidate",
     "provisioning_qr_parsed":  null,
     "reboot_verified":  null,
     "production_healthy":  true,
     "network_connected":  null,
     "warnings":  [
-                     "Production candidate validated temporarily; it was not enabled or promoted."
+                     "Slice 1 synthetic display state observed: candidate-display-294e648eb27c4028a2b15735dfce5ec0"
                  ],
     "configuration_complete":  true
 }

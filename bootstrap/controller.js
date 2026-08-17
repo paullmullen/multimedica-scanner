@@ -196,13 +196,7 @@ function createController(deps) {
     try {
       response = await _forwardProductionScan(scan);
     } catch {
-      await _applyRuntimeState({
-        kind: "overlay",
-        state_id: `production-unavailable-${Date.now()}`,
-        priority: "network",
-        expires_in_ms: 10_000,
-        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
-      });
+      await _showProductionUnavailableFeedback();
       return;
     }
 
@@ -210,25 +204,13 @@ function createController(deps) {
       !response ||
       !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)
     ) {
-      await _applyRuntimeState({
-        kind: "overlay",
-        state_id: `production-invalid-${Date.now()}`,
-        priority: "network",
-        expires_in_ms: 10_000,
-        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
-      });
+      await _showProductionUnavailableFeedback();
       return;
     }
 
     if (response.runtime_state) await _applyRuntimeState(response.runtime_state);
     if (response.disposition === "unavailable") {
-      await _applyRuntimeState({
-        kind: "overlay",
-        state_id: `production-unavailable-${Date.now()}`,
-        priority: "network",
-        expires_in_ms: 10_000,
-        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
-      });
+      await _showProductionUnavailableFeedback();
     } else if (response.disposition === "duplicate") {
       await _applyRuntimeState({
         kind: "overlay",
@@ -258,6 +240,16 @@ function createController(deps) {
         overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." },
       });
     }
+  }
+
+  async function _showProductionUnavailableFeedback() {
+    await _applyRuntimeState({
+      kind: "overlay",
+      state_id: `production-unavailable-${Date.now()}`,
+      priority: "feedback",
+      expires_in_ms: 10_000,
+      overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+    });
   }
 
   // ---- main scan handler ----

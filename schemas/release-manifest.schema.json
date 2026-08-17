@@ -7,10 +7,9 @@
   "required": [
     "name",
     "version",
-    "sha256",
     "os_id",
     "arch",
-    "pi_model",
+    "capability_policy",
     "node_semver",
     "config_schema_version",
     "qr_schema_version",
@@ -18,23 +17,42 @@
     "entry_point",
     "health_endpoint",
     "candidate_port",
-    "built_at"
+    "built_at",
+    "artifact_format_version",
+    "content_sha256",
+    "files"
   ],
   "additionalProperties": false,
   "properties": {
     "name": { "type": "string" },
     "version": { "type": "string" },
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "os_id": { "type": "string" },
+    "os_id": { "type": "string", "const": "debian-13-trixie-arm64" },
     "arch": { "type": "string", "enum": ["arm64"] },
-    "pi_model": { "type": "string", "enum": ["rpi4"] },
+    "capability_policy": { "type": "string", "const": "capability-qualified" },
     "node_semver": { "type": "string" },
     "config_schema_version": { "type": "integer", "minimum": 1 },
     "qr_schema_version": { "type": "integer", "minimum": 1 },
     "min_bootstrap_version": { "type": "string" },
     "entry_point": { "type": "string" },
     "health_endpoint": { "type": "string", "pattern": "^http://" },
-    "candidate_port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
-    "built_at": { "type": "string", "format": "date-time" }
+    "candidate_port": { "type": "integer", "const": 3003 },
+    "built_at": { "type": "string", "format": "date-time" },
+    "artifact_format_version": { "type": "integer", "const": 1 },
+    "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_commit": { "type": ["string", "null"] },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "size": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
   }
 }

@@ -469,6 +469,91 @@ describe("handleScan â€” invalid inputs", () => {
 });
 
 describe("runtime display coordination", () => {
+  test("connection failure shows feedback unavailable overlay and preserves room state", async () => {
+    jest.useFakeTimers();
+    const { ctrl, display } = makeCtrl(tmpDir, {
+      forwardProductionScan: jest.fn().mockRejectedValue(new Error("offline")),
+    });
+    const server = await startTestStatusServer(ctrl);
+    try {
+      const post = async (body) => {
+        const { port } = server.address();
+        return await new Promise((resolve, reject) => {
+          const payload = JSON.stringify(body);
+          const request = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path: "/api/runtime-state",
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(payload),
+              },
+            },
+            (response) => {
+              response.resume();
+              response.on("end", () => resolve(response.statusCode));
+            }
+          );
+          request.on("error", reject);
+          request.write(payload);
+          request.end();
+        });
+      };
+      const room = {
+        kind: "room",
+        state_id: "room-stable",
+        priority: "room",
+        display: { mode: "room_status", status: { code: "available", label: "AVAILABLE" } },
+      };
+      expect(await post(room)).toBe(200);
+      await ctrl.handleScan("VISIT:12345");
+      const overlay = display.showRuntimeState.mock.calls.at(-1)[0];
+      expect(overlay).toMatchObject({
+        kind: "overlay",
+        priority: "feedback",
+        expires_in_ms: 10000,
+        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+      });
+      jest.advanceTimersByTime(10000);
+      expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
+        state_id: "room-stable",
+      });
+    } finally {
+      await closeTestServer(server);
+      jest.useRealTimers();
+    }
+  });
+
+  test("unavailable scan replaces active accepted feedback overlay immediately", async () => {
+    jest.useFakeTimers();
+    const forwardProductionScan = jest
+      .fn()
+      .mockResolvedValueOnce({ disposition: "accepted" })
+      .mockResolvedValueOnce({ disposition: "unavailable" });
+    const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+    await ctrl.handleScan("VISIT:one");
+    expect(display.showRuntimeState.mock.calls.at(-1)[0].overlay.title).toBe("Scan accepted");
+    await ctrl.handleScan("VISIT:two");
+    expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
+      priority: "feedback",
+      overlay: { title: "Production unavailable", detail: "Please rescan." },
+    });
+    jest.useRealTimers();
+  });
+
+  test("malformed production response follows visible unavailable feedback path", async () => {
+    const { ctrl, display } = makeCtrl(tmpDir, {
+      forwardProductionScan: jest.fn().mockResolvedValue({ disposition: "unknown" }),
+    });
+    await ctrl.handleScan("VISIT:12345");
+    expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
+      priority: "feedback",
+      overlay: { title: "Production unavailable", detail: "Please rescan." },
+    });
+  });
+
   test("applies cloud room state and restores it after transient feedback expires", async () => {
     jest.useFakeTimers();
     const { ctrl, display } = makeCtrl(tmpDir, {
