@@ -94,15 +94,23 @@ function createProductionScanServer(deps = {}) {
       return;
     }
     try {
-      const syncUrl = state.config.endpoint_url.replace("receiveRoomScanEvent", "syncStationDisplayState");
-      const cloud = await cloudRequest(syncUrl, {
-        location_id: state.config.location_id || null,
-        room_id: state.config.room_id,
-        station_id: state.config.station_id,
-        device_id: state.config.device_id,
-      }, state.secrets.shared_secret);
+      const syncUrl = state.config.endpoint_url.replace(
+        "receiveRoomScanEvent",
+        "syncStationDisplayState"
+      );
+      const cloud = await cloudRequest(
+        syncUrl,
+        {
+          location_id: state.config.location_id || null,
+          room_id: state.config.room_id,
+          station_id: state.config.station_id,
+          device_id: state.config.device_id,
+        },
+        state.secrets.shared_secret
+      );
       const normalized = normalizeCloudResponse(cloud);
-      if (normalized.runtime_state) await controllerStateRequest(controllerRuntimeUrl, normalized.runtime_state);
+      if (normalized.runtime_state)
+        await controllerStateRequest(controllerRuntimeUrl, normalized.runtime_state);
       schedulePolling(normalized.polling);
     } catch {
       await controllerStateRequest(controllerRuntimeUrl, unavailableRuntimeState());
@@ -113,7 +121,10 @@ function createProductionScanServer(deps = {}) {
   function schedulePolling(polling) {
     if (pollTimer) clearTimeout(pollTimer);
     if (!polling || polling.should_poll !== true) return;
-    const interval = Math.max(1_000, Math.min(30 * 60_000, Number(polling.recommended_interval_ms) || 30_000));
+    const interval = Math.max(
+      1_000,
+      Math.min(30 * 60_000, Number(polling.recommended_interval_ms) || 30_000)
+    );
     pollTimer = setTimeout(async () => {
       await syncNow();
     }, interval);
@@ -180,18 +191,32 @@ function normalizeCloudResponse(cloud) {
 }
 
 function unavailable(reason) {
-  return { ok: false, disposition: "unavailable", duplicate: false, reason, runtime_state: unavailableRuntimeState(), polling: null };
+  return {
+    ok: false,
+    disposition: "unavailable",
+    duplicate: false,
+    reason,
+    runtime_state: unavailableRuntimeState(),
+    polling: null,
+  };
 }
 
 function unavailableRuntimeState() {
-  return { kind: "overlay", state_id: `network-degraded-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Network unavailable", detail: "Please rescan shortly." } };
+  return {
+    kind: "overlay",
+    state_id: `network-degraded-${Date.now()}`,
+    priority: "network",
+    expires_in_ms: 10_000,
+    overlay: { severity: "error", title: "Network unavailable", detail: "Please rescan shortly." },
+  };
 }
 
 function normalizeRuntimeState(value) {
   if (!value || typeof value !== "object") return null;
   const state = value.state && typeof value.state === "object" ? value.state : value;
   if (!["room_status", "closed", "overlay"].includes(state.mode)) return null;
-  const priority = state.mode === "closed" ? "closed" : state.mode === "room_status" ? "room" : "feedback";
+  const priority =
+    state.mode === "closed" ? "closed" : state.mode === "room_status" ? "room" : "feedback";
   return {
     kind: state.mode === "overlay" ? "overlay" : "room",
     state_id: `cloud-${Date.now()}`,
@@ -210,11 +235,20 @@ function postJson(urlString, payload) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlString);
     const body = JSON.stringify(payload);
-    const request = http.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, (response) => {
-      response.resume();
-      if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.statusCode);
-      else reject(new Error(`controller status ${response.statusCode}`));
-    });
+    const request = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+      },
+      (response) => {
+        response.resume();
+        if (response.statusCode >= 200 && response.statusCode < 300) resolve(response.statusCode);
+        else reject(new Error(`controller status ${response.statusCode}`));
+      }
+    );
     request.setTimeout(3_000, () => request.destroy(new Error("controller timeout")));
     request.on("error", reject);
     request.write(body);

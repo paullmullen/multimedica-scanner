@@ -101,11 +101,13 @@ async function closeTestServer(server) {
 function getTestJson(server, pathname) {
   return new Promise((resolve, reject) => {
     const { port } = server.address();
-    http.get(`http://127.0.0.1:${port}${pathname}`, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => resolve(JSON.parse(body)));
-    }).on("error", reject);
+    http
+      .get(`http://127.0.0.1:${port}${pathname}`, (res) => {
+        let body = "";
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => resolve(JSON.parse(body)));
+      })
+      .on("error", reject);
   });
 }
 
@@ -412,7 +414,9 @@ describe("handleScan â€” invalid inputs", () => {
     });
     await ctrl.handleScan("VISIT:12345");
     expect(display.showRuntimeState).toHaveBeenCalledWith(
-      expect.objectContaining({ overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }) })
+      expect.objectContaining({
+        overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }),
+      })
     );
     await new Promise((resolve) => production.close(resolve));
   });
@@ -470,11 +474,18 @@ describe("runtime display coordination", () => {
     const { ctrl, display } = makeCtrl(tmpDir, {
       forwardProductionScan: jest.fn().mockResolvedValue({
         disposition: "accepted",
-        runtime_state: { kind: "room", state_id: "cloud-1", priority: "room", display: { mode: "room_status", status: { code: "available" } } },
+        runtime_state: {
+          kind: "room",
+          state_id: "cloud-1",
+          priority: "room",
+          display: { mode: "room_status", status: { code: "available" } },
+        },
       }),
     });
     await ctrl.handleScan("VISIT:12345");
-    expect(display.showRuntimeState).toHaveBeenCalledWith(expect.objectContaining({ state_id: "cloud-1" }));
+    expect(display.showRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({ state_id: "cloud-1" })
+    );
     await ctrl.handleScan("VISIT:12346");
     jest.advanceTimersByTime(5_000);
     expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({ state_id: "cloud-1" });
@@ -486,16 +497,53 @@ describe("runtime display coordination", () => {
     const { ctrl, display } = makeCtrl(tmpDir);
     const server = await startTestStatusServer(ctrl);
     const address = server.address();
-    const post = (body) => new Promise((resolve, reject) => {
-      const payload = JSON.stringify(body);
-      const request = http.request({ hostname: "127.0.0.1", port: address.port, path: "/api/runtime-state", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, (response) => { response.resume(); response.on("end", () => resolve(response.statusCode)); });
-      request.on("error", reject); request.write(payload); request.end();
+    const post = (body) =>
+      new Promise((resolve, reject) => {
+        const payload = JSON.stringify(body);
+        const request = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: address.port,
+            path: "/api/runtime-state",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(payload),
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () => resolve(response.statusCode));
+          }
+        );
+        request.on("error", reject);
+        request.write(payload);
+        request.end();
+      });
+    const room = (id) => ({
+      kind: "room",
+      state_id: id,
+      priority: "room",
+      display: {
+        mode: "room_status",
+        room: null,
+        station: null,
+        status: { code: "available", label: "AVAILABLE" },
+        patient: null,
+        timing: null,
+        updated_at: 1,
+      },
     });
-    const room = (id) => ({ kind: "room", state_id: id, priority: "room", display: { mode: "room_status", room: null, station: null, status: { code: "available", label: "AVAILABLE" }, patient: null, timing: null, updated_at: 1 } });
     try {
       await post(room("room-1"));
       await ctrl.handleScan("VISIT:12345");
-      await post({ kind: "overlay", state_id: "feedback-1", priority: "feedback", expires_in_ms: 5000, overlay: { severity: "success", title: "Accepted", detail: "Accepted" } });
+      await post({
+        kind: "overlay",
+        state_id: "feedback-1",
+        priority: "feedback",
+        expires_in_ms: 5000,
+        overlay: { severity: "success", title: "Accepted", detail: "Accepted" },
+      });
       await post(room("room-2"));
       jest.advanceTimersByTime(5000);
       expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({ state_id: "room-2" });
@@ -509,10 +557,48 @@ describe("runtime display coordination", () => {
     const { ctrl, display } = makeCtrl(tmpDir);
     const server = await startTestStatusServer(ctrl);
     const address = server.address();
-    const post = (body) => new Promise((resolve, reject) => { const payload = JSON.stringify(body); const request = http.request({ hostname: "127.0.0.1", port: address.port, path: "/api/runtime-state", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, (response) => { response.resume(); response.on("end", () => resolve(response.statusCode)); }); request.on("error", reject); request.write(payload); request.end(); });
+    const post = (body) =>
+      new Promise((resolve, reject) => {
+        const payload = JSON.stringify(body);
+        const request = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: address.port,
+            path: "/api/runtime-state",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(payload),
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () => resolve(response.statusCode));
+          }
+        );
+        request.on("error", reject);
+        request.write(payload);
+        request.end();
+      });
     try {
-      expect(await post({ kind: "room", state_id: "bad", display: { mode: "room_status", status: { code: "not-allowed" } } })).toBe(400);
-      expect(await post({ kind: "room", state_id: "good", display: { mode: "room_status", status: { code: "available", label: "OK" }, unknown: "discard" } })).toBe(200);
+      expect(
+        await post({
+          kind: "room",
+          state_id: "bad",
+          display: { mode: "room_status", status: { code: "not-allowed" } },
+        })
+      ).toBe(400);
+      expect(
+        await post({
+          kind: "room",
+          state_id: "good",
+          display: {
+            mode: "room_status",
+            status: { code: "available", label: "OK" },
+            unknown: "discard",
+          },
+        })
+      ).toBe(200);
       expect(display.showRuntimeState.mock.calls.at(-1)[0].display).not.toHaveProperty("unknown");
     } finally {
       await closeTestServer(server);

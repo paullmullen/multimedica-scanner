@@ -196,7 +196,13 @@ function createController(deps) {
     try {
       response = await _forwardProductionScan(scan);
     } catch {
-      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `production-unavailable-${Date.now()}`,
+        priority: "network",
+        expires_in_ms: 10_000,
+        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+      });
       return;
     }
 
@@ -204,19 +210,53 @@ function createController(deps) {
       !response ||
       !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)
     ) {
-      await _applyRuntimeState({ kind: "overlay", state_id: `production-invalid-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `production-invalid-${Date.now()}`,
+        priority: "network",
+        expires_in_ms: 10_000,
+        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+      });
       return;
     }
 
     if (response.runtime_state) await _applyRuntimeState(response.runtime_state);
     if (response.disposition === "unavailable") {
-      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `production-unavailable-${Date.now()}`,
+        priority: "network",
+        expires_in_ms: 10_000,
+        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+      });
     } else if (response.disposition === "duplicate") {
-      await _applyRuntimeState({ kind: "overlay", state_id: `scan-duplicate-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "info", title: "Duplicate scan", detail: "Scan already received." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `scan-duplicate-${Date.now()}`,
+        priority: "feedback",
+        expires_in_ms: 5_000,
+        overlay: { severity: "info", title: "Duplicate scan", detail: "Scan already received." },
+      });
     } else if (response.disposition === "rejected") {
-      await _applyRuntimeState({ kind: "overlay", state_id: `scan-rejected-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "error", title: "Scan rejected", detail: "Please check the visit and rescan." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `scan-rejected-${Date.now()}`,
+        priority: "feedback",
+        expires_in_ms: 5_000,
+        overlay: {
+          severity: "error",
+          title: "Scan rejected",
+          detail: "Please check the visit and rescan.",
+        },
+      });
     } else {
-      await _applyRuntimeState({ kind: "overlay", state_id: `scan-accepted-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." } });
+      await _applyRuntimeState({
+        kind: "overlay",
+        state_id: `scan-accepted-${Date.now()}`,
+        priority: "feedback",
+        expires_in_ms: 5_000,
+        overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." },
+      });
     }
   }
 
@@ -345,32 +385,74 @@ function _sanitizeRuntimeEnvelope(value) {
   if (!stateId) return null;
   if (value.kind === "room") {
     const display = value.display;
-    if (!display || typeof display !== "object" || !["room_status", "closed"].includes(display.mode)) return null;
+    if (
+      !display ||
+      typeof display !== "object" ||
+      !["room_status", "closed"].includes(display.mode)
+    )
+      return null;
     const status = display.status;
-    const allowed = ["available", "vacant", "patient_waiting", "in_process", "unavailable", "closed"];
+    const allowed = [
+      "available",
+      "vacant",
+      "patient_waiting",
+      "in_process",
+      "unavailable",
+      "closed",
+    ];
     if (!status || !allowed.includes(status.code)) return null;
     const priority = display.mode === "closed" ? "closed" : "room";
     return {
-      kind: "room", state_id: stateId, priority,
+      kind: "room",
+      state_id: stateId,
+      priority,
       display: {
         mode: display.mode,
-        room: display.room && typeof display.room === "object" ? { id: _boundedString(display.room.id), label: _boundedString(display.room.label) } : null,
-        station: display.station && typeof display.station === "object" ? { id: _boundedString(display.station.id), label: _boundedString(display.station.label) } : null,
+        room:
+          display.room && typeof display.room === "object"
+            ? { id: _boundedString(display.room.id), label: _boundedString(display.room.label) }
+            : null,
+        station:
+          display.station && typeof display.station === "object"
+            ? {
+                id: _boundedString(display.station.id),
+                label: _boundedString(display.station.label),
+              }
+            : null,
         status: { code: status.code, label: _boundedString(status.label) || status.code },
-        patient: display.patient && typeof display.patient === "object" ? { name: _boundedString(display.patient.name) } : null,
-        timing: display.timing && typeof display.timing === "object" ? { started_at: _boundedString(display.timing.started_at) } : null,
+        patient:
+          display.patient && typeof display.patient === "object"
+            ? { name: _boundedString(display.patient.name) }
+            : null,
+        timing:
+          display.timing && typeof display.timing === "object"
+            ? { started_at: _boundedString(display.timing.started_at) }
+            : null,
         updated_at: typeof display.updated_at === "number" ? display.updated_at : Date.now(),
       },
     };
   }
   if (value.kind === "overlay") {
-    if (!["feedback", "network"].includes(value.priority) || !Number.isInteger(value.expires_in_ms) || value.expires_in_ms < 1000 || value.expires_in_ms > 60000) return null;
+    if (
+      !["feedback", "network"].includes(value.priority) ||
+      !Number.isInteger(value.expires_in_ms) ||
+      value.expires_in_ms < 1000 ||
+      value.expires_in_ms > 60000
+    )
+      return null;
     const overlay = value.overlay;
-    if (!overlay || !["success", "info", "warning", "error"].includes(overlay.severity)) return null;
+    if (!overlay || !["success", "info", "warning", "error"].includes(overlay.severity))
+      return null;
     const title = _boundedString(overlay.title);
     const detail = _boundedString(overlay.detail);
     if (!title || !detail) return null;
-    return { kind: "overlay", state_id: stateId, priority: value.priority, expires_in_ms: value.expires_in_ms, overlay: { severity: overlay.severity, title, detail } };
+    return {
+      kind: "overlay",
+      state_id: stateId,
+      priority: value.priority,
+      expires_in_ms: value.expires_in_ms,
+      overlay: { severity: overlay.severity, title, detail },
+    };
   }
   return null;
 }

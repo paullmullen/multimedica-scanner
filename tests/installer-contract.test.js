@@ -734,25 +734,32 @@ describe("temporary production candidate validation", () => {
     }
   });
 
-  test.each(["\n", "Yes\n", "y\n", "anything\n"])("candidate observation input %j fails and cleans up", (input) => {
-    const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
-      encoding: "utf8",
-    }).status === 0;
-    if (!powershellAvailable) return;
-    const cwd = makeTempDir();
-    try {
-      const run = runCandidateWithFakeSsh({
-        cwd,
-        input,
-        statusBody: '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
-      });
-      expect(run.result.status).not.toBe(0);
-      expect(run.result.stdout + run.result.stderr).toContain("Hardware observation was not explicitly confirmed.");
-      expect(run.cleanupObserved).toBe(true);
-    } finally {
-      rmTempDir(cwd);
+  test.each(["\n", "Yes\n", "y\n", "anything\n"])(
+    "candidate observation input %j fails and cleans up",
+    (input) => {
+      const powershellAvailable =
+        spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+          encoding: "utf8",
+        }).status === 0;
+      if (!powershellAvailable) return;
+      const cwd = makeTempDir();
+      try {
+        const run = runCandidateWithFakeSsh({
+          cwd,
+          input,
+          statusBody:
+            '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
+        });
+        expect(run.result.status).not.toBe(0);
+        expect(run.result.stdout + run.result.stderr).toContain(
+          "Hardware observation was not explicitly confirmed."
+        );
+        expect(run.cleanupObserved).toBe(true);
+      } finally {
+        rmTempDir(cwd);
+      }
     }
-  });
+  );
 
   test("uses a distinct parameter set without changing Verify", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
@@ -792,7 +799,9 @@ describe("temporary production candidate validation", () => {
 
   test("requires manual round-trip, unavailable, and reconnect checks with controller-only evtest ownership", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
-    expect(source).toContain("Scan one real patient barcode and confirm the clinic workflow response.");
+    expect(source).toContain(
+      "Scan one real patient barcode and confirm the clinic workflow response."
+    );
     expect(source).toContain("Candidate stopped. Scan a test barcode");
     expect(source).toContain("Disconnect and reconnect the USB scanner");
     expect(source).toContain("MM_EVTEST_ALL");

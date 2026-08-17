@@ -149,7 +149,10 @@ describe("production scan API", () => {
     for (const code of ["patient_waiting", "in_process", "available", "closed"]) {
       const normalized = normalizeCloudResponse({
         statusCode: 200,
-        body: { ok: true, state: { mode: code === "closed" ? "closed" : "room_status", status: { code } } },
+        body: {
+          ok: true,
+          state: { mode: code === "closed" ? "closed" : "room_status", status: { code } },
+        },
       });
       expect(normalized.runtime_state).toMatchObject({ kind: "room" });
       expect(normalized.runtime_state.state_id).toMatch(/^cloud-/);
@@ -166,8 +169,12 @@ describe("production scan API", () => {
 
   test("scan response does not duplicate-deliver its runtime state to controller", async () => {
     const controllerStateRequest = jest.fn().mockResolvedValue(200);
-    const cloudRequest = jest.fn()
-      .mockResolvedValueOnce({ statusCode: 200, body: { ok: true, state: { mode: "room_status", status: { code: "available" } } } })
+    const cloudRequest = jest
+      .fn()
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        body: { ok: true, state: { mode: "room_status", status: { code: "available" } } },
+      })
       .mockResolvedValueOnce({ statusCode: 200, body: { ok: true } });
     server = await makeServer({ cloudRequest, controllerStateRequest });
     await new Promise((resolve) => setImmediate(resolve));
@@ -180,7 +187,12 @@ describe("production scan API", () => {
     jest.useFakeTimers();
     let currentConfig = { ...fakeConfig };
     let currentSecrets = { ...fakeSecrets };
-    const cloudRequest = jest.fn().mockResolvedValue({ statusCode: 200, body: { ok: true, polling: { should_poll: true, recommended_interval_ms: 1000 } } });
+    const cloudRequest = jest
+      .fn()
+      .mockResolvedValue({
+        statusCode: 200,
+        body: { ok: true, polling: { should_poll: true, recommended_interval_ms: 1000 } },
+      });
     const api = createProductionScanServer({
       configStore: { readConfig: () => currentConfig },
       secretsStore: { readSecrets: () => currentSecrets },
@@ -188,13 +200,21 @@ describe("production scan API", () => {
       controllerStateRequest: jest.fn().mockResolvedValue(200),
       port: 0,
     });
-    server = await new Promise((resolve) => { const item = api.start(() => resolve(item)); });
+    server = await new Promise((resolve) => {
+      const item = api.start(() => resolve(item));
+    });
     await Promise.resolve();
     currentConfig = { ...currentConfig, endpoint_url: "https://new.invalid/receiveRoomScanEvent" };
     currentSecrets = { shared_secret: "new-fake-secret" };
     jest.advanceTimersByTime(1000);
     await Promise.resolve();
-    expect(cloudRequest.mock.calls.at(-1)).toEqual(expect.arrayContaining(["https://new.invalid/syncStationDisplayState", expect.any(Object), "new-fake-secret"]));
+    expect(cloudRequest.mock.calls.at(-1)).toEqual(
+      expect.arrayContaining([
+        "https://new.invalid/syncStationDisplayState",
+        expect.any(Object),
+        "new-fake-secret",
+      ])
+    );
     jest.useRealTimers();
   });
 

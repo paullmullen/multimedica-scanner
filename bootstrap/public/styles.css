@@ -33,21 +33,55 @@ body {
   background: #fff;
   border-radius: 10px;
   padding: 2rem 1rem;
-  box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
-#operational-station { font-size: 1.25rem; color: #455a64; margin-bottom: 1rem; }
-#operational-status { font-size: 2.3rem; font-weight: 700; line-height: 1.05; margin-bottom: 1.5rem; }
-#operational-patient { font-size: 1.5rem; margin-bottom: 1rem; }
-#operational-room, #operational-elapsed { font-size: 1rem; color: #546e7a; margin-top: .35rem; }
-.status-available, .status-vacant { color: #2e7d32; }
-.status-patient_waiting { color: #ef6c00; }
-.status-in_process { color: #1565c0; }
-.status-unavailable { color: #c62828; }
-.status-closed { color: #455a64; }
+#operational-station {
+  font-size: 1.25rem;
+  color: #455a64;
+  margin-bottom: 1rem;
+}
+#operational-status {
+  font-size: 2.3rem;
+  font-weight: 700;
+  line-height: 1.05;
+  margin-bottom: 1.5rem;
+}
+#operational-patient {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+#operational-room,
+#operational-elapsed {
+  font-size: 1rem;
+  color: #546e7a;
+  margin-top: 0.35rem;
+}
+.status-available,
+.status-vacant {
+  color: #2e7d32;
+}
+.status-patient_waiting {
+  color: #ef6c00;
+}
+.status-in_process {
+  color: #1565c0;
+}
+.status-unavailable {
+  color: #c62828;
+}
+.status-closed {
+  color: #455a64;
+}
 @media (max-width: 520px), (max-height: 850px) {
-  body { padding: .5rem; }
-  #operational-panel { min-height: 88vh; }
-  #operational-status { font-size: 2rem; }
+  body {
+    padding: 0.5rem;
+  }
+  #operational-panel {
+    min-height: 88vh;
+  }
+  #operational-status {
+    font-size: 2rem;
+  }
 }
 
 header {
