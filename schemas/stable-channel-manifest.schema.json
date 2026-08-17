@@ -40,7 +40,9 @@
       "type": "string"
     },
     "os_id": {
-      "type": "string"
+      "type": "string",
+      "description": "Release compatibility identifier, separate from the exact qualified image build.",
+      "pattern": "^debian-[0-9]+-[a-z0-9-]+-arm64$"
     },
     "arch": {
       "type": "string",
@@ -48,7 +50,8 @@
     },
     "pi_model": {
       "type": "string",
-      "enum": ["rpi4"]
+      "description": "Minimum or specifically targeted Raspberry Pi model family. The schema permits future generations; runtime capability and qualification policy determine acceptance.",
+      "pattern": "^rpi[0-9]+[a-z0-9_-]*$"
     },
     "node_semver": {
       "type": "string"

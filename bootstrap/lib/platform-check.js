@@ -3,33 +3,45 @@
 /**
  * Platform Check Constants — Multimedica Scanner Bootstrap Layer
  *
- * Defines the supported hardware and OS baseline for v1.
- *
- * Values marked [TO BE CONFIRMED] are placeholders. They will be replaced
- * with exact values during Milestone 3 clean-hardware qualification. Until
- * that milestone closes, these constants must not be treated as authoritative
- * validation constraints in production installer code.
+ * Defines the supported platform capabilities and the hardware/image baseline
+ * physically qualified during Milestone 3.
  *
  * The platform checks performed before any Pi modification are:
- *   1. /proc/cpuinfo Hardware field matches PI_MODEL_PATTERN (Pi 4 = BCM2711)
+ *   1. Device-tree model identifies Raspberry Pi hardware
  *   2. uname -m returns 'aarch64'
- *   3. /etc/os-release ID and VERSION_CODENAME match OS_ID
+ *   3. /etc/os-release matches Debian 13 / Trixie
  *   4. Free disk space on / >= MIN_ROOT_BYTES
  *   5. node --version satisfies NODE_SEMVER
  */
 
 const PLATFORM = Object.freeze({
-  // Raspberry Pi 4 (BCM2711 SoC)
-  pi_model_pattern: /BCM2711/,
+  // Capability gate: later Raspberry Pi models are not structurally blocked.
+  // Models outside qualified_pi_model_patterns require qualification evidence
+  // but may proceed when the capability checks pass.
+  raspberry_pi_model_pattern: /^Raspberry Pi\b/i,
+  qualified_pi_model_patterns: Object.freeze([
+    /^Raspberry Pi 4 Model B\b/i,
+  ]),
+  pi_model_pattern: /^Raspberry Pi\b/i,
   arch: "aarch64",
 
-  // [TO BE CONFIRMED in Milestone 3] — exact Raspberry Pi OS Lite 64-bit image
-  os_id: "raspios-bookworm-arm64-lite",
+  os_id: "debian",
+  os_version_id: "13",
+  os_codename: "trixie",
 
-  // [TO BE CONFIRMED in Milestone 3] — Node version installed by qualified package set
+  qualified_image: Object.freeze({
+    family: "raspios_lite_arm64",
+    build_date: "2026-06-18",
+    filename: "2026-06-18-raspios-trixie-arm64-lite.img.xz",
+    sha256: "acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3",
+    pi_gen_commit: "ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5",
+    stage: "stage2",
+  }),
+
   node_semver: ">=20.0.0 <21.0.0",
 
-  // [TO BE CONFIRMED in Milestone 3] — Chromium executable path on qualified image
+  chromium_package: "chromium",
+  qualified_chromium_path: "/usr/lib/chromium/chromium",
   chromium_candidates: Object.freeze([
     "/usr/lib/chromium/chromium",
     "/usr/bin/chromium",

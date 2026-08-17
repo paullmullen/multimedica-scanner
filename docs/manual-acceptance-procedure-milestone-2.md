@@ -1,15 +1,16 @@
-# Manual Acceptance Procedure - Multimedica Scanner Milestone 2
+# Manual Acceptance Procedure - Multimedica Scanner Bootstrap and Commissioning
 
 ## Purpose and Scope
 
-This procedure covers software bootstrap and QR commissioning checks on a newly
-reflashed Raspberry Pi 4B. It uses `provision-scanner.ps1` for installer
-configuration, transfer, installation, verification, and repair.
+This is the authoritative clean-device acceptance path for the Milestone 2
+bootstrap and QR commissioning work, including the platform qualification added
+in Milestone 3. It uses `provision-scanner.ps1` for platform preflight, SSH
+setup, installer configuration, transfer, installation, verification, and
+repair.
 
-It does not deploy production software, enable
-`multimedica-production.service`, or begin Milestone 3. Physical QR readability
-and complete hardware qualification remain pending until acceptance is performed
-on the target hardware.
+Run it on each newly imaged acceptance unit. It does not deploy production
+software or enable `multimedica-production.service`. A run passes only after
+the final power-cycle and verification steps succeed on the target hardware.
 
 Source anchors:
 
@@ -20,16 +21,20 @@ Source anchors:
 - `bootstrap/display-server.js`
 - `bootstrap/lib/scanner-reader.js`
 - `bootstrap/lib/commissioning.js`
+- `bootstrap/lib/platform-check.js`
+- `docs/bootstrap-architecture.md`
 
 ## Hardware and Software Prerequisites
 
 Use a newly reflashed Pi. Do not use an existing production scanner for this
 procedure.
 
-- Raspberry Pi 4B
-- Raspberry Pi OS Legacy Lite 64-bit Bookworm: Milestone 2 test candidate only;
-  the exact tested image date, download URL, and SHA-256 are not established
-  and remain hardware-qualification work
+- A 64-bit Raspberry Pi meeting the platform capability checks. Raspberry Pi
+  4B is the physically qualified baseline; a later Pi model is not rejected
+  solely because its model number differs, but must be recorded as compatible
+  and not yet physically qualified.
+- Raspberry Pi OS Lite 64-bit, Debian 13 (Trixie), qualified image dated
+  2026-06-18 as specified below
 - 16GB or larger Class 10 microSD card
 - HDMI-compatible display
 - USB keyboard-wedge barcode scanner; the known working example is a BF SCAN
@@ -38,24 +43,79 @@ procedure.
 - Ethernet cable
 - Windows computer with PowerShell 5.1+, OpenSSH `ssh`/`scp`, Firebase CLI,
   and access to the project
-- Initial Ethernet connection to the Pi
+- Initial Ethernet connection to the Pi with Debian package-repository access
 - SSH enabled during imaging
 - A configurable Pi username, password, and hostname; this procedure never
   assumes the username is `pi`
 
-The Waveshare 4.3 HDMI LCD is the known working display example. Exact display
-assembly, mounting, cable routing, and power qualification remain Milestone 3
-hardware deliverables.
+The Waveshare 4.3 HDMI LCD is the qualified display baseline. The observed mode
+is HDMI-1 at 480x800 portrait. Enclosure-specific mounting and cable routing
+remain device-integration details and must follow the display manufacturer's
+instructions.
+
+### Prepare downloaded installer files on Windows
+
+Windows may attach a Mark-of-the-Web security marker to files downloaded through
+a browser. If a ZIP archive is extracted while that marker is present,
+PowerShell may refuse to run `provision-scanner.ps1` with a "not digitally
+signed" error before the script can perform any automatic setup.
+
+When the repository package was downloaded as a ZIP, unblock the ZIP **before**
+extracting it:
+
+```powershell
+Unblock-File -LiteralPath .\milestone-3-platform-qualification.zip
+
+Expand-Archive `
+  -LiteralPath .\milestone-3-platform-qualification.zip `
+  -DestinationPath C:\dev\multimedica-scanner `
+  -Force
+```
+
+If the ZIP was already extracted, unblock the PowerShell scripts from the
+repository root:
+
+```powershell
+Get-ChildItem -Path . -Recurse -File -Include *.ps1,*.psm1 |
+  Unblock-File
+```
+
+This step removes only the downloaded-file marker. Do not change the
+machine-wide PowerShell execution policy and do not use
+`-ExecutionPolicy Bypass`. A normal `git clone` or `git pull` generally does not
+carry the browser download marker, so this step may have no effect in a
+Git-based checkout.
 
 Leave Wi-Fi unconfigured during imaging. Use Ethernet for the initial SSH and
-installer connection.
+installer connection. On a clean image, `install-bootstrap.sh` uses `apt-get`
+to install missing bootstrap prerequisites (`nodejs`, `npm`, `rsync`, `curl`,
+`sudo`, `evtest`, Xorg/xinit, Chromium, `xset`, and `unclutter`) before installing the
+application. Do not disconnect Ethernet until bootstrap installation is
+complete.
 
 ## Exact OS Imaging Settings
 
-Use Raspberry Pi Imager or the approved imaging tool with the Milestone 2
-candidate image described above. Configure, before first boot:
+Use Raspberry Pi Imager or the approved imaging tool with this qualified image:
 
-- 64-bit Raspberry Pi OS Legacy Lite Bookworm candidate
+| Field          | Qualified value                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Distribution   | Raspberry Pi OS Lite 64-bit; Debian 13 (Trixie)                                                                                         |
+| Image filename | `2026-06-18-raspios-trixie-arm64-lite.img.xz`                                                                                           |
+| Image URL      | `https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-06-19/2026-06-18-raspios-trixie-arm64-lite.img.xz` |
+| SHA-256        | `acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3`                                                                      |
+| Image build    | Raspberry Pi reference 2026-06-18, pi-gen `ca8aeed0ae300c2a89f55ce9617d5f96a27e99e5`, stage2                                            |
+
+Verify the downloaded image before writing it:
+
+```powershell
+(Get-FileHash `
+  -LiteralPath .\2026-06-18-raspios-trixie-arm64-lite.img.xz `
+  -Algorithm SHA256).Hash.ToLower()
+```
+
+The result must exactly match the SHA-256 above. Configure, before first boot:
+
+- Raspberry Pi OS Lite 64-bit using the qualified Trixie image
 - A unique hostname
 - A known non-default username and a recorded initial password
 - SSH enabled with password authentication
@@ -74,9 +134,9 @@ The hostname is not the SSH username. Record the hostname and username in the
 acceptance evidence. Retain the password in the approved credential store; do
 not put it in this manual or in acceptance evidence.
 
-Record the image filename, image date, URL, and SHA-256 in the evidence table.
-The repository does not establish those values yet; do not represent them as
-qualified support.
+Record the image filename, image date, URL, and verified SHA-256 in the evidence
+table. A newer image may be evaluated separately, but it is not the qualified
+baseline merely because it also reports Debian 13.
 
 ## Identify the Pi and Verify SSH Before Provisioning
 
@@ -114,50 +174,43 @@ Run `exit` to return to PowerShell after confirming the login. If authentication
 fails, verify the recorded username and password; do not confuse either one
 with the hostname, and do not proceed to provisioning.
 
-### Configure key-based SSH for the provisioning run
+### Required Step: Configure SSH access on every newly imaged Pi
 
-The installer starts multiple independent `ssh` and `scp` processes. Configure
-the Windows workstation's SSH public key on the Pi so the operator is not asked
-for the Pi password during every installer phase.
-
-On the Windows workstation, create a default Ed25519 key only if one does not
-already exist:
-
-```powershell
-$sshKey = Join-Path $env:USERPROFILE '.ssh\id_ed25519'
-if (-not (Test-Path "$sshKey.pub")) {
-  ssh-keygen -t ed25519 -f $sshKey
-}
-```
-
-Do not overwrite an existing key. If a new key is created with a passphrase,
-load it into the Windows SSH agent before provisioning. Then install the public
-key on the Pi, using the same verified SSH target as above:
+The installer starts multiple independent `ssh` and `scp` processes. Use its
+supported SSH setup utility before any operational mode. This command is
+required for **each newly imaged Pi**, even when the dedicated private key
+already exists on the Windows workstation. An existing workstation key does not
+mean its public key has been installed on the new Pi.
 
 ```powershell
-Get-Content "$sshKey.pub" | ssh <pi-user>@<pi-ip-address> "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys; chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys"
+.\provision-scanner.ps1 `
+  -ConfigureSshAccess `
+  -PiHost <pi-user>@<pi-ip-address>
 ```
 
-This command asks for the Pi password once. It transfers only the public key;
-the private key remains on the Windows workstation. Verify noninteractive
-authentication before continuing:
+The utility creates a dedicated workstation key at
+`%USERPROFILE%\.ssh\multimedica_scanner_ed25519` if needed, asks for the Pi
+password once, installs only its public key on the Pi, and verifies
+noninteractive SSH. The private key remains on the Windows workstation. Do not
+run `-Install` unless the utility reports `Key-based SSH verified` and exits
+with code `0`. Operational modes fail before transferring files if this key is
+missing or rejected.
 
-```powershell
-ssh -o BatchMode=yes <pi-user>@<pi-ip-address> "true"
-if ($LASTEXITCODE -ne 0) { throw 'Key-based SSH verification failed.' }
-```
+## Physical Assembly
 
-Do not run `-Install` until this check completes without a password prompt and
-returns exit code `0`.
+With all equipment powered off:
 
-## Physical Assembly Placeholder
+1. Insert the imaged microSD card into the Pi.
+2. Connect the HDMI display to the Pi and power the display as specified by its
+   manufacturer. Do not assume the HDMI cable also powers the display.
+3. Connect the USB keyboard-wedge barcode scanner directly to a Pi USB port.
+4. Connect Ethernet for initial package installation and provisioning.
+5. Apply the Pi's USB-C power last.
 
-Connect the Pi power supply, Ethernet cable, HDMI display and its power/cable
-connections, and USB scanner. Record the display model and cable arrangement.
-
-The Waveshare 4.3 HDMI LCD is a known working example, but the exact assembly
-is not a completed Milestone 2 software artifact. Mark the assembly result as
-hardware evidence, not as a software acceptance result.
+Record the Pi model, display model, HDMI/power cable arrangement, scanner model,
+and power-supply rating. The qualified baseline is a Pi 4B with a Waveshare 4.3
+HDMI LCD at 480x800 portrait and a BF SCAN `9901:0301` scanner. Other compatible
+hardware must still pass the capability and physical checks in this procedure.
 
 ## Predeployment Backend and Hosting Checks
 
@@ -180,6 +233,11 @@ PowerShell workflow below.
 The frontend must contain no `REACT_APP_SCANNER_QR_ADMIN_TOKEN`. Cloud, Station,
 and Wi-Fi QR generation occurs through the authenticated backend. Show Identity
 is generated locally and has no `auth` object.
+
+Deploy the current function and Hosting build before acceptance when either has
+changed. Sign in as a user with `permissions.settings`, hard-refresh the admin
+page, and generate fresh QRs. Do not reuse QRs rendered by an older Hosting
+build: the visible bitmap must correspond to the current network response.
 
 ## Secure Installer Preparation
 
@@ -258,12 +316,33 @@ The six operational modes all write the machine-readable result to
 | `-RollbackRelease` | `-PiHost`, `-ReleaseVersion` | Not used; Milestone 5 placeholder                      |
 
 The separate `-CreateInstallerConfig` utility writes only the selected
-`multimedica-installer.json` path and does not write a provisioning result.
+`multimedica-installer.json` path and does not write a provisioning result. The
+`-ConfigureSshAccess` utility establishes and verifies the dedicated
+workstation-to-Pi provisioning key and likewise does not write a provisioning
+result.
 
 ## Bootstrap Installation Through PowerShell
 
 This section assumes that **Secure Installer Preparation** has been completed
 and that the presence check printed `installer-config-present`.
+
+Before running `-Install`, confirm that this newly imaged Pi has completed the
+required SSH-access step:
+
+```powershell
+.\provision-scanner.ps1 `
+  -ConfigureSshAccess `
+  -PiHost <pi-user>@<pi-host-or-ip>
+```
+
+Required result:
+
+```text
+Key-based SSH verified; provisioning will not prompt for the Pi password
+```
+
+Do not proceed to `-Install` without that result. A public key installed on a
+different Pi does not satisfy this prerequisite.
 
 Use the configured username and verified hostname or IP address in the single
 `-PiHost` value. For initial provisioning, prefer the router-confirmed IP
@@ -285,10 +364,32 @@ transfers it with `scp`, deletes the local temporary file in `finally`, and
 invokes the bootstrap installer remotely. The remote transfer file is consumed
 and deleted by `install-bootstrap.sh`; it is never manually created or copied.
 
+Before transfer, the installer runs the capability-based platform preflight.
+For the qualified baseline it must confirm Raspberry Pi hardware, `aarch64`,
+Debian 13/Trixie, at least 8 GiB free storage, Node.js 20, Chromium, and the
+required runtime packages. Image build, kernel, Chromium patch level, board
+model, and board revision are evidence, not permanent equality locks. A future
+Pi that satisfies the hard capabilities may continue with a warning that the
+model is compatible but not yet physically qualified; record and review that
+warning rather than editing the script to impersonate a Pi 4B.
+
+On a clean Raspberry Pi OS image, the remote installer checks for Node.js, npm,
+rsync, curl, sudo, the X kiosk runtime, Chromium, and cursor/display utilities.
+Missing packages are installed from the configured Debian repositories. A
+package-repository failure is reported as an installation failure; restore
+Ethernet/repository access and rerun the same idempotent `-Install` command.
+
+The first clean-image bootstrap can take several minutes or longer while
+`apt-get` and `npm` download and install packages. The PowerShell script warns
+the operator before this phase. Do not interrupt it while package output
+continues. Later idempotent runs should normally be faster because installed
+packages are reused.
+
 Expected terminal result includes:
 
 ```text
 ==> Preparing remote staging
+==> Checking qualified platform capabilities
 ==> Copying bootstrap source
 ==> Copying schemas
 ==> Transferring bootstrap token
@@ -335,9 +436,12 @@ State: bootstrap_installed | Config complete: False
 The display state label is `Scan Wi‑Fi QR to begin`. Missing configuration must
 include the required categories rather than claiming completion.
 
-Acceptance checkpoint: both `multimedica-display.service` and
-`multimedica-controller.service` are active, controller status is reachable, and
-`configuration_complete` is `false`.
+Acceptance checkpoint: `multimedica-display.service`,
+`multimedica-controller.service`, and `multimedica-kiosk.service` are active;
+the controller status is reachable; the Chromium kiosk process is active; the
+physical screen displays `Scan Wi‑Fi QR to begin`; and
+`configuration_complete` is `false`. A console login prompt on the physical
+screen is a failure even if both HTTP endpoints respond.
 
 ## Wi-Fi QR
 
@@ -461,8 +565,10 @@ and display services are active, then rescan the local identity QR.
 
 ## Reboot and Recovery Verification
 
-The normal `-Install` mode reboots unless `-NoReboot` is supplied. Verify after
-the installer reconnects:
+The normal `-Install` mode may reboot unless `-NoReboot` is supplied. After all
+three configuration QRs have been accepted, perform one controlled power-cycle
+as the final cold-start test. Remove power, wait at least five seconds, restore
+power, wait for the kiosk screen, and then verify:
 
 ```powershell
 .\provision-scanner.ps1 `
@@ -471,8 +577,10 @@ the installer reconnects:
   -ResultFile .\provisioning-result.json
 ```
 
-Expected result: controller and display services are active, the status endpoint
-responds, and previously accepted non-secret configuration remains present.
+Expected result: the physical kiosk returns without a console login prompt;
+controller, display, and kiosk services are active; the status endpoint
+responds; the scanner reader is active; and previously accepted non-secret
+configuration remains present with `configuration_complete: true`.
 
 For a bootstrap repair, use the existing PowerShell repair mode:
 
@@ -486,7 +594,7 @@ For a bootstrap repair, use the existing PowerShell repair mode:
 
 Repair preserves valid state and uses the same protected token-transfer path.
 Do not use `-InstallRelease`, `-RollbackRelease`, or `-Commission` for this
-Milestone 2 procedure; release modes are Milestone 5 placeholders and
+bootstrap acceptance procedure; release modes are Milestone 5 placeholders and
 `-Commission` is not a completed commissioning operation.
 
 ## Final State Verification
@@ -565,8 +673,11 @@ installer cannot correct login credentials without an authenticated connection.
 
 ### Installer asks for the SSH password repeatedly
 
-Stop and complete **Configure key-based SSH for the provisioning run**. The
+Stop and complete **Required Step: Configure SSH access on every newly imaged
+Pi**. The
 installer intentionally does not accept, cache, log, or inject the Pi password.
+Operational modes in the corrected installer stop before transfer if dedicated
+key authentication is unavailable.
 
 ### Firebase retrieval fails
 
@@ -591,12 +702,26 @@ Stop the acceptance test and collect non-secret diagnostics. Do not stop or
 disable `kiosk-display.service`, legacy scanner services, or any production
 runtime. The clean-Pi prerequisite was not satisfied if one is active.
 
+### Physical display remains at a console login prompt
+
+The HTTP display server alone is insufficient. Run `-Verify` and require both
+`multimedica-kiosk.service active` and `Physical kiosk browser process active`.
+If either check fails, preserve the reported diagnostic and stop. Do not launch
+Chromium manually; repair the supported kiosk service path.
+
 ### Scanner not detected
 
 The scanner reader searches `/proc/bus/input/devices` for the exact configured
 device name `BF SCAN SCAN KEYBOARD`, resolves an `eventN` handler to
-`/dev/input/eventN`, and starts `sudo evtest` on that event device. The installer
-reports `Scanner device detected` only when its non-secret grep check succeeds.
+`/dev/input/eventN`, and starts `evtest` directly on that event device. The
+installer adds `multimedica_edge` to the least-privilege `input` group and the
+controller unit declares `SupplementaryGroups=input`; it does not run `evtest`
+through `sudo`.
+
+`-Verify` requires both `Scanner USB device detected` and `Scanner evtest reader
+active`. If the reader is unavailable, the physical display reports `Scanner
+unavailable. Check the USB connection.` A service/HTTP-only result must not be
+accepted as PASS.
 
 Do not use a serial-device path; that is not the implemented detection
 mechanism. Check the USB connection and device name, then rerun the PowerShell
@@ -608,58 +733,86 @@ The protected Cloud, Station, and Wi-Fi QRs require the Pi’s stored
 `qr_admin_token`. Generate them through the authenticated backend and rescan.
 Show Identity is local, has no auth object, and must have an empty payload.
 
+If a protected QR reports `Invalid admin token`, do not edit Pi state or compare
+secret values in logs. Recreate `multimedica-installer.json` through the
+approved Firebase workflow, rerun the idempotent `-Install` or `-Repair`, deploy
+the current function and Hosting builds if needed, hard-refresh the admin page,
+and generate a new QR. A phone decode of the displayed QR and the current
+backend response must describe the same newly generated envelope; never record
+the token itself.
+
+### Platform preflight fails
+
+Do not bypass the check. Preserve the non-secret failure text and confirm the
+qualified Trixie image, architecture, free storage, and package-repository
+access. The remote probe is transported as encoded script content so Windows
+OpenSSH cannot reinterpret embedded shell quotes; a result such as
+`Unsupported hardware: 1.5` indicates an outdated provisioning script, not a
+real board model. Update the repository files together and rerun the same
+command.
+
 ## Acceptance Checklist
 
-- [ ] Newly reflashed Pi 4B and candidate OS recorded
-- [ ] Image date, URL, and SHA-256 recorded as pending/established
+- [ ] Newly imaged compatible Raspberry Pi and exact model/revision recorded
+- [ ] Qualified 2026-06-18 Trixie Lite image SHA-256 verified and recorded
+- [ ] Downloaded ZIP/scripts unblocked when applicable without weakening execution policy
 - [ ] Username and hostname recorded without assuming `pi`
 - [ ] Current Pi IP address confirmed in the router's DHCP-client list
 - [ ] Successful interactive SSH login completed with `<pi-user>@<pi-ip-address>`
+- [ ] `-ConfigureSshAccess` completed for this newly imaged Pi
 - [ ] Key-based SSH check completed without a password prompt
 - [ ] Ethernet, display, power, and USB scanner connected
 - [ ] Wi-Fi left unconfigured during imaging
+- [ ] Initial Ethernet connection has Debian package-repository access
 - [ ] Firebase project access confirmed without recording secret values
 - [ ] `multimedica-installer.json` created through the approved command
 - [ ] Installer configuration presence check printed `installer-config-present`
 - [ ] No manual `secrets-transfer.json` was created
 - [ ] No manual `scp` or direct `install-bootstrap.sh` invocation was used
 - [ ] PowerShell `-Install` completed with exit code 0
-- [ ] Both bootstrap services active
-- [ ] Scanner detection result recorded
+- [ ] Capability-based platform preflight passed; any compatibility warning recorded
+- [ ] Controller, display-server, and physical-kiosk services active
+- [ ] Physical kiosk browser process active
+- [ ] Physical screen displays the bootstrap QR instruction rather than a login prompt
+- [ ] Scanner USB device detected and evtest reader active
 - [ ] Wi-Fi QR accepted
 - [ ] Station QR accepted
 - [ ] Cloud QR accepted
 - [ ] `configuration_complete` true only after all three categories
 - [ ] `commissioning_complete` false in Milestone 2
 - [ ] Show Identity displayed only non-secret identity fields
-- [ ] Reboot and `-Verify` completed
+- [ ] Controlled power-cycle and post-boot `-Verify` completed
 - [ ] Temporary transfer files were deleted by the implemented workflow
-- [ ] Hardware readability result recorded as pending or accepted evidence
+- [ ] Physical QR readability and scanner response accepted on the target hardware
 
 ## Evidence-Recording Table
 
-| Item        | Evidence to record                                       | Secret-safe? |
-| ----------- | -------------------------------------------------------- | ------------ |
-| OS image    | Candidate name, date, URL, SHA-256                       | Yes          |
-| Pi identity | Hostname, non-secret username, and current IP address    | Yes          |
-| Install     | `provisioning-result.json` fields and exit code          | Yes          |
-| Services    | `systemctl is-active` results as reported by installer   | Yes          |
-| Controller  | `GET /api/status` reached through `-Verify`              | Yes          |
-| Display     | `GET /api/health` reached through installer health check | Yes          |
-| Scanner     | `scanner_device_detected` and device-name evidence       | Yes          |
-| QR sequence | Kind, order, result, display state                       | Yes          |
-| Identity    | Location, Room, Station, Device ID only                  | Yes          |
-| Cleanup     | Transfer-file absence check and local config disposition | Yes          |
+| Item        | Evidence to record                                                              | Secret-safe? |
+| ----------- | ------------------------------------------------------------------------------- | ------------ |
+| OS image    | Exact filename, date, URL, verified SHA-256, and pi-gen build                   | Yes          |
+| Platform    | Pi model/revision, architecture, kernel, Node, Chromium, display mode, warnings | Yes          |
+| Pi identity | Hostname, non-secret username, and current IP address                           | Yes          |
+| Install     | `provisioning-result.json` fields and exit code                                 | Yes          |
+| Services    | `systemctl is-active` results as reported by installer                          | Yes          |
+| Controller  | `GET /api/status` reached through `-Verify`                                     | Yes          |
+| Display     | `GET /api/health` reached through installer health check                        | Yes          |
+| Scanner     | `scanner_device_detected` and device-name evidence                              | Yes          |
+| QR sequence | Kind, order, result, display state                                              | Yes          |
+| Identity    | Location, Room, Station, Device ID only                                         | Yes          |
+| Cleanup     | Transfer-file absence check and local config disposition                        | Yes          |
 
-## Hardware Limitations and Remaining Milestone 3 Work
+## Qualified Baseline and Remaining Work
 
-- Exact OS image date, URL, and SHA-256 are not established in the repository.
-- Chromium path and qualified Node package baseline are marked for confirmation
-  in `bootstrap/lib/platform-check.js`.
-- Exact Waveshare display assembly, mounting, cables, brightness, and power
-  behavior remain to be qualified.
-- Physical QR readability, scanner keystroke fidelity, and reboot recovery on a
-  real Pi remain hardware acceptance evidence.
-- Production release installation and `multimedica-production.service` are
-  outside Milestone 2.
-- No hardware success is claimed by this document.
+The established baseline is Raspberry Pi OS Lite 64-bit 2026-06-18, Debian
+13.5/Trixie, on a Raspberry Pi 4 Model B Rev 1.5 (`aarch64`), with Node.js
+20.19.2 at `/usr/bin/node`, npm 9.2.0, Chromium 151.0.7922.108, HDMI-1 at
+480x800 portrait, and the BF SCAN `9901:0301` keyboard-wedge scanner. These
+observations are acceptance evidence; patch versions and the Pi 4 model string
+are not permanent hard-coded requirements.
+
+Remaining work is limited to the acceptance result for each deployed unit,
+enclosure-specific display mounting/cable routing/power documentation, physical
+qualification of any future Pi model, and later production-release milestones.
+Production release installation and `multimedica-production.service` remain
+outside this procedure.
+s

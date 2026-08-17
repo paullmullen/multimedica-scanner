@@ -419,6 +419,65 @@ function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
     $out = & $script:SshExe @a 2>$null
     return ($out -join "`n")  }
 
+function Test-PlatformPreflight { param([hashtable]$Result)
+    $probeCommand = @'
+export LC_ALL=C
+model=$(tr -d '\0' </sys/firmware/devicetree/base/model 2>/dev/null || true)
+. /etc/os-release
+free_bytes=$(df -B1 --output=avail / 2>/dev/null | awk 'NR == 2 { print $1 }')
+printf 'MM_MODEL=%s\n' "$model"
+printf 'MM_ARCH=%s\n' "$(uname -m)"
+printf 'MM_OS_ID=%s\n' "${ID:-}"
+printf 'MM_OS_VERSION=%s\n' "${VERSION_ID:-}"
+printf 'MM_OS_CODENAME=%s\n' "${VERSION_CODENAME:-}"
+printf 'MM_FREE_BYTES=%s\n' "$free_bytes"
+'@
+    # Encode the probe to avoid Windows OpenSSH/CRT stripping embedded quotes
+    # from the remote shell command and word-splitting values such as the model.
+    $probeBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($probeCommand))
+    $probe = Invoke-RemoteCapture `
+        'Checking qualified platform capabilities' `
+        "printf %s $probeBase64 | base64 -d | bash"
+    $values = @{}
+    foreach ($line in @($probe -split "`n")) {
+        if ($line -match '^MM_([A-Z_]+)=(.*)$') {
+            $values[$Matches[1]] = $Matches[2].Trim()
+        }
+    }
+    foreach ($required in @('MODEL', 'ARCH', 'OS_ID', 'OS_VERSION', 'OS_CODENAME', 'FREE_BYTES')) {
+        if (-not $values.ContainsKey($required)) {
+            throw "Platform probe did not return required field: MM_$required"
+        }
+    }
+
+    $model = $values.MODEL
+    $arch = $values.ARCH
+    $osId = $values.OS_ID
+    $osVersion = $values.OS_VERSION
+    $osCodename = $values.OS_CODENAME
+    [Int64]$freeBytes = 0
+    if (-not [Int64]::TryParse($values.FREE_BYTES, [ref]$freeBytes)) {
+        throw "Platform probe returned invalid free disk space: '$($values.FREE_BYTES)'"
+    }
+
+    if ($model -notmatch '^Raspberry Pi\b') { throw "Unsupported hardware: $model" }
+    if ($arch -ne 'aarch64') { throw "Unsupported architecture: $arch" }
+    if ($osId -ne 'debian' -or $osVersion.Split('.')[0] -ne '13' -or $osCodename -ne 'trixie') {
+        throw "Unsupported OS: ID=$osId VERSION_ID=$osVersion VERSION_CODENAME=$osCodename"
+    }
+    if ($freeBytes -lt (8GB)) { throw 'At least 8 GiB free space on / is required.' }
+
+    if ($model -match '^Raspberry Pi 4 Model B\b') {
+        Write-Ok "Qualified platform: $model, Debian $osVersion ($osCodename), $arch"
+    } else {
+        $warning = "Compatible platform capabilities detected, but hardware is not yet physically qualified: $model"
+        Write-Warn $warning
+        $Result.warnings.Add($warning)
+    }
+    $Result.platform_verified = $true
+    return $true
+}
+
 function Copy-ToRemote { param([string]$Desc, [string]$Local, [string]$Remote)
     if ($Desc) { Write-Phase $Desc }
     $dest = $PiHost + ':' + $Remote
@@ -533,8 +592,7 @@ function Invoke-Install { param([hashtable]$R)
     Initialize-Ssh $PiPort
     $cfg = Read-InstallerConfig $InstallerConfig
     Write-Redacted 'qr_admin_token'
-    $R.platform_verified = $true
-    $R.warnings.Add('Full platform qualification deferred to Milestone 3')
+    Test-PlatformPreflight -Result $R | Out-Null
     Install-Bootstrap -Result $R -Cfg $cfg
     $ok = Test-Services -Result $R
     $scannerOk = Test-Scanner -Result $R
@@ -595,6 +653,7 @@ function Invoke-Repair { param([hashtable]$R)
     Initialize-Ssh $PiPort
     $cfg = Read-InstallerConfig $InstallerConfig
     Write-Redacted 'qr_admin_token'
+    Test-PlatformPreflight -Result $R | Out-Null
     Install-Bootstrap -Result $R -Cfg $cfg -IsRepair
     $ok = Test-Services -Result $R
     $scannerOk = Test-Scanner -Result $R

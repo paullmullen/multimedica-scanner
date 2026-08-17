@@ -8,14 +8,14 @@
     "commissioning_complete":  false,
     "services_healthy":  true,
     "release_installed":  false,
-    "timestamp":  "2026-08-15T21:32:33.5004330-05:00",
+    "timestamp":  "2026-08-16T19:57:07.1991766-05:00",
     "scanner_device_detected":  true,
-    "mode":  "Repair",
+    "mode":  "Verify",
     "errors":  [
 
                ],
     "platform_verified":  null,
-    "configuration_complete":  false,
+    "configuration_complete":  true,
     "exit_code":  0,
     "reboot_verified":  null,
     "provisioning_qr_parsed":  null,

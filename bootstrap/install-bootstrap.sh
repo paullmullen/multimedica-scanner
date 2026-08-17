@@ -3,7 +3,7 @@
 # Multimedica Scanner — Bootstrap Installer
 # =============================================================================
 #
-# Installs the Multimedica bootstrap layer on a Raspberry Pi 4.
+# Installs the Multimedica bootstrap layer on a compatible 64-bit Raspberry Pi.
 # Must be run as root (sudo bash install-bootstrap.sh [OPTIONS]).
 #
 # Usage:
@@ -74,6 +74,33 @@ done
 # --- preflight and clean-image runtime dependencies ---
 [[ $EUID -eq 0 ]] || fail "Must be run as root"
 
+# Capability-based platform gate. Raspberry Pi 4B is the qualified Milestone 3
+# baseline; later Raspberry Pi models are not hard-coded out of the installer.
+PI_MODEL="$(tr -d '\0' </sys/firmware/devicetree/base/model 2>/dev/null || true)"
+[[ "$PI_MODEL" == Raspberry\ Pi* ]] || fail "Unsupported hardware: expected Raspberry Pi, found '${PI_MODEL:-unknown}'"
+[[ "$(uname -m)" == "aarch64" ]] || fail "Unsupported architecture: expected aarch64, found '$(uname -m)'"
+
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == "debian" ]] || fail "Unsupported OS ID: expected debian, found '${ID:-unknown}'"
+[[ "${VERSION_ID%%.*}" == "13" ]] || fail "Unsupported Debian major version: expected 13, found '${VERSION_ID:-unknown}'"
+[[ "${VERSION_CODENAME:-}" == "trixie" ]] || fail "Unsupported OS codename: expected trixie, found '${VERSION_CODENAME:-unknown}'"
+
+FREE_ROOT_BYTES="$(df -B1 --output=avail / | tail -1 | tr -d '[:space:]')"
+[[ "$FREE_ROOT_BYTES" =~ ^[0-9]+$ ]] || fail "Could not determine free space on /"
+(( FREE_ROOT_BYTES >= 8 * 1024 * 1024 * 1024 )) || fail "At least 8 GiB free space on / is required"
+
+if [[ "$PI_MODEL" == "Raspberry Pi 4 Model B"* ]]; then
+  log "Qualified hardware baseline detected: $PI_MODEL"
+else
+  warn "Compatible Raspberry Pi detected but this model is not yet physically qualified: $PI_MODEL"
+fi
+
+IMAGE_ISSUE="$(cat /boot/firmware/issue.txt 2>/dev/null || true)"
+if [[ "$IMAGE_ISSUE" != *"Raspberry Pi reference 2026-06-18"* ]]; then
+  warn "OS capabilities pass, but this is not the qualified 2026-06-18 image build"
+fi
+
 MISSING_PACKAGES=()
 [[ -x "$NODE_BIN" ]] || MISSING_PACKAGES+=(nodejs)
 [[ -x "$NPM_BIN" ]]  || MISSING_PACKAGES+=(npm)
@@ -102,6 +129,8 @@ fi
 
 [[ -x "$NODE_BIN" ]] || fail "Node.js installation did not provide $NODE_BIN"
 [[ -x "$NPM_BIN" ]]  || fail "npm installation did not provide $NPM_BIN"
+NODE_VERSION="$($NODE_BIN --version 2>/dev/null || true)"
+[[ "$NODE_VERSION" =~ ^v20\. ]] || fail "Unsupported Node.js version: expected v20.x, found '${NODE_VERSION:-unknown}'"
 command -v rsync >/dev/null 2>&1 || fail "rsync installation failed"
 command -v curl  >/dev/null 2>&1 || fail "curl installation failed"
 command -v sudo  >/dev/null 2>&1 || fail "sudo installation failed"
