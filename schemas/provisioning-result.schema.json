@@ -19,7 +19,7 @@
   "properties": {
     "mode": {
       "type": "string",
-      "enum": ["Install", "Verify", "Commission", "Repair", "InstallRelease", "RollbackRelease"]
+      "enum": ["Install", "Verify", "Commission", "Repair", "InstallRelease", "RollbackRelease", "ValidateProductionCandidate"]
     },
     "timestamp": { "type": "string", "format": "date-time" },
     "pi_host": { "type": "string" },
@@ -28,6 +28,10 @@
     "configuration_complete": {
       "type": "boolean",
       "description": "True when all three provisioning QRs (wifi_config, station_config, cloud_config) have been accepted"
+    },
+    "controller_configuration_complete": {
+      "type": ["boolean", "null"],
+      "description": "Exact Boolean configuration_complete value parsed from controller status; null when status was unavailable or invalid"
     },
     "commissioning_complete": {
       "type": "boolean",

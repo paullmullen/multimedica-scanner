@@ -23,12 +23,15 @@
 
 const http = require("http");
 const express = require("express");
+const crypto = require("crypto");
 
 const { isConfigQr, handleConfigQr } = require("./lib/qr-contract");
 const commissioning = require("./lib/commissioning");
 const health = require("./lib/health");
 
 const CONTROLLER_PORT_DEFAULT = 3000;
+const PRODUCTION_SCAN_URL = "http://127.0.0.1:3002/api/scan";
+const PRODUCTION_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -50,6 +53,11 @@ function createController(deps) {
   const _secretsStore = (deps && deps.secretsStore) || require("./lib/secrets-store");
   const _displayClient = (deps && deps.displayClient) || require("./lib/display-client");
   const _applyWifi = deps && deps.applyWifi !== undefined ? deps.applyWifi : _defaultApplyWifi;
+  const _productionScanUrl = (deps && deps.productionScanUrl) || PRODUCTION_SCAN_URL;
+  const _productionTimeoutMs = (deps && deps.productionTimeoutMs) || PRODUCTION_TIMEOUT_MS;
+  const _forwardProductionScan =
+    (deps && deps.forwardProductionScan) ||
+    ((scan) => postProductionScan(scan, _productionScanUrl, _productionTimeoutMs));
 
   // ---- admin token (opaque; never logged) ----
   let _adminToken = null;
@@ -139,6 +147,45 @@ function createController(deps) {
     await _pushState();
   }
 
+  async function _handlePatientScan(rawScan) {
+    const cfg = _configStore.readConfig() || {};
+    const scan = {
+      event_id: crypto.randomUUID(),
+      visit_id: String(rawScan).replace(/^VISIT:/, ""),
+      raw_scan_value: String(rawScan),
+      location_id: cfg.location_id || null,
+      room_id: cfg.room_id || "",
+      station_id: cfg.station_id || "",
+      device_id: cfg.device_id || "",
+      event_type: "scan_received",
+      source_type: "PI_SCANNER",
+      device_timestamp_utc: new Date().toISOString(),
+    };
+
+    let response;
+    try {
+      response = await _forwardProductionScan(scan);
+    } catch {
+      await _showMsg("error", "Production service unavailable. Please rescan.");
+      return;
+    }
+
+    if (!response || !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)) {
+      await _showMsg("error", "Production service unavailable. Please rescan.");
+      return;
+    }
+
+    if (response.disposition === "unavailable") {
+      await _showMsg("error", "Production service unavailable. Please rescan.");
+    } else if (response.disposition === "duplicate") {
+      await _showMsg("info", "Scan already received.");
+    } else if (response.disposition === "rejected") {
+      await _showMsg("error", "Scan rejected. Please check the visit and rescan.");
+    } else {
+      await _showMsg("success", "Scan accepted.");
+    }
+  }
+
   // ---- main scan handler ----
 
   /**
@@ -147,8 +194,7 @@ function createController(deps) {
    */
   async function handleScan(rawScan) {
     if (!isConfigQr(rawScan)) {
-      // Ordinary patient scan — bootstrap mode does not route these
-      console.log("[controller] non-config scan ignored in bootstrap mode");
+      await _handlePatientScan(rawScan);
       return;
     }
 
@@ -248,6 +294,42 @@ function createController(deps) {
       return commissioning.computeState(cfg, sec);
     },
   };
+}
+
+function postProductionScan(scan, urlString = PRODUCTION_SCAN_URL, timeoutMs = PRODUCTION_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(scan);
+    const target = new URL(urlString);
+    const request = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname + target.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      },
+      (response) => {
+        let raw = "";
+        response.on("data", (chunk) => {
+          raw += chunk.toString();
+        });
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(raw));
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    request.setTimeout(timeoutMs, () => request.destroy(new Error("production timeout")));
+    request.on("error", reject);
+    request.write(payload);
+    request.end();
+  });
 }
 
 // ---------------------------------------------------------------------------

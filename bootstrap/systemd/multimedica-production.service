@@ -12,7 +12,7 @@ User=multimedica_edge
 Group=multimedica_edge
 WorkingDirectory=/opt/multimedica-scanner/current
 Environment=MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state
-ExecStart=/usr/bin/node /opt/multimedica-scanner/current/scanner.js
+ExecStart=/usr/bin/node /opt/multimedica-scanner/current/production/scan-server.js
 Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=60

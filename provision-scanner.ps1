@@ -55,6 +55,9 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
     [switch]$ConfigureSshAccess,
 
+    [Parameter(Mandatory, ParameterSetName = 'ValidateProductionCandidate')]
+    [switch]$ValidateProductionCandidate,
+
     # Required in all SSH modes
     [Parameter(Mandatory, ParameterSetName = 'Install')]
     [Parameter(Mandatory, ParameterSetName = 'Verify')]
@@ -63,6 +66,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'InstallRelease')]
     [Parameter(Mandatory, ParameterSetName = 'RollbackRelease')]
     [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
+    [Parameter(Mandatory, ParameterSetName = 'ValidateProductionCandidate')]
     [string]$PiHost,
 
     # ReleaseVersion: declared ONCE; required for release modes, optional for Commission
@@ -84,6 +88,7 @@ param(
     [Parameter(ParameterSetName = 'InstallRelease')]
     [Parameter(ParameterSetName = 'RollbackRelease')]
     [Parameter(ParameterSetName = 'ConfigureSshAccess')]
+    [Parameter(ParameterSetName = 'ValidateProductionCandidate')]
     [int]$PiPort = 22,
 
     [Parameter(ParameterSetName = 'Install')]
@@ -92,6 +97,7 @@ param(
     [Parameter(ParameterSetName = 'Repair')]
     [Parameter(ParameterSetName = 'InstallRelease')]
     [Parameter(ParameterSetName = 'RollbackRelease')]
+    [Parameter(ParameterSetName = 'ValidateProductionCandidate')]
     [string]$ResultFile = '.\provisioning-result.json',
 
     [Parameter(ParameterSetName = 'Install')]
@@ -132,13 +138,14 @@ function Write-Redacted { param([string]$Label)
 
 function New-ProvisioningResult {
     param([string]$Mode, [string]$PiHostValue)
-    return [ordered]@{
+    return @{
         mode                    = $Mode
         timestamp               = (Get-Date -Format 'o')
         pi_host                 = $PiHostValue
         exit_code               = 1
         bootstrap_complete      = $false
         configuration_complete  = $false
+        controller_configuration_complete = $null
         commissioning_complete  = $false
         release_installed       = $false
         production_ready        = $false
@@ -153,6 +160,36 @@ function New-ProvisioningResult {
         errors                  = [System.Collections.Generic.List[string]]::new()
         warnings                = [System.Collections.Generic.List[string]]::new()
     }
+}
+
+function Ensure-ProvisioningResult {
+    param([hashtable]$Result, [string]$Mode, [string]$PiHostValue)
+
+    if ($null -eq $Result) { throw 'Provisioning result hashtable is required.' }
+
+    $defaults = New-ProvisioningResult $Mode $PiHostValue
+    foreach ($key in $defaults.Keys) {
+        $hasProperty = $Result.Contains($key)
+
+        if (-not $hasProperty) {
+            $Result[$key] = $defaults[$key]
+        }
+    }
+
+    foreach ($listKey in @('errors', 'warnings')) {
+        $value = $Result[$listKey]
+        if ($null -eq $value) {
+            $Result[$listKey] = [System.Collections.Generic.List[string]]::new()
+        }
+    }
+}
+
+function Get-OptionalPropertyValue {
+    param([object]$Object, [string]$Name, $Default = $null)
+    if ($null -eq $Object) { return $Default }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $Default }
+    return $property.Value
 }
 
 function Write-ProvisioningResult { param([hashtable]$Result)
@@ -334,14 +371,22 @@ $script:ScpCommon = @()
 $script:ProvisioningKey = Join-Path $env:USERPROFILE '.ssh\multimedica_scanner_ed25519'
 
 function Initialize-Ssh { param([int]$Port, [switch]$AllowPassword)
-    $cmd = Get-Command ssh.exe -EA SilentlyContinue
-    if (-not $cmd) { $cmd = Get-Command ssh -EA SilentlyContinue }
-    if (-not $cmd) { throw 'ssh not found. Install OpenSSH for Windows.' }
-    $script:SshExe = $cmd.Source
-    $cmd2 = Get-Command scp.exe -EA SilentlyContinue
-    if (-not $cmd2) { $cmd2 = Get-Command scp -EA SilentlyContinue }
-    if (-not $cmd2) { throw 'scp not found. Install OpenSSH for Windows.' }
-    $script:ScpExe = $cmd2.Source
+    if ($env:MULTIMEDICA_TEST_SSH_EXE -and $env:MULTIMEDICA_TEST_SCP_EXE) {
+        if (-not (Test-Path -LiteralPath $env:MULTIMEDICA_TEST_SSH_EXE) -or -not (Test-Path -LiteralPath $env:MULTIMEDICA_TEST_SCP_EXE)) {
+            throw 'Configured test SSH executable path does not exist.'
+        }
+        $script:SshExe = $env:MULTIMEDICA_TEST_SSH_EXE
+        $script:ScpExe = $env:MULTIMEDICA_TEST_SCP_EXE
+    } else {
+        $cmd = Get-Command ssh.exe -EA SilentlyContinue
+        if (-not $cmd) { $cmd = Get-Command ssh -EA SilentlyContinue }
+        if (-not $cmd) { throw 'ssh not found. Install OpenSSH for Windows.' }
+        $script:SshExe = $cmd.Source
+        $cmd2 = Get-Command scp.exe -EA SilentlyContinue
+        if (-not $cmd2) { $cmd2 = Get-Command scp -EA SilentlyContinue }
+        if (-not $cmd2) { throw 'scp not found. Install OpenSSH for Windows.' }
+        $script:ScpExe = $cmd2.Source
+    }
     $identityArgs = @()
     if (Test-Path -LiteralPath $script:ProvisioningKey) {
         $identityArgs = @('-i', $script:ProvisioningKey, '-o', 'IdentitiesOnly=yes')
@@ -417,6 +462,7 @@ function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
     if ($Desc) { Write-Phase $Desc }
     $a   = $script:SshCommon + @($PiHost, $Cmd)
     $out = & $script:SshExe @a 2>$null
+    $script:LastRemoteCaptureExitCode = $LASTEXITCODE
     return ($out -join "`n")  }
 
 function Test-PlatformPreflight { param([hashtable]$Result)
@@ -620,21 +666,57 @@ function Invoke-Install { param([hashtable]$R)
 # Mode: -Verify
 # ---------------------------------------------------------------------------
 
-function Invoke-Verify { param([hashtable]$R)
-    Initialize-Ssh $PiPort
+function Get-ControllerDeviceStatus {
     $statusJson = Invoke-RemoteCapture 'Querying device state' 'curl -fs http://127.0.0.1:3000/api/status 2>/dev/null'
+    $exitCode = $script:LastRemoteCaptureExitCode
+    $responseLength = if ($null -eq $statusJson) { 0 } else { $statusJson.Length }
+    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($statusJson)) {
+        return [PSCustomObject]@{
+            IsValid = $false
+            Diagnostic = "SSH/controller status query failed (exit $exitCode; response length $responseLength)"
+        }
+    }
     try {
         $obj = $statusJson | ConvertFrom-Json
-        $R.bootstrap_complete       = ($null -ne $obj.commissioning_state)
-        $R.configuration_complete   = ($obj.configuration_complete -eq $true)
-        $R.commissioning_complete   = ($obj.commissioning_complete -eq $true)
-        $R.release_installed        = ($obj.release_installed -eq $true)
-        $R.production_ready         = ($obj.production_ready -eq $true)
-        Write-Ok "State: $($obj.commissioning_state) | Config complete: $($obj.configuration_complete)"
-        $R.exit_code = 0
+        $rawConfigurationComplete = Get-OptionalPropertyValue -Object $obj -Name 'configuration_complete'
+        if ($rawConfigurationComplete -isnot [bool]) {
+            return [PSCustomObject]@{
+                IsValid = $false
+                Diagnostic = "Controller status response was malformed (response length $responseLength)"
+            }
+        }
+        return [PSCustomObject]@{
+            IsValid = $true
+            State = Get-OptionalPropertyValue -Object $obj -Name 'commissioning_state'
+            ConfigurationComplete = $rawConfigurationComplete
+            CommissioningComplete = (Get-OptionalPropertyValue -Object $obj -Name 'commissioning_complete' $false) -eq $true
+            ReleaseInstalled = (Get-OptionalPropertyValue -Object $obj -Name 'release_installed' $false) -eq $true
+            ProductionReady = (Get-OptionalPropertyValue -Object $obj -Name 'production_ready' $false) -eq $true
+        }
     } catch {
+        return [PSCustomObject]@{
+            IsValid = $false
+            Diagnostic = "Controller status response was malformed (response length $responseLength)"
+        }
+    }
+}
+
+function Invoke-Verify { param([hashtable]$R)
+    Ensure-ProvisioningResult -Result $R -Mode $PSCmdlet.ParameterSetName -PiHostValue $PiHost
+    Initialize-Ssh $PiPort
+    $status = Get-ControllerDeviceStatus
+    if ($status.IsValid) {
+        $R.bootstrap_complete       = ($null -ne $status.State)
+        $R.configuration_complete   = $status.ConfigurationComplete
+        $R.controller_configuration_complete = $status.ConfigurationComplete
+        $R.commissioning_complete   = $status.CommissioningComplete
+        $R.release_installed        = $status.ReleaseInstalled
+        $R.production_ready         = $status.ProductionReady
+        Write-Ok "State: $($status.State) | Config complete: $($status.ConfigurationComplete)"
+        $R.exit_code = 0
+    } else {
         Write-Warn 'Could not parse device status (controller may not be running)'
-        $R.warnings.Add('Device status unparseable; controller may not be running')
+        $R.warnings.Add("$($status.Diagnostic); device status unparseable")
         $R.exit_code = 10
     }
     $servicesOk = Test-Services -Result $R
@@ -643,7 +725,7 @@ function Invoke-Verify { param([hashtable]$R)
         $R.bootstrap_complete = $false
         $R.exit_code = 20
     }
-    return $R }
+    return }
 
 # ---------------------------------------------------------------------------
 # Mode: -Repair
@@ -668,12 +750,129 @@ function Invoke-Repair { param([hashtable]$R)
 
 function Invoke-Commission { param([hashtable]$R)
     Initialize-Ssh $PiPort
-    Invoke-Verify -Result $R | Out-Null
+    Invoke-Verify -R $R | Out-Null
     if (-not $R.commissioning_complete) {
         $R.warnings.Add('Release installation not yet implemented (Milestone 5)')
         if ($R.exit_code -eq 0) { $R.exit_code = 10 }
     }
     return $R }
+
+# ---------------------------------------------------------------------------
+# Mode: -ValidateProductionCandidate (Milestone 4 hardware validation only)
+# ---------------------------------------------------------------------------
+
+function Test-EvtestControllerOwnership { param([hashtable]$R)
+    $probe = @'
+controller_pid=$(systemctl show -p MainPID --value multimedica-controller.service)
+all=$(pgrep -u multimedica_edge -x evtest || true)
+child=$(pgrep -P "$controller_pid" -x evtest || true)
+all_count=$(printf '%s\n' "$all" | sed '/^$/d' | wc -l | tr -d ' ')
+child_count=$(printf '%s\n' "$child" | sed '/^$/d' | wc -l | tr -d ' ')
+printf 'MM_EVTEST_ALL=%s\n' "$all_count"
+printf 'MM_EVTEST_CHILD=%s\n' "$child_count"
+'@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($probe))
+    $out = Invoke-RemoteCapture 'Verifying controller owns the only evtest reader' "printf %s $encoded | base64 -d | bash"
+    $all = 0; $child = 0
+    foreach ($line in ($out -split "`n")) {
+        if ($line -match '^MM_EVTEST_ALL=(\d+)$') { $all = [int]$Matches[1] }
+        if ($line -match '^MM_EVTEST_CHILD=(\d+)$') { $child = [int]$Matches[1] }
+    }
+    if ($all -ne 1 -or $child -ne 1) {
+        $R.errors.Add('Expected exactly one evtest process owned by multimedica-controller.service')
+        throw 'Controller does not exclusively own evtest.'
+    }
+    Write-Ok 'Only multimedica-controller.service owns evtest'
+}
+
+function Start-ProductionCandidate {
+    param([string]$CandidateDir)
+    $command = "set -e; sudo -u multimedica_edge env MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state NODE_PATH=/opt/multimedica-scanner/node_modules PRODUCTION_PORT=3002 nohup /usr/bin/node $CandidateDir/production/scan-server.js >$CandidateDir/production.log 2>&1 & echo `$!"
+    $pidText = Invoke-RemoteCapture 'Starting temporary production candidate on port 3002' $command
+    $candidateProcessId = ($pidText -split "`n" | Where-Object { $_ -match '^\d+$' } | Select-Object -Last 1)
+    if (-not $candidateProcessId) { throw 'Production candidate did not return a process identifier.' }
+    return $candidateProcessId
+}
+
+function Wait-ProductionCandidateHealthy {
+    param([hashtable]$R, [string]$CandidateDir)
+    $lastStatusLength = 0
+    for ($i = 1; $i -le 10; $i++) {
+        $status = Invoke-RemoteCapture '' 'curl -fs http://127.0.0.1:3002/api/status 2>/dev/null || true'
+        $lastStatusLength = if ($null -eq $status) { 0 } else { $status.Length }
+        try {
+            $obj = $status | ConvertFrom-Json
+            if ($obj.service -eq 'multimedica-production' -and $obj.state -eq 'healthy') {
+                $R.production_healthy = $true
+                Write-Ok 'Temporary production candidate healthy on port 3002'
+                return
+            }
+        } catch { }
+        Start-Sleep -Seconds 1
+    }
+    $R.production_healthy = $false
+    $probe = Invoke-RemoteCapture '' "entrypoint=0; process=0; test -f '$CandidateDir/production/scan-server.js' && entrypoint=1; pgrep -f '$CandidateDir/production/scan-server.js' >/dev/null 2>&1 && process=1; printf 'MM_ENTRYPOINT=%s MM_PROCESS=%s' \"`$entrypoint\" \"`$process\""
+    $entrypointPresent = $probe -match 'MM_ENTRYPOINT=1'
+    $processRunning = $probe -match 'MM_PROCESS=1'
+    throw "Temporary production candidate did not become healthy (entrypoint present: $entrypointPresent; process running: $processRunning; health response length: $lastStatusLength)."
+}
+
+function Stop-ProductionCandidate {
+    param([string]$CandidateDir, [string]$CandidateProcessId, [switch]$RemoveFiles)
+    if (-not $CandidateDir) { return }
+    $safePid = if ($CandidateProcessId -match '^\d+$') { $CandidateProcessId } else { '' }
+    $cleanup = if ($RemoveFiles) { "rm -rf '$CandidateDir';" } else { '' }
+    $command = "set +e; if [ -n '$safePid' ]; then kill $safePid 2>/dev/null || true; fi; pkill -f '$CandidateDir/production/scan-server.js' 2>/dev/null || true; $cleanup exit 0"
+    $label = if ($RemoveFiles) { 'Stopping and removing temporary production candidate' } else { 'Stopping temporary production candidate' }
+    $null = Invoke-Remote $label $command -AllowFail
+}
+
+function Invoke-ValidateProductionCandidate { param([hashtable]$R)
+    Ensure-ProvisioningResult -Result $R -Mode 'ValidateProductionCandidate' -PiHostValue $PiHost
+    Invoke-Verify -R $R | Out-Null
+    if (($R['controller_configuration_complete'] -isnot [bool]) -or ($R['controller_configuration_complete'] -ne $true)) {
+        throw 'Production candidate validation requires completed Wi-Fi, Station, and Cloud configuration.'
+    }
+
+    $active = Invoke-Remote '' 'systemctl is-active --quiet multimedica-production.service' -AllowFail
+    if ($active -eq 0) {
+        throw 'multimedica-production.service is already active; validation will not modify or stop it.'
+    }
+
+    $candidate = '/tmp/mm-production-candidate-' + [Guid]::NewGuid().ToString('N')
+    $candidatePid = ''
+    try {
+        $null = Invoke-Remote 'Preparing temporary production candidate directory' "mkdir -p $candidate/bootstrap"
+        $project = (Get-Location).Path
+        Copy-DirToRemote 'Staging production scan server' "$project\production" $candidate
+        Copy-DirToRemote 'Staging production configuration libraries' "$project\bootstrap\lib" "$candidate/bootstrap"
+        Copy-DirToRemote 'Staging production schemas' "$project\schemas" $candidate
+
+        $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
+        Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
+        Test-EvtestControllerOwnership -R $R
+
+        Write-Host 'Scan one real patient barcode now. Confirm the clinic workflow response, then press Enter.' -ForegroundColor Yellow
+        Read-Host | Out-Null
+
+        Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid
+        $candidatePid = ''
+        Write-Host 'Candidate stopped. Scan a test barcode and confirm the display says the production service is unavailable, then press Enter.' -ForegroundColor Yellow
+        Read-Host | Out-Null
+
+        $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
+        Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
+        Write-Host 'Disconnect and reconnect the USB scanner. Wait for recovery, then press Enter.' -ForegroundColor Yellow
+        Read-Host | Out-Null
+        Test-EvtestControllerOwnership -R $R
+
+        $R.warnings.Add('Production candidate validated temporarily; it was not enabled or promoted.')
+        $R.exit_code = 0
+        return
+    } finally {
+        Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid -RemoveFiles
+    }
+}
 
 # ---------------------------------------------------------------------------
 # Dispatch
@@ -700,10 +899,11 @@ $result = New-ProvisioningResult $PSCmdlet.ParameterSetName $PiHost
 
 try {
     switch ($PSCmdlet.ParameterSetName) {
-        'Install'         { $result = Invoke-Install     -R $result }
-        'Verify'          { $result = Invoke-Verify      -R $result }
-        'Commission'      { $result = Invoke-Commission  -R $result }
-        'Repair'          { $result = Invoke-Repair      -R $result }
+        'Install'         { Invoke-Install     -R $result | Out-Null }
+        'Verify'          { Invoke-Verify      -R $result | Out-Null }
+        'Commission'      { Invoke-Commission  -R $result | Out-Null }
+        'Repair'          { Invoke-Repair      -R $result | Out-Null }
+        'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }
         'InstallRelease'  { $result.warnings.Add('InstallRelease: Milestone 5');  $result.exit_code = 10 }
         'RollbackRelease' { $result.warnings.Add('RollbackRelease: Milestone 5'); $result.exit_code = 10 }
     }

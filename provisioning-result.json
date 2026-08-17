@@ -1,25 +1,26 @@
 {
-    "network_connected":  null,
-    "production_healthy":  null,
-    "warnings":  [
-
-                 ],
-    "production_ready":  false,
-    "commissioning_complete":  false,
+    "controller_configuration_complete":  true,
     "services_healthy":  true,
-    "release_installed":  false,
-    "timestamp":  "2026-08-16T19:57:07.1991766-05:00",
     "scanner_device_detected":  true,
-    "mode":  "Verify",
+    "release_installed":  false,
+    "bootstrap_complete":  true,
+    "exit_code":  0,
+    "pi_host":  "multimedica_edge@multimedicascanner1",
     "errors":  [
 
                ],
+    "commissioning_complete":  false,
     "platform_verified":  null,
-    "configuration_complete":  true,
-    "exit_code":  0,
-    "reboot_verified":  null,
-    "provisioning_qr_parsed":  null,
+    "production_ready":  false,
     "release_version":  null,
-    "pi_host":  "multimedica_edge@multimedicascanner1",
-    "bootstrap_complete":  true
+    "timestamp":  "2026-08-16T21:45:03.1069967-05:00",
+    "mode":  "ValidateProductionCandidate",
+    "provisioning_qr_parsed":  null,
+    "reboot_verified":  null,
+    "production_healthy":  true,
+    "network_connected":  null,
+    "warnings":  [
+                     "Production candidate validated temporarily; it was not enabled or promoted."
+                 ],
+    "configuration_complete":  true
 }

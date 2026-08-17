@@ -284,6 +284,13 @@ describe("handleScan â€” show_identity", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleScan â€” invalid inputs", () => {
+  test("controller has no direct cloud endpoint or bearer authorization path", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "controller.js"), "utf8");
+    expect(source).toContain("http://127.0.0.1:3002/api/scan");
+    expect(source).not.toMatch(/https:\/\//);
+    expect(source).not.toContain("Authorization: `Bearer");
+  });
+
   test("wrong admin token â†’ error message, no config change", async () => {
     const { ctrl, display } = makeCtrl(tmpDir);
     const cfgBefore = configStore.readConfig(tmpDir);
@@ -320,11 +327,68 @@ describe("handleScan â€” invalid inputs", () => {
     expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: "error" }));
   });
 
-  test("non-config scan is silently ignored", async () => {
-    const { ctrl, display } = makeCtrl(tmpDir);
+  test("ordinary scan is forwarded only to the production API", async () => {
+    const forwardProductionScan = jest.fn().mockResolvedValue({ disposition: "accepted" });
+    const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
     await ctrl.handleScan("VISIT:12345");
-    expect(display.showMessage).not.toHaveBeenCalled();
-    expect(display.showIdentity).not.toHaveBeenCalled();
+    expect(forwardProductionScan).toHaveBeenCalledTimes(1);
+    const forwarded = forwardProductionScan.mock.calls[0][0];
+    expect(forwarded).toMatchObject({
+      visit_id: "12345",
+      raw_scan_value: "VISIT:12345",
+      event_type: "scan_received",
+      source_type: "PI_SCANNER",
+    });
+    expect(JSON.stringify(display.showMessage.mock.calls)).not.toContain("VISIT:12345");
+  });
+
+  test.each(["rejected", "duplicate", "unavailable"])("production %s result is handled safely", async (disposition) => {
+    const forwardProductionScan = jest.fn().mockResolvedValue({ disposition });
+    const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+    await ctrl.handleScan("VISIT:12345");
+    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: disposition === "duplicate" ? "info" : "error",
+    }));
+  });
+
+  test("production timeout, connection failure, and malformed response are unavailable", async () => {
+    for (const forwardProductionScan of [
+      jest.fn().mockRejectedValue(new Error("connection refused")),
+      jest.fn().mockResolvedValue({ disposition: "not-valid" }),
+    ]) {
+      const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      await ctrl.handleScan("VISIT:12345");
+      const text = display.showMessage.mock.calls.at(-1)[0].text;
+      expect(text).toContain("unavailable");
+      expect(text).toContain("rescan");
+    }
+  });
+
+  test("production loopback request times out and prompts a rescan", async () => {
+    const production = http.createServer(() => {});
+    await new Promise((resolve) => production.listen(0, "127.0.0.1", resolve));
+    const { port } = production.address();
+    const { ctrl, display } = makeCtrl(tmpDir, {
+      productionScanUrl: `http://127.0.0.1:${port}/api/scan`,
+      productionTimeoutMs: 20,
+    });
+    await ctrl.handleScan("VISIT:12345");
+    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringContaining("rescan"),
+    }));
+    await new Promise((resolve) => production.close(resolve));
+  });
+
+  test("configuration QR never reaches production API", async () => {
+    const forwardProductionScan = jest.fn();
+    const { ctrl } = makeCtrl(tmpDir, { forwardProductionScan });
+    await ctrl.handleScan(qr("station_config", {
+      location_id: "loc1",
+      room_id: "r1",
+      station_id: "s1",
+      device_id: "d1",
+    }));
+    expect(forwardProductionScan).not.toHaveBeenCalled();
   });
 
   test("admin token not loaded â†’ error, no write", async () => {

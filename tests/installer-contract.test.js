@@ -106,6 +106,101 @@ function runPowerShell(script, cwd) {
   );
 }
 
+function runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode = 0 }) {
+  const toolDir = makeTempDir();
+  const homeDir = makeTempDir();
+  const sshDir = path.join(homeDir, ".ssh");
+  fs.mkdirSync(sshDir, { recursive: true });
+  fs.writeFileSync(path.join(sshDir, "multimedica_scanner_ed25519"), "fake-key");
+  const sshScript = [
+    "@echo off",
+    "set args=%*",
+    "echo %args% | findstr /C:\"/api/status\" >nul",
+    `if not errorlevel 1 (echo ${statusBody || ""}&exit /b ${statusExitCode})`,
+    "echo %args% | findstr /C:\"is-active\" >nul",
+    "if not errorlevel 1 exit /b 0",
+    "echo %args% | findstr /C:\"/api/health\" >nul",
+    "if not errorlevel 1 exit /b 0",
+    "echo %args% | findstr /C:\"chromium\" >nul",
+    "if not errorlevel 1 exit /b 0",
+    "echo %args% | findstr /C:\"/proc/bus/input\" >nul",
+    "if not errorlevel 1 exit /b 0",
+    "echo %args% | findstr /C:\"pgrep\" >nul",
+    "if not errorlevel 1 exit /b 0",
+    "exit /b 0",
+  ].join("\r\n");
+  fs.writeFileSync(path.join(toolDir, "ssh.cmd"), sshScript);
+  fs.writeFileSync(path.join(toolDir, "scp.cmd"), "@echo off\r\nexit /b 0\r\n");
+  const resultPath = path.join(cwd, "result.json");
+  const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Verify", "-PiHost", "fake@host", "-ResultFile", "result.json"],
+    {
+      cwd,
+      env: {
+        ...process.env,
+        PATH: `${toolDir};${process.env.PATH}`,
+        USERPROFILE: homeDir,
+        MULTIMEDICA_TEST_SSH_EXE: path.join(toolDir, "ssh.cmd"),
+        MULTIMEDICA_TEST_SCP_EXE: path.join(toolDir, "scp.cmd"),
+      },
+      encoding: "utf8",
+    },
+  );
+  const output = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, "utf8")) : null;
+  rmTempDir(toolDir);
+  rmTempDir(homeDir);
+  return { result, output };
+}
+
+function runCandidateWithFakeSsh({ cwd, statusBody }) {
+  const toolDir = makeTempDir();
+  const homeDir = makeTempDir();
+  const sshDir = path.join(homeDir, ".ssh");
+  fs.mkdirSync(sshDir, { recursive: true });
+  fs.writeFileSync(path.join(sshDir, "multimedica_scanner_ed25519"), "fake-key");
+  const sshScript = [
+    "@echo off",
+    "set args=%*",
+    "echo %args% | findstr /C:\"127.0.0.1:3000/api/status\" >nul",
+    `if not errorlevel 1 (echo ${statusBody}&exit /b 0)`,
+    "echo %args% | findstr /C:\"multimedica-production.service\" >nul",
+    "if not errorlevel 1 exit /b 3",
+    "echo %args% | findstr /C:\"127.0.0.1:3002/api/status\" >nul",
+    "if not errorlevel 1 (echo {\"ok\":true,\"service\":\"multimedica-production\",\"state\":\"healthy\"}&exit /b 0)",
+    "echo %args% | findstr /C:\"nohup\" >nul",
+    "if not errorlevel 1 (echo 4242&exit /b 0)",
+    "echo %args% | findstr /C:\"base64 -d | bash\" >nul",
+    "if not errorlevel 1 (echo MM_EVTEST_ALL=1&echo MM_EVTEST_CHILD=1&exit /b 0)",
+    "exit /b 0",
+  ].join("\r\n");
+  fs.writeFileSync(path.join(toolDir, "ssh.cmd"), sshScript);
+  fs.writeFileSync(path.join(toolDir, "scp.cmd"), "@echo off\r\nexit /b 0\r\n");
+  const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-ValidateProductionCandidate", "-PiHost", "fake@host", "-ResultFile", "candidate-result.json"],
+    {
+      cwd,
+      input: "\n\n\n",
+      env: {
+        ...process.env,
+        PATH: `${toolDir};${process.env.PATH}`,
+        USERPROFILE: homeDir,
+        MULTIMEDICA_TEST_SSH_EXE: path.join(toolDir, "ssh.cmd"),
+        MULTIMEDICA_TEST_SCP_EXE: path.join(toolDir, "scp.cmd"),
+      },
+      encoding: "utf8",
+    },
+  );
+  const resultPath = path.join(cwd, "candidate-result.json");
+  const output = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, "utf8")) : null;
+  rmTempDir(toolDir);
+  rmTempDir(homeDir);
+  return { result, output };
+}
+
 // Standard mock display client
 function mockDisplay() {
   return {
@@ -467,6 +562,11 @@ describe("provisioning-result.schema.json", () => {
     expect(schema.required).toContain("commissioning_complete");
   });
 
+  test("accepts the temporary production-candidate validation mode", () => {
+    const schema = loadSchema("provisioning-result.schema.json");
+    expect(schema.properties.mode.enum).toContain("ValidateProductionCandidate");
+  });
+
   test("result with nonzero exit_code validates (failure case)", () => {
     const schema = loadSchema("provisioning-result.schema.json");
     const av = makeValidator();
@@ -485,6 +585,115 @@ describe("provisioning-result.schema.json", () => {
     };
     expect(validate(failResult)).toBe(true);
     expect(failResult.exit_code).not.toBe(0); // nonzero on failure
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Device status parsing regression coverage
+// ---------------------------------------------------------------------------
+
+describe("Verify status result normalization", () => {
+  const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+    encoding: "utf8",
+  }).status === 0;
+
+  test.each([
+    ["partial status without warnings", '{"commissioning_state":"bootstrap_installed"}', 0, false, null],
+    ["malformed status", "not-json", 0, false, null],
+    ["controller unavailable", "", 7, false, null],
+    ["non-Boolean completion field", '{"commissioning_state":"cloud_configured","configuration_complete":"true"}', 0, false, null],
+    ["wifi last configuration state", '{"commissioning_state":"wifi_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+    ["station last configuration state", '{"commissioning_state":"station_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+    ["cloud last configuration state", '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+    ["any state with incomplete configuration", '{"commissioning_state":"cloud_configured","configuration_complete":false,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, false, false],
+  ])("%s produces a schema-valid result without a strict-mode property error", (_name, statusBody, statusExitCode, configurationComplete, controllerConfigurationComplete) => {
+    if (!powershellAvailable) return;
+    const cwd = makeTempDir();
+    try {
+      const run = runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode });
+      if (run.output === null) {
+        throw new Error(run.result.stdout + run.result.stderr);
+      }
+      expect(run.result.stdout + run.result.stderr).not.toContain("property 'warnings' cannot be found");
+      expect(run.output.configuration_complete).toBe(configurationComplete);
+      expect(run.output.controller_configuration_complete).toBe(controllerConfigurationComplete);
+      expect(Array.isArray(run.output.warnings)).toBe(true);
+      expect(Array.isArray(run.output.errors)).toBe(true);
+      const validate = makeValidator().compile(loadSchema("provisioning-result.schema.json"));
+      expect(validate(run.output)).toBe(true);
+    } finally {
+      rmTempDir(cwd);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Milestone 4 temporary production candidate validation
+// ---------------------------------------------------------------------------
+
+describe("temporary production candidate validation", () => {
+  test("candidate parameter set retains the parsed completion Boolean through staging and result serialization", () => {
+    const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+      encoding: "utf8",
+    }).status === 0;
+    if (!powershellAvailable) return;
+
+    const cwd = makeTempDir();
+    try {
+      const run = runCandidateWithFakeSsh({
+        cwd,
+        statusBody: '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
+      });
+      if (run.output === null) throw new Error(run.result.stdout + run.result.stderr);
+      if (run.result.status !== 0) throw new Error(run.result.stdout + run.result.stderr);
+      expect(typeof run.output.controller_configuration_complete).toBe("boolean");
+      expect(run.output.controller_configuration_complete).toBe(true);
+      expect(run.output.configuration_complete).toBe(run.output.controller_configuration_complete);
+      const validate = makeValidator().compile(loadSchema("provisioning-result.schema.json"));
+      expect(validate(run.output)).toBe(true);
+    } finally {
+      rmTempDir(cwd);
+    }
+  });
+
+  test("uses a distinct parameter set without changing Verify", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("ParameterSetName = 'ValidateProductionCandidate'");
+    expect(source).toContain("function Invoke-ValidateProductionCandidate");
+    expect(source).toContain("'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }");
+    expect(source).toContain("Invoke-Verify -R $R | Out-Null");
+    expect(source).not.toContain("Invoke-Verify -Result $R");
+  });
+
+  test("uses only the parsed controller completion Boolean as its prerequisite", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("$R['controller_configuration_complete'] -ne $true");
+    expect(source).not.toMatch(/configuration_complete.*cloud_configured|cloud_configured.*configuration_complete/);
+  });
+
+  test("stages a temporary candidate, never enables production service, and cleans it up", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("/tmp/mm-production-candidate-");
+    expect(source).toContain("Staging production scan server");
+    expect(source).toContain("PRODUCTION_PORT=3002");
+    expect(source).toContain("multimedica-production.service is already active");
+    expect(source).not.toMatch(/systemctl\s+enable\s+multimedica-production/);
+    expect(source).toContain('"$project\\production" $candidate');
+    expect(source).toContain('"$project\\bootstrap\\lib" "$candidate/bootstrap"');
+    expect(source).toContain('"$project\\schemas" $candidate');
+    expect(source).not.toContain('"$project\\production" "$candidate/production"');
+    expect(source).toContain("Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid -RemoveFiles");
+    expect(source).not.toMatch(/\$(?:pid)\b/i);
+  });
+
+  test("requires manual round-trip, unavailable, and reconnect checks with controller-only evtest ownership", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("Scan one real patient barcode now");
+    expect(source).toContain("Candidate stopped. Scan a test barcode");
+    expect(source).toContain("Disconnect and reconnect the USB scanner");
+    expect(source).toContain("MM_EVTEST_ALL");
+    expect(source).toContain("MM_EVTEST_CHILD");
+    expect(source).toContain("Only multimedica-controller.service owns evtest");
   });
 });
 
@@ -520,13 +729,12 @@ describe("port conflict behavior", () => {
       "utf8"
     );
     // The only systemctl stop/disable calls should be for multimedica-* services
-    // (i.e., NOT for legacy kiosk-display or legacy scanner)
+    // or the appliance's tty1 getty; never legacy kiosk-display or scanner services.
     const stopLines = script
       .split("\n")
       .filter((l) => /systemctl\s+(stop|disable)/.test(l) && !l.trim().startsWith("#"));
     for (const line of stopLines) {
-      // All stop/disable lines must target multimedica-* or production (our own services)
-      expect(line).toMatch(/multimedica/);
+      expect(line).toMatch(/multimedica|getty@tty1\.service/);
     }
   });
 });
