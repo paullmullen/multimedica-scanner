@@ -827,6 +827,29 @@ function Stop-ProductionCandidate {
     $null = Invoke-Remote $label $command -AllowFail
 }
 
+function Confirm-HardwareObservation {
+    param([string]$Prompt)
+    $answer = Read-Host "$Prompt Type yes to continue"
+    if ($answer -cne 'yes') { throw 'Hardware observation was not explicitly confirmed.' }
+}
+
+function Test-SyntheticRuntimeDisplay {
+    param([hashtable]$R)
+    $stateId = if ($env:MULTIMEDICA_TEST_SSH_EXE -and $env:MULTIMEDICA_TEST_STATE_ID) {
+        $env:MULTIMEDICA_TEST_STATE_ID
+    } else {
+        'candidate-display-' + [Guid]::NewGuid().ToString('N')
+    }
+    $payload = "{`"kind`":`"room`",`"state_id`":`"$stateId`",`"priority`":`"room`",`"display`":{`"mode`":`"room_status`",`"status`":{`"code`":`"available`",`"label`":`"CANDIDATE`"}}}"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+    $post = Invoke-RemoteCapture 'Posting synthetic candidate state through controller' "printf %s $encoded | base64 -d | curl -fsS -X POST http://127.0.0.1:3000/api/runtime-state -H 'Content-Type: application/json' --data-binary @-"
+    if ($post -notmatch '"ok"\s*:\s*true') { throw 'Controller rejected synthetic candidate display state.' }
+    $display = Invoke-RemoteCapture 'Verifying synthetic state on display endpoint' 'curl -fsS http://127.0.0.1:3001/api/state'
+    if ($display -notmatch [Regex]::Escape($stateId)) { throw 'Synthetic candidate display state was not visible through the display-state endpoint.' }
+    $R.warnings.Add("Slice 1 synthetic display state observed: $stateId")
+    Confirm-HardwareObservation -Prompt 'Confirm the physical display showed the CANDIDATE state.'
+}
+
 function Invoke-ValidateProductionCandidate { param([hashtable]$R)
     Ensure-ProvisioningResult -Result $R -Mode 'ValidateProductionCandidate' -PiHostValue $PiHost
     Invoke-Verify -R $R | Out-Null
@@ -851,19 +874,17 @@ function Invoke-ValidateProductionCandidate { param([hashtable]$R)
         $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
         Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
         Test-EvtestControllerOwnership -R $R
+        Test-SyntheticRuntimeDisplay -R $R
 
-        Write-Host 'Scan one real patient barcode now. Confirm the clinic workflow response, then press Enter.' -ForegroundColor Yellow
-        Read-Host | Out-Null
+        Confirm-HardwareObservation -Prompt 'Scan one real patient barcode and confirm the clinic workflow response.'
 
         Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid
         $candidatePid = ''
-        Write-Host 'Candidate stopped. Scan a test barcode and confirm the display says the production service is unavailable, then press Enter.' -ForegroundColor Yellow
-        Read-Host | Out-Null
+        Confirm-HardwareObservation -Prompt 'Candidate stopped. Scan a test barcode and confirm production unavailable feedback.'
 
         $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
         Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
-        Write-Host 'Disconnect and reconnect the USB scanner. Wait for recovery, then press Enter.' -ForegroundColor Yellow
-        Read-Host | Out-Null
+        Confirm-HardwareObservation -Prompt 'Disconnect and reconnect the USB scanner, then confirm recovery.'
         Test-EvtestControllerOwnership -R $R
 
         $R.warnings.Add('Production candidate validated temporarily; it was not enabled or promoted.')

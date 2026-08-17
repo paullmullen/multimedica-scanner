@@ -1,0 +1,312 @@
+Note: The tool simplified the command to `npm test -- --runInBand tests/production-scan-server.test.js tests/controller.test.js` (terminal ID=e7139b83-42e0-4c11-82ba-b2702e64e44e). This is the output of running that command instead:
+
+> test
+> jest --forceExit tests/production-scan-server.test.js tests/controller.test.js
+
+ FAIL  tests/production-scan-server.test.js
+  ● production scan API › rejects malformed scan requests without forwarding
+
+    expect(jest.fn()).not.toHaveBeenCalled()
+
+    Expected number of calls: 0
+    Received number of calls: 1
+
+    1: "https://example.invalid/syncStationDisplayState", {"device_id": "device-1", "location_id": "location-1", "room_id": "room-1", "station_id": "station-1"}, "fake-shared-secret"
+
+      136 |     expect(response.statusCode).toBe(200);
+      137 |     expect(response.body.disposition).toBe("rejected");
+    > 138 |     expect(cloudRequest).not.toHaveBeenCalled();
+          |                              ^
+      139 |   });
+      140 |
+      141 |   test("normalization treats malformed cloud response as rejected", () => {
+
+      at Object.toHaveBeenCalled (tests/production-scan-server.test.js:138:30)
+
+ FAIL  tests/controller.test.js
+  ● Console
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: cloud_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: cloud_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: show_identity
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: show_identity
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.error
+      [controller] QR rejected: Invalid admin token
+
+      241 |       // result.error never contains secret values (guaranteed by qr-contract.js)
+      242 |       const safeErr = result.error || "QR validation failed";
+    > 243 |       console.error("[controller] QR rejected:", safeErr);
+          |               ^
+      244 |       await _showMsg("error", `QR rejected: ${safeErr}`);
+      245 |       return;
+      246 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:243:15)
+      at Object.handleScan (tests/controller.test.js:302:16)
+
+    console.error
+      [controller] QR rejected: Unexpected token 'o', "not-valid-json" is not valid JSON
+
+      241 |       // result.error never contains secret values (guaranteed by qr-contract.js)
+      242 |       const safeErr = result.error || "QR validation failed";
+    > 243 |       console.error("[controller] QR rejected:", safeErr);
+          |               ^
+      244 |       await _showMsg("error", `QR rejected: ${safeErr}`);
+      245 |       return;
+      246 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:243:15)
+      at Object.handleScan (tests/controller.test.js:310:16)
+
+    console.error
+      [controller] QR rejected: Unsupported version: 99
+
+      241 |       // result.error never contains secret values (guaranteed by qr-contract.js)
+      242 |       const safeErr = result.error || "QR validation failed";
+    > 243 |       console.error("[controller] QR rejected:", safeErr);
+          |               ^
+      244 |       await _showMsg("error", `QR rejected: ${safeErr}`);
+      245 |       return;
+      246 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:243:15)
+      at Object.handleScan (tests/controller.test.js:324:16)
+
+    console.error
+      [controller] QR rejected: Unknown config kind: not_a_real_kind
+
+      241 |       // result.error never contains secret values (guaranteed by qr-contract.js)
+      242 |       const safeErr = result.error || "QR validation failed";
+    > 243 |       console.error("[controller] QR rejected:", safeErr);
+          |               ^
+      244 |       await _showMsg("error", `QR rejected: ${safeErr}`);
+      245 |       return;
+      246 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:243:15)
+      at Object.handleScan (tests/controller.test.js:330:16)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.error
+      [controller] QR received but admin token not loaded
+
+      231 |
+      232 |     if (!_adminToken) {
+    > 233 |       console.error("[controller] QR received but admin token not loaded");
+          |               ^
+      234 |       await _showMsg("error", "Configuration error: bootstrap token not installed");
+      235 |       return;
+      236 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:233:15)
+      at Object.handleScan (tests/controller.test.js:422:21)
+
+    console.error
+      [controller] QR rejected: Invalid admin token
+
+      241 |       // result.error never contains secret values (guaranteed by qr-contract.js)
+      242 |       const safeErr = result.error || "QR validation failed";
+    > 243 |       console.error("[controller] QR rejected:", safeErr);
+          |               ^
+      244 |       await _showMsg("error", `QR rejected: ${safeErr}`);
+      245 |       return;
+      246 |     }
+
+      at Object.error [as handleScan] (bootstrap/controller.js:243:15)
+      at Object.handleScan (tests/controller.test.js:430:16)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: cloud_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: wifi_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] QR accepted, kind: station_config
+
+      at Object.log [as handleScan] (bootstrap/controller.js:248:13)
+
+    console.log
+      [controller] status server on 127.0.0.1:13909
+
+      at Server.log (bootstrap/controller.js:315:15)
+
+  ● handleScan â€” invalid inputs › production rejected result is handled safely
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"kind": "error"}
+
+    Number of calls: 0
+
+      353 |       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      354 |       await ctrl.handleScan("VISIT:12345");
+    > 355 |       expect(display.showMessage).toHaveBeenCalledWith(
+          |                                   ^
+      356 |         expect.objectContaining({
+      357 |           kind: disposition === "duplicate" ? "info" : "error",
+      358 |         })
+
+      at toHaveBeenCalledWith (tests/controller.test.js:355:35)
+
+  ● handleScan â€” invalid inputs › production duplicate result is handled safely
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"kind": "info"}
+
+    Number of calls: 0
+
+      353 |       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      354 |       await ctrl.handleScan("VISIT:12345");
+    > 355 |       expect(display.showMessage).toHaveBeenCalledWith(
+          |                                   ^
+      356 |         expect.objectContaining({
+      357 |           kind: disposition === "duplicate" ? "info" : "error",
+      358 |         })
+
+      at toHaveBeenCalledWith (tests/controller.test.js:355:35)
+
+  ● handleScan â€” invalid inputs › production unavailable result is handled safely
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"kind": "error"}
+
+    Number of calls: 0
+
+      353 |       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      354 |       await ctrl.handleScan("VISIT:12345");
+    > 355 |       expect(display.showMessage).toHaveBeenCalledWith(
+          |                                   ^
+      356 |         expect.objectContaining({
+      357 |           kind: disposition === "duplicate" ? "info" : "error",
+      358 |         })
+
+      at toHaveBeenCalledWith (tests/controller.test.js:355:35)
+
+  ● handleScan â€” invalid inputs › production timeout, connection failure, and malformed response are unavailable
+
+    TypeError: Cannot read properties of undefined (reading '0')
+
+      368 |       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      369 |       await ctrl.handleScan("VISIT:12345");
+    > 370 |       const text = display.showMessage.mock.calls.at(-1)[0].text;
+          |                                                         ^
+      371 |       expect(text).toContain("unavailable");
+      372 |       expect(text).toContain("rescan");
+      373 |     }
+
+      at Object.<anonymous> (tests/controller.test.js:370:57)
+
+  ● handleScan â€” invalid inputs › production loopback request times out and prompts a rescan
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: ObjectContaining {"text": StringContaining "rescan"}
+
+    Number of calls: 0
+
+      383 |     });
+      384 |     await ctrl.handleScan("VISIT:12345");
+    > 385 |     expect(display.showMessage).toHaveBeenCalledWith(
+          |                                 ^
+      386 |       expect.objectContaining({
+      387 |         text: expect.stringContaining("rescan"),
+      388 |       })
+
+      at Object.toHaveBeenCalledWith (tests/controller.test.js:385:33)
+
+A worker process has failed to exit gracefully and has been force exited. This is likely caused by tests leaking due to improper teardown. Try running with --detectOpenHandles to find leaks. Active timers can also cause this, ensure that .unref() was called on them.
+Test Suites: 2 failed, 2 total
+Tests:       6 failed, 31 passed, 37 total
+Snapshots:   0 total
+Time:        2.523 s, estimated 3 s
+Ran all test suites matching /tests\\production-scan-server.test.js|tests\\controller.test.js/i.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
+
+Command exited with code 1

@@ -1,0 +1,14 @@
+﻿ M bootstrap/controller.js
+ M bootstrap/display-server.js
+ M bootstrap/lib/display-client.js
+ M bootstrap/public/app.js
+ M production/scan-server.js
+ M provision-scanner.ps1
+ M schemas/provisioning-result.schema.json
+ M tests/controller.test.js
+ M tests/installer-contract.test.js
+ M tests/production-scan-server.test.js
+?? installer-contract-failures.txt
+?? raw_test_output.txt
+?? slice1-scanner-status.txt
+?? test_results.txt

@@ -19,7 +19,15 @@
   "properties": {
     "mode": {
       "type": "string",
-      "enum": ["Install", "Verify", "Commission", "Repair", "InstallRelease", "RollbackRelease", "ValidateProductionCandidate"]
+      "enum": [
+        "Install",
+        "Verify",
+        "Commission",
+        "Repair",
+        "InstallRelease",
+        "RollbackRelease",
+        "ValidateProductionCandidate"
+      ]
     },
     "timestamp": { "type": "string", "format": "date-time" },
     "pi_host": { "type": "string" },

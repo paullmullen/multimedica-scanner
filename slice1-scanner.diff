@@ -1,0 +1,1037 @@
+﻿diff --git a/bootstrap/controller.js b/bootstrap/controller.js
+index 2b74a26..301732e 100644
+--- a/bootstrap/controller.js
++++ b/bootstrap/controller.js
+@@ -58,6 +58,9 @@ function createController(deps) {
+   const _forwardProductionScan =
+     (deps && deps.forwardProductionScan) ||
+     ((scan) => postProductionScan(scan, _productionScanUrl, _productionTimeoutMs));
++  let runtimeState = null;
++  let transientTimer = null;
++  let transientPriority = null;
+ 
+   // ---- admin token (opaque; never logged) ----
+   let _adminToken = null;
+@@ -78,6 +81,30 @@ function createController(deps) {
+     }
+   }
+ 
++  async function _applyRuntimeState(next) {
++    if (!next || typeof next !== "object" || !next.state_id) return false;
++    const priority = next.priority || "room";
++    const order = { commissioning: 4, feedback: 3, network: 2, closed: 1, room: 1 };
++    if (transientPriority && (order[priority] || 0) < (order[transientPriority] || 0)) return false;
++
++    if (next.kind === "room") {
++      runtimeState = next;
++      await _displayClient.showRuntimeState(next);
++      return true;
++    }
++
++    transientPriority = priority;
++    await _displayClient.showRuntimeState(next);
++    if (transientTimer) clearTimeout(transientTimer);
++    if (next.expires_in_ms) {
++      transientTimer = setTimeout(() => {
++        transientPriority = null;
++        if (runtimeState) _displayClient.showRuntimeState(runtimeState).catch(() => {});
++      }, next.expires_in_ms);
++    }
++    return true;
++  }
++
+   async function _pushState() {
+     try {
+       const cfg = _configStore.readConfig();
+@@ -166,23 +193,27 @@ function createController(deps) {
+     try {
+       response = await _forwardProductionScan(scan);
+     } catch {
+-      await _showMsg("error", "Production service unavailable. Please rescan.");
++      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+       return;
+     }
+ 
+-    if (!response || !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)) {
+-      await _showMsg("error", "Production service unavailable. Please rescan.");
++    if (
++      !response ||
++      !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)
++    ) {
++      await _applyRuntimeState({ kind: "overlay", state_id: `production-invalid-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+       return;
+     }
+ 
++    if (response.runtime_state) await _applyRuntimeState(response.runtime_state);
+     if (response.disposition === "unavailable") {
+-      await _showMsg("error", "Production service unavailable. Please rescan.");
++      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
+     } else if (response.disposition === "duplicate") {
+-      await _showMsg("info", "Scan already received.");
++      await _applyRuntimeState({ kind: "overlay", state_id: `scan-duplicate-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "info", title: "Duplicate scan", detail: "Scan already received." } });
+     } else if (response.disposition === "rejected") {
+-      await _showMsg("error", "Scan rejected. Please check the visit and rescan.");
++      await _applyRuntimeState({ kind: "overlay", state_id: `scan-rejected-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "error", title: "Scan rejected", detail: "Please check the visit and rescan." } });
+     } else {
+-      await _showMsg("success", "Scan accepted.");
++      await _applyRuntimeState({ kind: "overlay", state_id: `scan-accepted-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." } });
+     }
+   }
+ 
+@@ -246,6 +277,11 @@ function createController(deps) {
+     const app = express();
+     app.use(express.json({ limit: "64kb" }));
+ 
++    app.post("/api/runtime-state", async (req, res) => {
++      const applied = await _applyRuntimeState(req.body);
++      res.status(applied ? 200 : 400).json({ ok: applied });
++    });
++
+     app.get("/api/status", (req, res) => {
+       const cfg = _configStore.readConfig();
+       const sec = _secretsStore.readSecrets();
+@@ -296,7 +332,11 @@ function createController(deps) {
+   };
+ }
+ 
+-function postProductionScan(scan, urlString = PRODUCTION_SCAN_URL, timeoutMs = PRODUCTION_TIMEOUT_MS) {
++function postProductionScan(
++  scan,
++  urlString = PRODUCTION_SCAN_URL,
++  timeoutMs = PRODUCTION_TIMEOUT_MS
++) {
+   return new Promise((resolve, reject) => {
+     const payload = JSON.stringify(scan);
+     const target = new URL(urlString);
+@@ -323,7 +363,7 @@ function postProductionScan(scan, urlString = PRODUCTION_SCAN_URL, timeoutMs = P
+             resolve(null);
+           }
+         });
+-      },
++      }
+     );
+     request.setTimeout(timeoutMs, () => request.destroy(new Error("production timeout")));
+     request.on("error", reject);
+diff --git a/bootstrap/display-server.js b/bootstrap/display-server.js
+index cc67598..0d88f27 100644
+--- a/bootstrap/display-server.js
++++ b/bootstrap/display-server.js
+@@ -33,6 +33,7 @@ const INITIAL_STATE = Object.freeze({
+   missing_fields: [],
+   message: null,
+   identity: null,
++  runtime: null,
+   last_updated: null,
+ });
+ 
+@@ -69,6 +70,17 @@ function _safeIdentity(v) {
+   };
+ }
+ 
++function _safeRuntime(v) {
++  if (!v || typeof v !== "object" || typeof v.state_id !== "string") return null;
++  if (v.kind === "room" && v.display && typeof v.display === "object") {
++    return { kind: "room", state_id: v.state_id, display: v.display };
++  }
++  if (v.kind === "overlay" && v.overlay && typeof v.overlay === "object") {
++    return { kind: "overlay", state_id: v.state_id, overlay: _safeMessage({ kind: v.overlay.severity, text: v.overlay.detail || v.overlay.title }) };
++  }
++  return null;
++}
++
+ // ---------------------------------------------------------------------------
+ // Express app
+ // ---------------------------------------------------------------------------
+@@ -105,6 +117,7 @@ app.post("/api/state", (req, res) => {
+   if (body.missing !== undefined) _state.missing_fields = _safeArray(body.missing);
+   if (body.message !== undefined) _state.message = _safeMessage(body.message);
+   if (body.identity !== undefined) _state.identity = _safeIdentity(body.identity);
++  if (body.runtime !== undefined) _state.runtime = _safeRuntime(body.runtime);
+ 
+   _state.last_updated = new Date().toISOString();
+ 
+diff --git a/bootstrap/lib/display-client.js b/bootstrap/lib/display-client.js
+index 61a2320..47a3259 100644
+--- a/bootstrap/lib/display-client.js
++++ b/bootstrap/lib/display-client.js
+@@ -106,4 +106,12 @@ async function showIdentity(identity) {
+   }
+ }
+ 
+-module.exports = { updateState, showMessage, showIdentity };
++async function showRuntimeState(runtime) {
++  try {
++    await _post("/api/state", { runtime });
++  } catch (err) {
++    console.warn("[display-client] showRuntimeState failed:", err.message);
++  }
++}
++
++module.exports = { updateState, showMessage, showIdentity, showRuntimeState };
+diff --git a/bootstrap/public/app.js b/bootstrap/public/app.js
+index 724aaac..b4e9432 100644
+--- a/bootstrap/public/app.js
++++ b/bootstrap/public/app.js
+@@ -44,6 +44,7 @@
+     renderMessage(data.message);
+     renderMissing(data.missing_fields);
+     renderIdentity(data.identity);
++    renderRuntime(data.runtime);
+ 
+     var luEl = el("last-updated");
+     if (luEl && data.last_updated) {
+@@ -51,6 +52,22 @@
+     }
+   }
+ 
++  function renderRuntime(runtime) {
++    if (!runtime) return;
++    if (runtime.kind === "overlay" && runtime.overlay) {
++      renderMessage(runtime.overlay);
++      return;
++    }
++    if (runtime.kind === "room" && runtime.display) {
++      var status = runtime.display.status || {};
++      var room = runtime.display.room || {};
++      var station = runtime.display.station || {};
++      var stateEl = el("state-label");
++      stateEl.textContent = [room.label, station.label, status.label].filter(Boolean).join(" ┬╖ ");
++      stateEl.className = "state state-runtime";
++    }
++  }
++
+   function renderMessage(msg) {
+     var box = el("message-box");
+     if (!msg || !msg.text) {
+diff --git a/production/scan-server.js b/production/scan-server.js
+index 38cc9ad..a0eb00c 100644
+--- a/production/scan-server.js
++++ b/production/scan-server.js
+@@ -11,13 +11,17 @@ const express = require("express");
+ 
+ const CLOUD_TIMEOUT_MS = 8_000;
+ const PRODUCTION_PORT_DEFAULT = 3002;
++const CONTROLLER_RUNTIME_URL = "http://127.0.0.1:3000/api/runtime-state";
+ 
+ function createProductionScanServer(deps = {}) {
+   const configStore = deps.configStore || require("../bootstrap/lib/config-store");
+   const secretsStore = deps.secretsStore || require("../bootstrap/lib/secrets-store");
+   const cloudRequest = deps.cloudRequest || postToCloud;
++  const controllerStateRequest = deps.controllerStateRequest || postToController;
+   const logger = deps.logger || (() => {});
+   const port = Number(deps.port || process.env.PRODUCTION_PORT || PRODUCTION_PORT_DEFAULT);
++  const controllerRuntimeUrl = deps.controllerRuntimeUrl || CONTROLLER_RUNTIME_URL;
++  let pollTimer = null;
+ 
+   const app = express();
+   app.use(express.json({ limit: "64kb" }));
+@@ -27,10 +31,10 @@ function createProductionScanServer(deps = {}) {
+     const secrets = secretsStore.readSecrets() || {};
+     const ready = Boolean(
+       config.endpoint_url &&
+-        secrets.shared_secret &&
+-        config.room_id &&
+-        config.station_id &&
+-        config.device_id,
++      secrets.shared_secret &&
++      config.room_id &&
++      config.station_id &&
++      config.device_id
+     );
+     return { config, secrets, ready };
+   }
+@@ -61,8 +65,17 @@ function createProductionScanServer(deps = {}) {
+     }
+ 
+     try {
+-      const cloud = await cloudRequest(state.config.endpoint_url, req.body, state.secrets.shared_secret);
+-      return res.status(200).json(normalizeCloudResponse(cloud));
++      const cloud = await cloudRequest(
++        state.config.endpoint_url,
++        req.body,
++        state.secrets.shared_secret
++      );
++      const normalized = normalizeCloudResponse(cloud);
++      if (normalized.runtime_state) {
++        await controllerStateRequest(controllerRuntimeUrl, normalized.runtime_state);
++      }
++      schedulePolling(normalized.polling, state);
++      return res.status(200).json(normalized);
+     } catch (error) {
+       logger("[production] cloud forwarding unavailable");
+       return res.status(503).json(unavailable("cloud endpoint unavailable"));
+@@ -72,10 +85,39 @@ function createProductionScanServer(deps = {}) {
+   function start(onListening) {
+     return http.createServer(app).listen(port, "127.0.0.1", () => {
+       logger(`[production] scan API listening on 127.0.0.1:${port}`);
++      const state = runtime();
++      if (state.ready) syncNow(state);
+       if (onListening) onListening();
+     });
+   }
+ 
++  async function syncNow(state) {
++    try {
++      const syncUrl = state.config.endpoint_url.replace("receiveRoomScanEvent", "syncStationDisplayState");
++      const cloud = await cloudRequest(syncUrl, {
++        location_id: state.config.location_id || null,
++        room_id: state.config.room_id,
++        station_id: state.config.station_id,
++        device_id: state.config.device_id,
++      }, state.secrets.shared_secret);
++      const normalized = normalizeCloudResponse(cloud);
++      if (normalized.runtime_state) await controllerStateRequest(controllerRuntimeUrl, normalized.runtime_state);
++      schedulePolling(normalized.polling, state);
++    } catch {
++      await controllerStateRequest(controllerRuntimeUrl, unavailableRuntimeState());
++      schedulePolling({ should_poll: true, recommended_interval_ms: 30_000 }, state);
++    }
++  }
++
++  function schedulePolling(polling, state) {
++    if (pollTimer) clearTimeout(pollTimer);
++    if (!polling || polling.should_poll !== true) return;
++    const interval = Math.max(1_000, Math.min(30 * 60_000, Number(polling.recommended_interval_ms) || 30_000));
++    pollTimer = setTimeout(async () => {
++      await syncNow(state);
++    }, interval);
++  }
++
+   return { app, start, runtime };
+ }
+ 
+@@ -110,11 +152,20 @@ function normalizeCloudResponse(cloud) {
+       disposition: "duplicate",
+       duplicate: true,
+       reason: "event already processed",
++      runtime_state: normalizeRuntimeState(body.display || body.state),
++      polling: body.polling || null,
+     };
+   }
+ 
+   if (statusCode >= 200 && statusCode < 300 && body.ok !== false) {
+-    return { ok: true, disposition: "accepted", duplicate: false, reason: null };
++    return {
++      ok: true,
++      disposition: "accepted",
++      duplicate: false,
++      reason: null,
++      runtime_state: normalizeRuntimeState(body.display || body.state),
++      polling: body.polling || null,
++    };
+   }
+ 
+   return {
+@@ -122,11 +173,51 @@ function normalizeCloudResponse(cloud) {
+     disposition: "rejected",
+     duplicate: false,
+     reason: statusCode ? "cloud rejected scan" : "invalid cloud response",
++    runtime_state: normalizeRuntimeState(body.display || body.state),
++    polling: body.polling || null,
+   };
+ }
+ 
+ function unavailable(reason) {
+-  return { ok: false, disposition: "unavailable", duplicate: false, reason };
++  return { ok: false, disposition: "unavailable", duplicate: false, reason, runtime_state: unavailableRuntimeState(), polling: null };
++}
++
++function unavailableRuntimeState() {
++  return { kind: "overlay", state_id: `network-degraded-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Network unavailable", detail: "Please rescan shortly." } };
++}
++
++function normalizeRuntimeState(value) {
++  if (!value || typeof value !== "object") return null;
++  const source = value.mode === "closed" ? "closed" : "room";
++  const state = value.state && typeof value.state === "object" ? value.state : value;
++  if (!["room_status", "closed", "overlay"].includes(state.mode)) return null;
++  return {
++    kind: state.mode === "overlay" ? "overlay" : "room",
++    state_id: `cloud-${Date.now()}`,
++    priority: source,
++    expires_in_ms: state.mode === "overlay" ? 5_000 : null,
++    display: state.mode === "overlay" ? null : state,
++    overlay: state.mode === "overlay" ? state.overlay : null,
++  };
++}
++
++function postToController(urlString, state) {
++  return postJson(urlString, state);
++}
++
++function postJson(urlString, payload) {
++  return new Promise((resolve, reject) => {
++    const url = new URL(urlString);
++    const body = JSON.stringify(payload);
++    const request = http.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } }, (response) => {
++      response.resume();
++      resolve(response.statusCode);
++    });
++    request.setTimeout(3_000, () => request.destroy(new Error("controller timeout")));
++    request.on("error", reject);
++    request.write(body);
++    request.end();
++  });
+ }
+ 
+ function postToCloud(urlString, payload, sharedSecret) {
+@@ -168,7 +259,7 @@ function postToCloud(urlString, payload, sharedSecret) {
+           }
+           resolve({ statusCode: response.statusCode, body });
+         });
+-      },
++      }
+     );
+ 
+     request.setTimeout(CLOUD_TIMEOUT_MS, () => request.destroy(new Error("cloud timeout")));
+@@ -187,4 +278,5 @@ module.exports = {
+   createProductionScanServer,
+   normalizeCloudResponse,
+   validateScanRequest,
++  normalizeRuntimeState,
+ };
+diff --git a/provision-scanner.ps1 b/provision-scanner.ps1
+index b49e5af..b5fb80e 100644
+--- a/provision-scanner.ps1
++++ b/provision-scanner.ps1
+@@ -827,6 +827,29 @@ function Stop-ProductionCandidate {
+     $null = Invoke-Remote $label $command -AllowFail
+ }
+ 
++function Confirm-HardwareObservation {
++    param([string]$Prompt)
++    $answer = Read-Host "$Prompt Type yes to continue"
++    if ($answer -cne 'yes') { throw 'Hardware observation was not explicitly confirmed.' }
++}
++
++function Test-SyntheticRuntimeDisplay {
++    param([hashtable]$R)
++    $stateId = if ($env:MULTIMEDICA_TEST_SSH_EXE -and $env:MULTIMEDICA_TEST_STATE_ID) {
++        $env:MULTIMEDICA_TEST_STATE_ID
++    } else {
++        'candidate-display-' + [Guid]::NewGuid().ToString('N')
++    }
++    $payload = "{`"kind`":`"room`",`"state_id`":`"$stateId`",`"priority`":`"room`",`"display`":{`"mode`":`"room_status`",`"status`":{`"code`":`"available`",`"label`":`"CANDIDATE`"}}}"
++    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
++    $post = Invoke-RemoteCapture 'Posting synthetic candidate state through controller' "printf %s $encoded | base64 -d | curl -fsS -X POST http://127.0.0.1:3000/api/runtime-state -H 'Content-Type: application/json' --data-binary @-"
++    if ($post -notmatch '"ok"\s*:\s*true') { throw 'Controller rejected synthetic candidate display state.' }
++    $display = Invoke-RemoteCapture 'Verifying synthetic state on display endpoint' 'curl -fsS http://127.0.0.1:3001/api/state'
++    if ($display -notmatch [Regex]::Escape($stateId)) { throw 'Synthetic candidate display state was not visible through the display-state endpoint.' }
++    $R.warnings.Add("Slice 1 synthetic display state observed: $stateId")
++    Confirm-HardwareObservation -Prompt 'Confirm the physical display showed the CANDIDATE state.'
++}
++
+ function Invoke-ValidateProductionCandidate { param([hashtable]$R)
+     Ensure-ProvisioningResult -Result $R -Mode 'ValidateProductionCandidate' -PiHostValue $PiHost
+     Invoke-Verify -R $R | Out-Null
+@@ -851,19 +874,17 @@ function Invoke-ValidateProductionCandidate { param([hashtable]$R)
+         $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
+         Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
+         Test-EvtestControllerOwnership -R $R
++        Test-SyntheticRuntimeDisplay -R $R
+ 
+-        Write-Host 'Scan one real patient barcode now. Confirm the clinic workflow response, then press Enter.' -ForegroundColor Yellow
+-        Read-Host | Out-Null
++        Confirm-HardwareObservation -Prompt 'Scan one real patient barcode and confirm the clinic workflow response.'
+ 
+         Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid
+         $candidatePid = ''
+-        Write-Host 'Candidate stopped. Scan a test barcode and confirm the display says the production service is unavailable, then press Enter.' -ForegroundColor Yellow
+-        Read-Host | Out-Null
++        Confirm-HardwareObservation -Prompt 'Candidate stopped. Scan a test barcode and confirm production unavailable feedback.'
+ 
+         $candidatePid = Start-ProductionCandidate -CandidateDir $candidate
+         Wait-ProductionCandidateHealthy -R $R -CandidateDir $candidate
+-        Write-Host 'Disconnect and reconnect the USB scanner. Wait for recovery, then press Enter.' -ForegroundColor Yellow
+-        Read-Host | Out-Null
++        Confirm-HardwareObservation -Prompt 'Disconnect and reconnect the USB scanner, then confirm recovery.'
+         Test-EvtestControllerOwnership -R $R
+ 
+         $R.warnings.Add('Production candidate validated temporarily; it was not enabled or promoted.')
+diff --git a/schemas/provisioning-result.schema.json b/schemas/provisioning-result.schema.json
+index 5e30b9c..ac0bdb1 100644
+--- a/schemas/provisioning-result.schema.json
++++ b/schemas/provisioning-result.schema.json
+@@ -19,7 +19,15 @@
+   "properties": {
+     "mode": {
+       "type": "string",
+-      "enum": ["Install", "Verify", "Commission", "Repair", "InstallRelease", "RollbackRelease", "ValidateProductionCandidate"]
++      "enum": [
++        "Install",
++        "Verify",
++        "Commission",
++        "Repair",
++        "InstallRelease",
++        "RollbackRelease",
++        "ValidateProductionCandidate"
++      ]
+     },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "pi_host": { "type": "string" },
+diff --git a/tests/controller.test.js b/tests/controller.test.js
+index b416b59..80f25c8 100644
+--- a/tests/controller.test.js
++++ b/tests/controller.test.js
+@@ -56,6 +56,7 @@ function makeCtrl(tmpDir, extraDeps = {}) {
+     updateState: jest.fn().mockResolvedValue(undefined),
+     showMessage: jest.fn().mockResolvedValue(undefined),
+     showIdentity: jest.fn().mockResolvedValue(undefined),
++    showRuntimeState: jest.fn().mockResolvedValue(undefined),
+     _log: displayLog,
+   };
+ 
+@@ -285,7 +286,10 @@ describe("handleScan ├óΓé¼ΓÇ¥ show_identity", () => {
+ 
+ describe("handleScan ├óΓé¼ΓÇ¥ invalid inputs", () => {
+   test("controller has no direct cloud endpoint or bearer authorization path", () => {
+-    const source = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "controller.js"), "utf8");
++    const source = fs.readFileSync(
++      path.join(__dirname, "..", "bootstrap", "controller.js"),
++      "utf8"
++    );
+     expect(source).toContain("http://127.0.0.1:3002/api/scan");
+     expect(source).not.toMatch(/https:\/\//);
+     expect(source).not.toContain("Authorization: `Bearer");
+@@ -342,14 +346,17 @@ describe("handleScan ├óΓé¼ΓÇ¥ invalid inputs", () => {
+     expect(JSON.stringify(display.showMessage.mock.calls)).not.toContain("VISIT:12345");
+   });
+ 
+-  test.each(["rejected", "duplicate", "unavailable"])("production %s result is handled safely", async (disposition) => {
+-    const forwardProductionScan = jest.fn().mockResolvedValue({ disposition });
+-    const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+-    await ctrl.handleScan("VISIT:12345");
+-    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
+-      kind: disposition === "duplicate" ? "info" : "error",
+-    }));
+-  });
++  test.each(["rejected", "duplicate", "unavailable"])(
++    "production %s result is handled safely",
++    async (disposition) => {
++      const forwardProductionScan = jest.fn().mockResolvedValue({ disposition });
++      const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
++      await ctrl.handleScan("VISIT:12345");
++      expect(display.showRuntimeState).toHaveBeenCalledWith(
++        expect.objectContaining({ kind: "overlay" })
++      );
++    }
++  );
+ 
+   test("production timeout, connection failure, and malformed response are unavailable", async () => {
+     for (const forwardProductionScan of [
+@@ -358,9 +365,8 @@ describe("handleScan ├óΓé¼ΓÇ¥ invalid inputs", () => {
+     ]) {
+       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+       await ctrl.handleScan("VISIT:12345");
+-      const text = display.showMessage.mock.calls.at(-1)[0].text;
+-      expect(text).toContain("unavailable");
+-      expect(text).toContain("rescan");
++      const runtime = display.showRuntimeState.mock.calls.at(-1)[0];
++      expect(runtime.overlay.detail).toContain("rescan");
+     }
+   });
+ 
+@@ -373,21 +379,23 @@ describe("handleScan ├óΓé¼ΓÇ¥ invalid inputs", () => {
+       productionTimeoutMs: 20,
+     });
+     await ctrl.handleScan("VISIT:12345");
+-    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
+-      text: expect.stringContaining("rescan"),
+-    }));
++    expect(display.showRuntimeState).toHaveBeenCalledWith(
++      expect.objectContaining({ overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }) })
++    );
+     await new Promise((resolve) => production.close(resolve));
+   });
+ 
+   test("configuration QR never reaches production API", async () => {
+     const forwardProductionScan = jest.fn();
+     const { ctrl } = makeCtrl(tmpDir, { forwardProductionScan });
+-    await ctrl.handleScan(qr("station_config", {
+-      location_id: "loc1",
+-      room_id: "r1",
+-      station_id: "s1",
+-      device_id: "d1",
+-    }));
++    await ctrl.handleScan(
++      qr("station_config", {
++        location_id: "loc1",
++        room_id: "r1",
++        station_id: "s1",
++        device_id: "d1",
++      })
++    );
+     expect(forwardProductionScan).not.toHaveBeenCalled();
+   });
+ 
+@@ -424,6 +432,24 @@ describe("handleScan ├óΓé¼ΓÇ¥ invalid inputs", () => {
+   });
+ });
+ 
++describe("runtime display coordination", () => {
++  test("applies cloud room state and restores it after transient feedback expires", async () => {
++    jest.useFakeTimers();
++    const { ctrl, display } = makeCtrl(tmpDir, {
++      forwardProductionScan: jest.fn().mockResolvedValue({
++        disposition: "accepted",
++        runtime_state: { kind: "room", state_id: "cloud-1", priority: "room", display: { mode: "room_status", status: { code: "available" } } },
++      }),
++    });
++    await ctrl.handleScan("VISIT:12345");
++    expect(display.showRuntimeState).toHaveBeenCalledWith(expect.objectContaining({ state_id: "cloud-1" }));
++    await ctrl.handleScan("VISIT:12346");
++    jest.advanceTimersByTime(5_000);
++    expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({ state_id: "cloud-1" });
++    jest.useRealTimers();
++  });
++});
++
+ // ---------------------------------------------------------------------------
+ // Commissioning state progression and recovery
+ // ---------------------------------------------------------------------------
+diff --git a/tests/installer-contract.test.js b/tests/installer-contract.test.js
+index 47d4d3f..d8546e0 100644
+--- a/tests/installer-contract.test.js
++++ b/tests/installer-contract.test.js
+@@ -115,17 +115,17 @@ function runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode = 0 }) {
+   const sshScript = [
+     "@echo off",
+     "set args=%*",
+-    "echo %args% | findstr /C:\"/api/status\" >nul",
++    'echo %args% | findstr /C:"/api/status" >nul',
+     `if not errorlevel 1 (echo ${statusBody || ""}&exit /b ${statusExitCode})`,
+-    "echo %args% | findstr /C:\"is-active\" >nul",
++    'echo %args% | findstr /C:"is-active" >nul',
+     "if not errorlevel 1 exit /b 0",
+-    "echo %args% | findstr /C:\"/api/health\" >nul",
++    'echo %args% | findstr /C:"/api/health" >nul',
+     "if not errorlevel 1 exit /b 0",
+-    "echo %args% | findstr /C:\"chromium\" >nul",
++    'echo %args% | findstr /C:"chromium" >nul',
+     "if not errorlevel 1 exit /b 0",
+-    "echo %args% | findstr /C:\"/proc/bus/input\" >nul",
++    'echo %args% | findstr /C:"/proc/bus/input" >nul',
+     "if not errorlevel 1 exit /b 0",
+-    "echo %args% | findstr /C:\"pgrep\" >nul",
++    'echo %args% | findstr /C:"pgrep" >nul',
+     "if not errorlevel 1 exit /b 0",
+     "exit /b 0",
+   ].join("\r\n");
+@@ -135,7 +135,18 @@ function runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode = 0 }) {
+   const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
+   const result = spawnSync(
+     "powershell.exe",
+-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-Verify", "-PiHost", "fake@host", "-ResultFile", "result.json"],
++    [
++      "-NoProfile",
++      "-ExecutionPolicy",
++      "Bypass",
++      "-File",
++      scriptPath,
++      "-Verify",
++      "-PiHost",
++      "fake@host",
++      "-ResultFile",
++      "result.json",
++    ],
+     {
+       cwd,
+       env: {
+@@ -146,7 +157,7 @@ function runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode = 0 }) {
+         MULTIMEDICA_TEST_SCP_EXE: path.join(toolDir, "scp.cmd"),
+       },
+       encoding: "utf8",
+-    },
++    }
+   );
+   const output = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, "utf8")) : null;
+   rmTempDir(toolDir);
+@@ -154,7 +165,7 @@ function runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode = 0 }) {
+   return { result, output };
+ }
+ 
+-function runCandidateWithFakeSsh({ cwd, statusBody }) {
++function runCandidateWithFakeSsh({ cwd, statusBody, input = "yes\nyes\nyes\nyes\n" }) {
+   const toolDir = makeTempDir();
+   const homeDir = makeTempDir();
+   const sshDir = path.join(homeDir, ".ssh");
+@@ -163,42 +174,64 @@ function runCandidateWithFakeSsh({ cwd, statusBody }) {
+   const sshScript = [
+     "@echo off",
+     "set args=%*",
+-    "echo %args% | findstr /C:\"127.0.0.1:3000/api/status\" >nul",
++    'echo %args% | findstr /C:"127.0.0.1:3000/api/status" >nul',
+     `if not errorlevel 1 (echo ${statusBody}&exit /b 0)`,
+-    "echo %args% | findstr /C:\"multimedica-production.service\" >nul",
++    'echo %args% | findstr /C:"127.0.0.1:3000/api/runtime-state" >nul',
++    'if not errorlevel 1 (echo {"ok":true}&exit /b 0)',
++    'echo %args% | findstr /C:"127.0.0.1:3001/api/state" >nul',
++    'if not errorlevel 1 (echo {"runtime":{"state_id":"candidate-display-test"}}&exit /b 0)',
++    'echo %args% | findstr /C:"multimedica-production.service" >nul',
+     "if not errorlevel 1 exit /b 3",
+-    "echo %args% | findstr /C:\"127.0.0.1:3002/api/status\" >nul",
+-    "if not errorlevel 1 (echo {\"ok\":true,\"service\":\"multimedica-production\",\"state\":\"healthy\"}&exit /b 0)",
+-    "echo %args% | findstr /C:\"nohup\" >nul",
++    'echo %args% | findstr /C:"127.0.0.1:3002/api/status" >nul',
++    'if not errorlevel 1 (echo {"ok":true,"service":"multimedica-production","state":"healthy"}&exit /b 0)',
++    'echo %args% | findstr /C:"nohup" >nul',
+     "if not errorlevel 1 (echo 4242&exit /b 0)",
+-    "echo %args% | findstr /C:\"base64 -d | bash\" >nul",
++    'echo %args% | findstr /C:"base64 -d | bash" >nul',
+     "if not errorlevel 1 (echo MM_EVTEST_ALL=1&echo MM_EVTEST_CHILD=1&exit /b 0)",
++    'echo %args% | findstr /C:"pkill -f" >nul',
++    'if not errorlevel 1 (echo cleanup>>"%FAKE_CANDIDATE_LOG%"&exit /b 0)',
+     "exit /b 0",
+   ].join("\r\n");
+   fs.writeFileSync(path.join(toolDir, "ssh.cmd"), sshScript);
+   fs.writeFileSync(path.join(toolDir, "scp.cmd"), "@echo off\r\nexit /b 0\r\n");
+   const scriptPath = path.join(__dirname, "..", "provision-scanner.ps1");
++  const cleanupLog = path.join(toolDir, "cleanup.log");
+   const result = spawnSync(
+     "powershell.exe",
+-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-ValidateProductionCandidate", "-PiHost", "fake@host", "-ResultFile", "candidate-result.json"],
++    [
++      "-NoProfile",
++      "-ExecutionPolicy",
++      "Bypass",
++      "-File",
++      scriptPath,
++      "-ValidateProductionCandidate",
++      "-PiHost",
++      "fake@host",
++      "-ResultFile",
++      "candidate-result.json",
++    ],
+     {
+       cwd,
+-      input: "\n\n\n",
++      input,
+       env: {
+         ...process.env,
+         PATH: `${toolDir};${process.env.PATH}`,
+         USERPROFILE: homeDir,
+         MULTIMEDICA_TEST_SSH_EXE: path.join(toolDir, "ssh.cmd"),
+         MULTIMEDICA_TEST_SCP_EXE: path.join(toolDir, "scp.cmd"),
++        MULTIMEDICA_TEST_STATE_ID: "candidate-display-test",
++        FAKE_CANDIDATE_LOG: cleanupLog,
+       },
+       encoding: "utf8",
+-    },
++    }
+   );
+   const resultPath = path.join(cwd, "candidate-result.json");
+   const output = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, "utf8")) : null;
++  const cleanupObserved =
++    fs.existsSync(cleanupLog) && fs.readFileSync(cleanupLog, "utf8").includes("cleanup");
+   rmTempDir(toolDir);
+   rmTempDir(homeDir);
+-  return { result, output };
++  return { result, output, cleanupObserved };
+ }
+ 
+ // Standard mock display client
+@@ -593,38 +626,80 @@ describe("provisioning-result.schema.json", () => {
+ // ---------------------------------------------------------------------------
+ 
+ describe("Verify status result normalization", () => {
+-  const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+-    encoding: "utf8",
+-  }).status === 0;
++  const powershellAvailable =
++    spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
++      encoding: "utf8",
++    }).status === 0;
+ 
+   test.each([
+-    ["partial status without warnings", '{"commissioning_state":"bootstrap_installed"}', 0, false, null],
++    [
++      "partial status without warnings",
++      '{"commissioning_state":"bootstrap_installed"}',
++      0,
++      false,
++      null,
++    ],
+     ["malformed status", "not-json", 0, false, null],
+     ["controller unavailable", "", 7, false, null],
+-    ["non-Boolean completion field", '{"commissioning_state":"cloud_configured","configuration_complete":"true"}', 0, false, null],
+-    ["wifi last configuration state", '{"commissioning_state":"wifi_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+-    ["station last configuration state", '{"commissioning_state":"station_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+-    ["cloud last configuration state", '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, true, true],
+-    ["any state with incomplete configuration", '{"commissioning_state":"cloud_configured","configuration_complete":false,"commissioning_complete":false,"release_installed":false,"production_ready":false}', 0, false, false],
+-  ])("%s produces a schema-valid result without a strict-mode property error", (_name, statusBody, statusExitCode, configurationComplete, controllerConfigurationComplete) => {
+-    if (!powershellAvailable) return;
+-    const cwd = makeTempDir();
+-    try {
+-      const run = runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode });
+-      if (run.output === null) {
+-        throw new Error(run.result.stdout + run.result.stderr);
++    [
++      "non-Boolean completion field",
++      '{"commissioning_state":"cloud_configured","configuration_complete":"true"}',
++      0,
++      false,
++      null,
++    ],
++    [
++      "wifi last configuration state",
++      '{"commissioning_state":"wifi_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++      0,
++      true,
++      true,
++    ],
++    [
++      "station last configuration state",
++      '{"commissioning_state":"station_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++      0,
++      true,
++      true,
++    ],
++    [
++      "cloud last configuration state",
++      '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++      0,
++      true,
++      true,
++    ],
++    [
++      "any state with incomplete configuration",
++      '{"commissioning_state":"cloud_configured","configuration_complete":false,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++      0,
++      false,
++      false,
++    ],
++  ])(
++    "%s produces a schema-valid result without a strict-mode property error",
++    (_name, statusBody, statusExitCode, configurationComplete, controllerConfigurationComplete) => {
++      if (!powershellAvailable) return;
++      const cwd = makeTempDir();
++      try {
++        const run = runVerifyWithFakeSsh({ cwd, statusBody, statusExitCode });
++        if (run.output === null) {
++          throw new Error(run.result.stdout + run.result.stderr);
++        }
++        expect(run.result.stdout + run.result.stderr).not.toContain(
++          "property 'warnings' cannot be found"
++        );
++        expect(run.output.configuration_complete).toBe(configurationComplete);
++        expect(run.output.controller_configuration_complete).toBe(controllerConfigurationComplete);
++        expect(Array.isArray(run.output.warnings)).toBe(true);
++        expect(Array.isArray(run.output.errors)).toBe(true);
++        const validate = makeValidator().compile(loadSchema("provisioning-result.schema.json"));
++        expect(validate(run.output)).toBe(true);
++      } finally {
++        rmTempDir(cwd);
+       }
+-      expect(run.result.stdout + run.result.stderr).not.toContain("property 'warnings' cannot be found");
+-      expect(run.output.configuration_complete).toBe(configurationComplete);
+-      expect(run.output.controller_configuration_complete).toBe(controllerConfigurationComplete);
+-      expect(Array.isArray(run.output.warnings)).toBe(true);
+-      expect(Array.isArray(run.output.errors)).toBe(true);
+-      const validate = makeValidator().compile(loadSchema("provisioning-result.schema.json"));
+-      expect(validate(run.output)).toBe(true);
+-    } finally {
+-      rmTempDir(cwd);
+     }
+-  });
++  );
+ });
+ 
+ // ---------------------------------------------------------------------------
+@@ -633,16 +708,18 @@ describe("Verify status result normalization", () => {
+ 
+ describe("temporary production candidate validation", () => {
+   test("candidate parameter set retains the parsed completion Boolean through staging and result serialization", () => {
+-    const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
+-      encoding: "utf8",
+-    }).status === 0;
++    const powershellAvailable =
++      spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
++        encoding: "utf8",
++      }).status === 0;
+     if (!powershellAvailable) return;
+ 
+     const cwd = makeTempDir();
+     try {
+       const run = runCandidateWithFakeSsh({
+         cwd,
+-        statusBody: '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++        statusBody:
++          '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
+       });
+       if (run.output === null) throw new Error(run.result.stdout + run.result.stderr);
+       if (run.result.status !== 0) throw new Error(run.result.stdout + run.result.stderr);
+@@ -651,6 +728,27 @@ describe("temporary production candidate validation", () => {
+       expect(run.output.configuration_complete).toBe(run.output.controller_configuration_complete);
+       const validate = makeValidator().compile(loadSchema("provisioning-result.schema.json"));
+       expect(validate(run.output)).toBe(true);
++      expect(run.cleanupObserved).toBe(true);
++    } finally {
++      rmTempDir(cwd);
++    }
++  });
++
++  test.each(["\n", "Yes\n", "y\n", "anything\n"])("candidate observation input %j fails and cleans up", (input) => {
++    const powershellAvailable = spawnSync("powershell.exe", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"], {
++      encoding: "utf8",
++    }).status === 0;
++    if (!powershellAvailable) return;
++    const cwd = makeTempDir();
++    try {
++      const run = runCandidateWithFakeSsh({
++        cwd,
++        input,
++        statusBody: '{"commissioning_state":"cloud_configured","configuration_complete":true,"commissioning_complete":false,"release_installed":false,"production_ready":false}',
++      });
++      expect(run.result.status).not.toBe(0);
++      expect(run.result.stdout + run.result.stderr).toContain("Hardware observation was not explicitly confirmed.");
++      expect(run.cleanupObserved).toBe(true);
+     } finally {
+       rmTempDir(cwd);
+     }
+@@ -660,7 +758,9 @@ describe("temporary production candidate validation", () => {
+     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+     expect(source).toContain("ParameterSetName = 'ValidateProductionCandidate'");
+     expect(source).toContain("function Invoke-ValidateProductionCandidate");
+-    expect(source).toContain("'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }");
++    expect(source).toContain(
++      "'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }"
++    );
+     expect(source).toContain("Invoke-Verify -R $R | Out-Null");
+     expect(source).not.toContain("Invoke-Verify -Result $R");
+   });
+@@ -668,7 +768,9 @@ describe("temporary production candidate validation", () => {
+   test("uses only the parsed controller completion Boolean as its prerequisite", () => {
+     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+     expect(source).toContain("$R['controller_configuration_complete'] -ne $true");
+-    expect(source).not.toMatch(/configuration_complete.*cloud_configured|cloud_configured.*configuration_complete/);
++    expect(source).not.toMatch(
++      /configuration_complete.*cloud_configured|cloud_configured.*configuration_complete/
++    );
+   });
+ 
+   test("stages a temporary candidate, never enables production service, and cleans it up", () => {
+@@ -682,18 +784,22 @@ describe("temporary production candidate validation", () => {
+     expect(source).toContain('"$project\\bootstrap\\lib" "$candidate/bootstrap"');
+     expect(source).toContain('"$project\\schemas" $candidate');
+     expect(source).not.toContain('"$project\\production" "$candidate/production"');
+-    expect(source).toContain("Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid -RemoveFiles");
++    expect(source).toContain(
++      "Stop-ProductionCandidate -CandidateDir $candidate -CandidateProcessId $candidatePid -RemoveFiles"
++    );
+     expect(source).not.toMatch(/\$(?:pid)\b/i);
+   });
+ 
+   test("requires manual round-trip, unavailable, and reconnect checks with controller-only evtest ownership", () => {
+     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+-    expect(source).toContain("Scan one real patient barcode now");
++    expect(source).toContain("Scan one real patient barcode and confirm the clinic workflow response.");
+     expect(source).toContain("Candidate stopped. Scan a test barcode");
+     expect(source).toContain("Disconnect and reconnect the USB scanner");
+     expect(source).toContain("MM_EVTEST_ALL");
+     expect(source).toContain("MM_EVTEST_CHILD");
+     expect(source).toContain("Only multimedica-controller.service owns evtest");
++    expect(source).toContain("Type yes to continue");
++    expect(source).toContain("-cne 'yes'");
+   });
+ });
+ 
+diff --git a/tests/production-scan-server.test.js b/tests/production-scan-server.test.js
+index 8ed629c..cecdb90 100644
+--- a/tests/production-scan-server.test.js
++++ b/tests/production-scan-server.test.js
+@@ -1,10 +1,7 @@
+ "use strict";
+ 
+ const http = require("http");
+-const {
+-  createProductionScanServer,
+-  normalizeCloudResponse,
+-} = require("../production/scan-server");
++const { createProductionScanServer, normalizeCloudResponse } = require("../production/scan-server");
+ 
+ const fakeConfig = {
+   endpoint_url: "https://example.invalid/receiveRoomScanEvent",
+@@ -53,7 +50,7 @@ function request(server, method, path, body) {
+         let raw = "";
+         res.on("data", (chunk) => (raw += chunk));
+         res.on("end", () => resolve({ statusCode: res.statusCode, body: JSON.parse(raw) }));
+-      },
++      }
+     );
+     req.on("error", reject);
+     if (body) req.write(payload);
+@@ -61,11 +58,18 @@ function request(server, method, path, body) {
+   });
+ }
+ 
+-async function makeServer({ cloudRequest, config = fakeConfig, secrets = fakeSecrets, logger = () => {} } = {}) {
++async function makeServer({
++  cloudRequest,
++  controllerStateRequest = jest.fn().mockResolvedValue(200),
++  config = fakeConfig,
++  secrets = fakeSecrets,
++  logger = () => {},
++} = {}) {
+   const api = createProductionScanServer({
+     configStore: { readConfig: () => config },
+     secretsStore: { readSecrets: () => secrets },
+     cloudRequest,
++    controllerStateRequest,
+     logger,
+     port: 0,
+   });
+@@ -130,6 +134,7 @@ describe("production scan API", () => {
+   test("rejects malformed scan requests without forwarding", async () => {
+     const cloudRequest = jest.fn();
+     server = await makeServer({ cloudRequest });
++    cloudRequest.mockClear();
+     const response = await request(server, "POST", "/api/scan", { event_id: "x" });
+     expect(response.statusCode).toBe(200);
+     expect(response.body.disposition).toBe("rejected");
+@@ -139,4 +144,46 @@ describe("production scan API", () => {
+   test("normalization treats malformed cloud response as rejected", () => {
+     expect(normalizeCloudResponse(null)).toMatchObject({ disposition: "rejected" });
+   });
++
++  test("normalizes waiting, in-process, available, and closed cloud display states", () => {
++    for (const code of ["patient_waiting", "in_process", "available", "closed"]) {
++      const normalized = normalizeCloudResponse({
++        statusCode: 200,
++        body: { ok: true, state: { mode: code === "closed" ? "closed" : "room_status", status: { code } } },
++      });
++      expect(normalized.runtime_state).toMatchObject({ kind: "room" });
++      expect(normalized.runtime_state.state_id).toMatch(/^cloud-/);
++    }
++  });
++
++  test("boot sync delivers normalized state through controller loopback", async () => {
++    const controllerStateRequest = jest.fn().mockResolvedValue(200);
++    const cloudRequest = jest.fn().mockResolvedValue({
++      statusCode: 200,
++      body: {
++        ok: true,
++        state: { mode: "closed", status: { code: "closed", label: "CERRADO" } },
++        polling: { should_poll: true, recommended_interval_ms: 1_000 },
++      },
++    });
++    server = await makeServer({ cloudRequest, controllerStateRequest });
++    await new Promise((resolve) => setImmediate(resolve));
++    expect(controllerStateRequest).toHaveBeenCalledWith(
++      expect.any(String),
++      expect.objectContaining({ kind: "room", priority: "closed" })
++    );
++  });
++
++  test("network failure sends a degraded runtime overlay to the controller", async () => {
++    const controllerStateRequest = jest.fn().mockResolvedValue(200);
++    server = await makeServer({
++      cloudRequest: jest.fn().mockRejectedValue(new Error("network down")),
++      controllerStateRequest,
++    });
++    await new Promise((resolve) => setImmediate(resolve));
++    expect(controllerStateRequest).toHaveBeenCalledWith(
++      expect.any(String),
++      expect.objectContaining({ kind: "overlay", priority: "network" })
++    );
++  });
+ });

@@ -44,11 +44,43 @@
     renderMessage(data.message);
     renderMissing(data.missing_fields);
     renderIdentity(data.identity);
+    renderRuntime(data.runtime);
 
     var luEl = el("last-updated");
     if (luEl && data.last_updated) {
       luEl.textContent = "Updated " + new Date(data.last_updated).toLocaleTimeString();
     }
+  }
+
+  function renderRuntime(runtime) {
+    var operational = el("operational-panel");
+    var commissioning = el("status-card");
+    var identity = el("identity-panel");
+    if (!runtime) { operational.classList.add("hidden"); return; }
+    if (runtime.kind === "overlay" && runtime.overlay) {
+      if (!operational.classList.contains("hidden")) operational.classList.remove("hidden");
+      renderMessage(runtime.overlay);
+      return;
+    }
+    if (runtime.kind === "room" && runtime.display) {
+      commissioning.classList.add("hidden");
+      identity.classList.add("hidden");
+      operational.classList.remove("hidden");
+      var status = runtime.display.status || {}, room = runtime.display.room || {}, station = runtime.display.station || {}, patient = runtime.display.patient || {}, timing = runtime.display.timing || {};
+      el("operational-station").textContent = station.label || "—";
+      el("operational-status").textContent = runtime.display.mode === "closed" ? "CLÍNICA CERRADA" : (status.label || status.code || "—");
+      el("operational-status").className = "status-" + (status.code || "available");
+      el("operational-patient").textContent = patient.name || "—";
+      el("operational-room").textContent = room.label || "—";
+      el("operational-elapsed").textContent = timing.started_at ? elapsedText(timing.started_at) : "";
+    }
+  }
+
+  function elapsedText(startedAt) {
+    var ms = Date.now() - new Date(startedAt).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return "";
+    var minutes = Math.floor(ms / 60000);
+    return minutes + " min";
   }
 
   function renderMessage(msg) {

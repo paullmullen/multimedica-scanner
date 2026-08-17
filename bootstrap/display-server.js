@@ -33,6 +33,7 @@ const INITIAL_STATE = Object.freeze({
   missing_fields: [],
   message: null,
   identity: null,
+  runtime: null,
   last_updated: null,
 });
 
@@ -68,6 +69,25 @@ function _safeIdentity(v) {
     device_id: _safeString(v.device_id),
   };
 }
+
+function _safeRuntime(v) {
+  if (!v || typeof v !== "object" || !_safeBounded(v.state_id, 128)) return null;
+  if (v.kind === "room" && v.display && typeof v.display === "object") {
+    const display = v.display;
+    const status = display.status || {};
+    if (!["room_status", "closed"].includes(display.mode) || !["available", "vacant", "patient_waiting", "in_process", "unavailable", "closed"].includes(status.code)) return null;
+    return { kind: "room", state_id: v.state_id, display: { mode: display.mode, room: _safePair(display.room), station: _safePair(display.station), status: { code: status.code, label: _safeBounded(status.label) || status.code }, patient: display.patient && _safeBounded(display.patient.name) ? { name: display.patient.name } : null, timing: display.timing && _safeBounded(display.timing.started_at) ? { started_at: display.timing.started_at } : null, updated_at: typeof display.updated_at === "number" ? display.updated_at : Date.now() } };
+  }
+  if (v.kind === "overlay" && v.overlay && typeof v.overlay === "object") {
+    if (!["feedback", "network"].includes(v.priority) || !Number.isInteger(v.expires_in_ms) || v.expires_in_ms < 1000 || v.expires_in_ms > 60000) return null;
+    if (!["success", "info", "warning", "error"].includes(v.overlay.severity) || !_safeBounded(v.overlay.title) || !_safeBounded(v.overlay.detail)) return null;
+    return { kind: "overlay", state_id: v.state_id, overlay: { severity: v.overlay.severity, title: v.overlay.title, detail: v.overlay.detail } };
+  }
+  return null;
+}
+
+function _safeBounded(v, max = 128) { return typeof v === "string" && v.length > 0 && v.length <= max ? v : null; }
+function _safePair(v) { return v && typeof v === "object" ? { id: _safeBounded(v.id), label: _safeBounded(v.label) } : null; }
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -105,6 +125,7 @@ app.post("/api/state", (req, res) => {
   if (body.missing !== undefined) _state.missing_fields = _safeArray(body.missing);
   if (body.message !== undefined) _state.message = _safeMessage(body.message);
   if (body.identity !== undefined) _state.identity = _safeIdentity(body.identity);
+  if (body.runtime !== undefined) _state.runtime = _safeRuntime(body.runtime);
 
   _state.last_updated = new Date().toISOString();
 

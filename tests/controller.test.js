@@ -25,6 +25,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const http = require("http");
+const { once } = require("events");
 
 const { createController } = require("../bootstrap/controller");
 const configStore = require("../bootstrap/lib/config-store");
@@ -56,6 +57,7 @@ function makeCtrl(tmpDir, extraDeps = {}) {
     updateState: jest.fn().mockResolvedValue(undefined),
     showMessage: jest.fn().mockResolvedValue(undefined),
     showIdentity: jest.fn().mockResolvedValue(undefined),
+    showRuntimeState: jest.fn().mockResolvedValue(undefined),
     _log: displayLog,
   };
 
@@ -74,6 +76,37 @@ function makeCtrl(tmpDir, extraDeps = {}) {
 function qr(kind, payload, token = TEST_TOKEN) {
   const obj = { kind, version: 1, payload, auth: { admin_token: token } };
   return "MMCFG:" + JSON.stringify(obj);
+}
+
+async function startTestStatusServer(ctrl) {
+  const previousPort = process.env.CONTROLLER_PORT;
+  process.env.CONTROLLER_PORT = "0";
+  try {
+    const server = ctrl.startStatusServer();
+    await once(server, "listening");
+    return server;
+  } finally {
+    if (previousPort === undefined) delete process.env.CONTROLLER_PORT;
+    else process.env.CONTROLLER_PORT = previousPort;
+  }
+}
+
+async function closeTestServer(server) {
+  if (!server || !server.listening) return;
+  await new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function getTestJson(server, pathname) {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address();
+    http.get(`http://127.0.0.1:${port}${pathname}`, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => resolve(JSON.parse(body)));
+    }).on("error", reject);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +318,10 @@ describe("handleScan â€” show_identity", () => {
 
 describe("handleScan â€” invalid inputs", () => {
   test("controller has no direct cloud endpoint or bearer authorization path", () => {
-    const source = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "controller.js"), "utf8");
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "controller.js"),
+      "utf8"
+    );
     expect(source).toContain("http://127.0.0.1:3002/api/scan");
     expect(source).not.toMatch(/https:\/\//);
     expect(source).not.toContain("Authorization: `Bearer");
@@ -342,14 +378,17 @@ describe("handleScan â€” invalid inputs", () => {
     expect(JSON.stringify(display.showMessage.mock.calls)).not.toContain("VISIT:12345");
   });
 
-  test.each(["rejected", "duplicate", "unavailable"])("production %s result is handled safely", async (disposition) => {
-    const forwardProductionScan = jest.fn().mockResolvedValue({ disposition });
-    const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
-    await ctrl.handleScan("VISIT:12345");
-    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
-      kind: disposition === "duplicate" ? "info" : "error",
-    }));
-  });
+  test.each(["rejected", "duplicate", "unavailable"])(
+    "production %s result is handled safely",
+    async (disposition) => {
+      const forwardProductionScan = jest.fn().mockResolvedValue({ disposition });
+      const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
+      await ctrl.handleScan("VISIT:12345");
+      expect(display.showRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "overlay" })
+      );
+    }
+  );
 
   test("production timeout, connection failure, and malformed response are unavailable", async () => {
     for (const forwardProductionScan of [
@@ -358,9 +397,8 @@ describe("handleScan â€” invalid inputs", () => {
     ]) {
       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
       await ctrl.handleScan("VISIT:12345");
-      const text = display.showMessage.mock.calls.at(-1)[0].text;
-      expect(text).toContain("unavailable");
-      expect(text).toContain("rescan");
+      const runtime = display.showRuntimeState.mock.calls.at(-1)[0];
+      expect(runtime.overlay.detail).toContain("rescan");
     }
   });
 
@@ -373,21 +411,23 @@ describe("handleScan â€” invalid inputs", () => {
       productionTimeoutMs: 20,
     });
     await ctrl.handleScan("VISIT:12345");
-    expect(display.showMessage).toHaveBeenCalledWith(expect.objectContaining({
-      text: expect.stringContaining("rescan"),
-    }));
+    expect(display.showRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({ overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }) })
+    );
     await new Promise((resolve) => production.close(resolve));
   });
 
   test("configuration QR never reaches production API", async () => {
     const forwardProductionScan = jest.fn();
     const { ctrl } = makeCtrl(tmpDir, { forwardProductionScan });
-    await ctrl.handleScan(qr("station_config", {
-      location_id: "loc1",
-      room_id: "r1",
-      station_id: "s1",
-      device_id: "d1",
-    }));
+    await ctrl.handleScan(
+      qr("station_config", {
+        location_id: "loc1",
+        room_id: "r1",
+        station_id: "s1",
+        device_id: "d1",
+      })
+    );
     expect(forwardProductionScan).not.toHaveBeenCalled();
   });
 
@@ -420,6 +460,62 @@ describe("handleScan â€” invalid inputs", () => {
       const text = (call[0] && call[0].text) || "";
       expect(text).not.toContain(TEST_TOKEN);
       expect(text).not.toContain("wrong-token");
+    }
+  });
+});
+
+describe("runtime display coordination", () => {
+  test("applies cloud room state and restores it after transient feedback expires", async () => {
+    jest.useFakeTimers();
+    const { ctrl, display } = makeCtrl(tmpDir, {
+      forwardProductionScan: jest.fn().mockResolvedValue({
+        disposition: "accepted",
+        runtime_state: { kind: "room", state_id: "cloud-1", priority: "room", display: { mode: "room_status", status: { code: "available" } } },
+      }),
+    });
+    await ctrl.handleScan("VISIT:12345");
+    expect(display.showRuntimeState).toHaveBeenCalledWith(expect.objectContaining({ state_id: "cloud-1" }));
+    await ctrl.handleScan("VISIT:12346");
+    jest.advanceTimersByTime(5_000);
+    expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({ state_id: "cloud-1" });
+    jest.useRealTimers();
+  });
+
+  test("newer room state replaces saved room while feedback overlay remains visible", async () => {
+    jest.useFakeTimers();
+    const { ctrl, display } = makeCtrl(tmpDir);
+    const server = await startTestStatusServer(ctrl);
+    const address = server.address();
+    const post = (body) => new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const request = http.request({ hostname: "127.0.0.1", port: address.port, path: "/api/runtime-state", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, (response) => { response.resume(); response.on("end", () => resolve(response.statusCode)); });
+      request.on("error", reject); request.write(payload); request.end();
+    });
+    const room = (id) => ({ kind: "room", state_id: id, priority: "room", display: { mode: "room_status", room: null, station: null, status: { code: "available", label: "AVAILABLE" }, patient: null, timing: null, updated_at: 1 } });
+    try {
+      await post(room("room-1"));
+      await ctrl.handleScan("VISIT:12345");
+      await post({ kind: "overlay", state_id: "feedback-1", priority: "feedback", expires_in_ms: 5000, overlay: { severity: "success", title: "Accepted", detail: "Accepted" } });
+      await post(room("room-2"));
+      jest.advanceTimersByTime(5000);
+      expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({ state_id: "room-2" });
+    } finally {
+      await closeTestServer(server);
+      jest.useRealTimers();
+    }
+  });
+
+  test("runtime endpoint rejects malformed and strips unknown room properties", async () => {
+    const { ctrl, display } = makeCtrl(tmpDir);
+    const server = await startTestStatusServer(ctrl);
+    const address = server.address();
+    const post = (body) => new Promise((resolve, reject) => { const payload = JSON.stringify(body); const request = http.request({ hostname: "127.0.0.1", port: address.port, path: "/api/runtime-state", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, (response) => { response.resume(); response.on("end", () => resolve(response.statusCode)); }); request.on("error", reject); request.write(payload); request.end(); });
+    try {
+      expect(await post({ kind: "room", state_id: "bad", display: { mode: "room_status", status: { code: "not-allowed" } } })).toBe(400);
+      expect(await post({ kind: "room", state_id: "good", display: { mode: "room_status", status: { code: "available", label: "OK" }, unknown: "discard" } })).toBe(200);
+      expect(display.showRuntimeState.mock.calls.at(-1)[0].display).not.toHaveProperty("unknown");
+    } finally {
+      await closeTestServer(server);
     }
   });
 });
@@ -489,21 +585,11 @@ describe("getCommissioningState", () => {
 // ---------------------------------------------------------------------------
 
 describe("startStatusServer", () => {
-  let server;
-  const TEST_PORT = 13900 + Math.floor(Math.random() * 100);
-
   beforeEach(() => {
-    process.env.CONTROLLER_PORT = String(TEST_PORT);
     process.env.MULTIMEDICA_STATE_DIR = tmpDir;
   });
 
-  afterEach((done) => {
-    delete process.env.CONTROLLER_PORT;
-    if (server) server.close(done);
-    else done();
-  });
-
-  test("/api/status returns ok and commissioning fields; no secrets", (done) => {
+  test("/api/status returns ok and commissioning fields; no secrets", async () => {
     secretsStore.writeSecrets(
       { qr_admin_token: TEST_TOKEN, shared_secret: "must-not-appear" },
       tmpDir
@@ -522,28 +608,19 @@ describe("startStatusServer", () => {
       applyWifi: null,
     });
     ctrl.loadAdminToken();
-    server = ctrl.startStatusServer();
-
-    setTimeout(() => {
-      http
-        .get(`http://127.0.0.1:${TEST_PORT}/api/status`, (res) => {
-          let body = "";
-          res.on("data", (d) => (body += d));
-          res.on("end", () => {
-            const data = JSON.parse(body);
-            expect(data.ok).toBe(true);
-            expect(data.service).toBe("multimedica-controller");
-            expect(data.config.station_id).toBe("s1");
-            expect(data.config.endpoint_url).toBe("https://x.invalid/fn");
-            // Secrets must not appear
-            expect(JSON.stringify(data)).not.toContain("must-not-appear");
-            expect(JSON.stringify(data)).not.toContain(TEST_TOKEN);
-            expect(data.config).not.toHaveProperty("shared_secret");
-            expect(data.config).not.toHaveProperty("qr_admin_token");
-            done();
-          });
-        })
-        .on("error", done);
-    }, 200);
+    const server = await startTestStatusServer(ctrl);
+    try {
+      const data = await getTestJson(server, "/api/status");
+      expect(data.ok).toBe(true);
+      expect(data.service).toBe("multimedica-controller");
+      expect(data.config.station_id).toBe("s1");
+      expect(data.config.endpoint_url).toBe("https://x.invalid/fn");
+      expect(JSON.stringify(data)).not.toContain("must-not-appear");
+      expect(JSON.stringify(data)).not.toContain(TEST_TOKEN);
+      expect(data.config).not.toHaveProperty("shared_secret");
+      expect(data.config).not.toHaveProperty("qr_admin_token");
+    } finally {
+      await closeTestServer(server);
+    }
   });
 });

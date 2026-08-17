@@ -58,6 +58,9 @@ function createController(deps) {
   const _forwardProductionScan =
     (deps && deps.forwardProductionScan) ||
     ((scan) => postProductionScan(scan, _productionScanUrl, _productionTimeoutMs));
+  let runtimeState = null;
+  let transientTimer = null;
+  let transientPriority = null;
 
   // ---- admin token (opaque; never logged) ----
   let _adminToken = null;
@@ -76,6 +79,33 @@ function createController(deps) {
     } catch {
       /* non-fatal */
     }
+  }
+
+  async function _applyRuntimeState(next) {
+    const safe = _sanitizeRuntimeEnvelope(next);
+    if (!safe) return false;
+    const priority = safe.priority;
+    const order = { commissioning: 4, feedback: 3, network: 2, closed: 1, room: 1 };
+
+    if (safe.kind === "room") {
+      runtimeState = safe;
+      if (!transientPriority) await _displayClient.showRuntimeState(safe);
+      return true;
+    }
+
+    if (transientPriority && (order[priority] || 0) < (order[transientPriority] || 0)) return false;
+
+    transientPriority = priority;
+    await _displayClient.showRuntimeState(safe);
+    if (transientTimer) clearTimeout(transientTimer);
+    if (safe.expires_in_ms) {
+      transientTimer = setTimeout(() => {
+        transientTimer = null;
+        transientPriority = null;
+        if (runtimeState) _displayClient.showRuntimeState(runtimeState).catch(() => {});
+      }, safe.expires_in_ms);
+    }
+    return true;
   }
 
   async function _pushState() {
@@ -166,23 +196,27 @@ function createController(deps) {
     try {
       response = await _forwardProductionScan(scan);
     } catch {
-      await _showMsg("error", "Production service unavailable. Please rescan.");
+      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
       return;
     }
 
-    if (!response || !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)) {
-      await _showMsg("error", "Production service unavailable. Please rescan.");
+    if (
+      !response ||
+      !["accepted", "rejected", "duplicate", "unavailable"].includes(response.disposition)
+    ) {
+      await _applyRuntimeState({ kind: "overlay", state_id: `production-invalid-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
       return;
     }
 
+    if (response.runtime_state) await _applyRuntimeState(response.runtime_state);
     if (response.disposition === "unavailable") {
-      await _showMsg("error", "Production service unavailable. Please rescan.");
+      await _applyRuntimeState({ kind: "overlay", state_id: `production-unavailable-${Date.now()}`, priority: "network", expires_in_ms: 10_000, overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." } });
     } else if (response.disposition === "duplicate") {
-      await _showMsg("info", "Scan already received.");
+      await _applyRuntimeState({ kind: "overlay", state_id: `scan-duplicate-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "info", title: "Duplicate scan", detail: "Scan already received." } });
     } else if (response.disposition === "rejected") {
-      await _showMsg("error", "Scan rejected. Please check the visit and rescan.");
+      await _applyRuntimeState({ kind: "overlay", state_id: `scan-rejected-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "error", title: "Scan rejected", detail: "Please check the visit and rescan." } });
     } else {
-      await _showMsg("success", "Scan accepted.");
+      await _applyRuntimeState({ kind: "overlay", state_id: `scan-accepted-${Date.now()}`, priority: "feedback", expires_in_ms: 5_000, overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." } });
     }
   }
 
@@ -246,6 +280,11 @@ function createController(deps) {
     const app = express();
     app.use(express.json({ limit: "64kb" }));
 
+    app.post("/api/runtime-state", async (req, res) => {
+      const applied = await _applyRuntimeState(req.body);
+      res.status(applied ? 200 : 400).json({ ok: applied });
+    });
+
     app.get("/api/status", (req, res) => {
       const cfg = _configStore.readConfig();
       const sec = _secretsStore.readSecrets();
@@ -296,7 +335,51 @@ function createController(deps) {
   };
 }
 
-function postProductionScan(scan, urlString = PRODUCTION_SCAN_URL, timeoutMs = PRODUCTION_TIMEOUT_MS) {
+function _boundedString(value, max = 128) {
+  return typeof value === "string" && value.length > 0 && value.length <= max ? value : null;
+}
+
+function _sanitizeRuntimeEnvelope(value) {
+  if (!value || typeof value !== "object") return null;
+  const stateId = _boundedString(value.state_id, 128);
+  if (!stateId) return null;
+  if (value.kind === "room") {
+    const display = value.display;
+    if (!display || typeof display !== "object" || !["room_status", "closed"].includes(display.mode)) return null;
+    const status = display.status;
+    const allowed = ["available", "vacant", "patient_waiting", "in_process", "unavailable", "closed"];
+    if (!status || !allowed.includes(status.code)) return null;
+    const priority = display.mode === "closed" ? "closed" : "room";
+    return {
+      kind: "room", state_id: stateId, priority,
+      display: {
+        mode: display.mode,
+        room: display.room && typeof display.room === "object" ? { id: _boundedString(display.room.id), label: _boundedString(display.room.label) } : null,
+        station: display.station && typeof display.station === "object" ? { id: _boundedString(display.station.id), label: _boundedString(display.station.label) } : null,
+        status: { code: status.code, label: _boundedString(status.label) || status.code },
+        patient: display.patient && typeof display.patient === "object" ? { name: _boundedString(display.patient.name) } : null,
+        timing: display.timing && typeof display.timing === "object" ? { started_at: _boundedString(display.timing.started_at) } : null,
+        updated_at: typeof display.updated_at === "number" ? display.updated_at : Date.now(),
+      },
+    };
+  }
+  if (value.kind === "overlay") {
+    if (!["feedback", "network"].includes(value.priority) || !Number.isInteger(value.expires_in_ms) || value.expires_in_ms < 1000 || value.expires_in_ms > 60000) return null;
+    const overlay = value.overlay;
+    if (!overlay || !["success", "info", "warning", "error"].includes(overlay.severity)) return null;
+    const title = _boundedString(overlay.title);
+    const detail = _boundedString(overlay.detail);
+    if (!title || !detail) return null;
+    return { kind: "overlay", state_id: stateId, priority: value.priority, expires_in_ms: value.expires_in_ms, overlay: { severity: overlay.severity, title, detail } };
+  }
+  return null;
+}
+
+function postProductionScan(
+  scan,
+  urlString = PRODUCTION_SCAN_URL,
+  timeoutMs = PRODUCTION_TIMEOUT_MS
+) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(scan);
     const target = new URL(urlString);
@@ -323,7 +406,7 @@ function postProductionScan(scan, urlString = PRODUCTION_SCAN_URL, timeoutMs = P
             resolve(null);
           }
         });
-      },
+      }
     );
     request.setTimeout(timeoutMs, () => request.destroy(new Error("production timeout")));
     request.on("error", reject);

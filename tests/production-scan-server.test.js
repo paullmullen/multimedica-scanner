@@ -1,10 +1,7 @@
 "use strict";
 
 const http = require("http");
-const {
-  createProductionScanServer,
-  normalizeCloudResponse,
-} = require("../production/scan-server");
+const { createProductionScanServer, normalizeCloudResponse } = require("../production/scan-server");
 
 const fakeConfig = {
   endpoint_url: "https://example.invalid/receiveRoomScanEvent",
@@ -53,7 +50,7 @@ function request(server, method, path, body) {
         let raw = "";
         res.on("data", (chunk) => (raw += chunk));
         res.on("end", () => resolve({ statusCode: res.statusCode, body: JSON.parse(raw) }));
-      },
+      }
     );
     req.on("error", reject);
     if (body) req.write(payload);
@@ -61,11 +58,18 @@ function request(server, method, path, body) {
   });
 }
 
-async function makeServer({ cloudRequest, config = fakeConfig, secrets = fakeSecrets, logger = () => {} } = {}) {
+async function makeServer({
+  cloudRequest,
+  controllerStateRequest = jest.fn().mockResolvedValue(200),
+  config = fakeConfig,
+  secrets = fakeSecrets,
+  logger = () => {},
+} = {}) {
   const api = createProductionScanServer({
     configStore: { readConfig: () => config },
     secretsStore: { readSecrets: () => secrets },
     cloudRequest,
+    controllerStateRequest,
     logger,
     port: 0,
   });
@@ -130,6 +134,7 @@ describe("production scan API", () => {
   test("rejects malformed scan requests without forwarding", async () => {
     const cloudRequest = jest.fn();
     server = await makeServer({ cloudRequest });
+    cloudRequest.mockClear();
     const response = await request(server, "POST", "/api/scan", { event_id: "x" });
     expect(response.statusCode).toBe(200);
     expect(response.body.disposition).toBe("rejected");
@@ -138,5 +143,89 @@ describe("production scan API", () => {
 
   test("normalization treats malformed cloud response as rejected", () => {
     expect(normalizeCloudResponse(null)).toMatchObject({ disposition: "rejected" });
+  });
+
+  test("normalizes waiting, in-process, available, and closed cloud display states", () => {
+    for (const code of ["patient_waiting", "in_process", "available", "closed"]) {
+      const normalized = normalizeCloudResponse({
+        statusCode: 200,
+        body: { ok: true, state: { mode: code === "closed" ? "closed" : "room_status", status: { code } } },
+      });
+      expect(normalized.runtime_state).toMatchObject({ kind: "room" });
+      expect(normalized.runtime_state.state_id).toMatch(/^cloud-/);
+    }
+  });
+
+  test("wrapped closed state is a closed-priority room state", () => {
+    const normalized = normalizeCloudResponse({
+      statusCode: 200,
+      body: { ok: true, state: { state: { mode: "closed", status: { code: "closed" } } } },
+    });
+    expect(normalized.runtime_state).toMatchObject({ kind: "room", priority: "closed" });
+  });
+
+  test("scan response does not duplicate-deliver its runtime state to controller", async () => {
+    const controllerStateRequest = jest.fn().mockResolvedValue(200);
+    const cloudRequest = jest.fn()
+      .mockResolvedValueOnce({ statusCode: 200, body: { ok: true, state: { mode: "room_status", status: { code: "available" } } } })
+      .mockResolvedValueOnce({ statusCode: 200, body: { ok: true } });
+    server = await makeServer({ cloudRequest, controllerStateRequest });
+    await new Promise((resolve) => setImmediate(resolve));
+    controllerStateRequest.mockClear();
+    await request(server, "POST", "/api/scan", scan());
+    expect(controllerStateRequest).not.toHaveBeenCalled();
+  });
+
+  test("polling rereads changed config and shared secret", async () => {
+    jest.useFakeTimers();
+    let currentConfig = { ...fakeConfig };
+    let currentSecrets = { ...fakeSecrets };
+    const cloudRequest = jest.fn().mockResolvedValue({ statusCode: 200, body: { ok: true, polling: { should_poll: true, recommended_interval_ms: 1000 } } });
+    const api = createProductionScanServer({
+      configStore: { readConfig: () => currentConfig },
+      secretsStore: { readSecrets: () => currentSecrets },
+      cloudRequest,
+      controllerStateRequest: jest.fn().mockResolvedValue(200),
+      port: 0,
+    });
+    server = await new Promise((resolve) => { const item = api.start(() => resolve(item)); });
+    await Promise.resolve();
+    currentConfig = { ...currentConfig, endpoint_url: "https://new.invalid/receiveRoomScanEvent" };
+    currentSecrets = { shared_secret: "new-fake-secret" };
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    expect(cloudRequest.mock.calls.at(-1)).toEqual(expect.arrayContaining(["https://new.invalid/syncStationDisplayState", expect.any(Object), "new-fake-secret"]));
+    jest.useRealTimers();
+  });
+
+  test("boot sync delivers normalized state through controller loopback", async () => {
+    const controllerStateRequest = jest.fn().mockResolvedValue(200);
+    const cloudRequest = jest.fn().mockResolvedValue({
+      statusCode: 200,
+      body: {
+        ok: true,
+        state: { mode: "closed", status: { code: "closed", label: "CERRADO" } },
+        polling: { should_poll: true, recommended_interval_ms: 1_000 },
+      },
+    });
+    server = await makeServer({ cloudRequest, controllerStateRequest });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(controllerStateRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ kind: "room", priority: "closed" })
+    );
+  });
+
+  test("network failure sends a degraded runtime overlay to the controller", async () => {
+    const controllerStateRequest = jest.fn().mockResolvedValue(200);
+    server = await makeServer({
+      cloudRequest: jest.fn().mockRejectedValue(new Error("network down")),
+      controllerStateRequest,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(controllerStateRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ kind: "overlay", priority: "network" })
+    );
   });
 });

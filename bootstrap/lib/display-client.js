@@ -106,4 +106,12 @@ async function showIdentity(identity) {
   }
 }
 
-module.exports = { updateState, showMessage, showIdentity };
+async function showRuntimeState(runtime) {
+  try {
+    await _post("/api/state", { runtime });
+  } catch (err) {
+    console.warn("[display-client] showRuntimeState failed:", err.message);
+  }
+}
+
+module.exports = { updateState, showMessage, showIdentity, showRuntimeState };
