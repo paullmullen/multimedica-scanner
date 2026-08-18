@@ -327,9 +327,13 @@ function createReleaseManager(deps = {}) {
   }
 
   async function reconcilePromotion(transaction) {
-    const preSwitch = transaction.stage === "promotion_started" || transaction.stage === "candidate_stopped";
+    const preSwitch =
+      transaction.stage === "promotion_started" || transaction.stage === "candidate_stopped";
     if (preSwitch) {
-      updateTransaction(transaction, "failed", { candidate_pid: null, error: "interrupted_before_switch" });
+      updateTransaction(transaction, "failed", {
+        candidate_pid: null,
+        error: "interrupted_before_switch",
+      });
       return { transactionId: transaction.txn_id, stage: "failed" };
     }
 
@@ -359,7 +363,8 @@ function createReleaseManager(deps = {}) {
           version: transaction.target_version,
           releaseDir: versionDir,
         });
-        if (!verifierPassed(verification)) throw new Error("recovery post-promotion verification failed");
+        if (!verifierPassed(verification))
+          throw new Error("recovery post-promotion verification failed");
         if (transaction.stage !== "post_promotion_verified") {
           updateTransaction(transaction, "post_promotion_verified");
         }
@@ -376,11 +381,17 @@ function createReleaseManager(deps = {}) {
       validateInstalledVersion(installed, roots.releaseRoot, path, validateInstalledRecord);
       stateStore.writeJson("installed-version.json", installed, roots.stateRoot);
       updateTransaction(transaction, "known_good_promoted");
-      updateTransaction(transaction, "complete", { candidate_pid: null, completed_at: clock().toISOString() });
+      updateTransaction(transaction, "complete", {
+        candidate_pid: null,
+        completed_at: clock().toISOString(),
+      });
       return { transactionId: transaction.txn_id, stage: "complete" };
     } catch {
       const rollback = await recoverPromotionFailure(transaction);
-      updateTransaction(transaction, rollback.stage, { candidate_pid: null, error: rollback.error });
+      updateTransaction(transaction, rollback.stage, {
+        candidate_pid: null,
+        error: rollback.error,
+      });
       return { transactionId: transaction.txn_id, stage: rollback.stage };
     }
   }
@@ -393,7 +404,8 @@ function createReleaseManager(deps = {}) {
         assertReleaseTarget(previousTarget, roots.releaseRoot, fs, path);
         switchCurrent(previousTarget, transaction.txn_id);
         await serviceController.restart();
-        if (!await waitForProductionHealth(productionHealthRequester, sleep)) throw new Error("recovery rollback health failed");
+        if (!(await waitForProductionHealth(productionHealthRequester, sleep)))
+          throw new Error("recovery rollback health failed");
         const verification = await rollbackVerifier({
           transactionId: transaction.txn_id,
           version: path.basename(previousTarget),
@@ -406,7 +418,11 @@ function createReleaseManager(deps = {}) {
       await serviceController.disable();
       return { stage: "first_activation_failed", error: "first_activation_failed" };
     } catch {
-      try { await serviceController.disable(); } catch { /* retain bounded failure code */ }
+      try {
+        await serviceController.disable();
+      } catch {
+        /* retain bounded failure code */
+      }
       return { stage: "rollback_failed", error: "rollback_failed" };
     }
   }
@@ -571,17 +587,24 @@ function assertPromotionPreconditions(
 function assertImmutableVersionDirectory(fs, versionDir, path) {
   if (!fs.existsSync(versionDir)) throw new Error("promoted version directory is missing");
   const stat = fs.lstatSync(versionDir);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("promoted version directory is not immutable");
-  if (!isInside(path.dirname(versionDir), versionDir, path)) throw new Error("promoted version path is invalid");
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw new Error("promoted version directory is not immutable");
+  if (!isInside(path.dirname(versionDir), versionDir, path))
+    throw new Error("promoted version path is invalid");
 }
 
 function assertReleaseTarget(target, releaseRoot, fs, path) {
-  if (typeof target !== "string" || !path.isAbsolute(target) || !isInside(releaseRoot, target, path)) {
+  if (
+    typeof target !== "string" ||
+    !path.isAbsolute(target) ||
+    !isInside(releaseRoot, target, path)
+  ) {
     throw new Error("rollback target is outside release root");
   }
   if (!fs.existsSync(target)) throw new Error("rollback target is missing");
   const stat = fs.lstatSync(target);
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("rollback target is not immutable");
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw new Error("rollback target is not immutable");
 }
 
 function assertCurrentTarget(expected, currentLink, releaseRoot, fs, path) {

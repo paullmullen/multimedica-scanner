@@ -15,7 +15,12 @@ function fixture(options = {}) {
   const currentLink = path.join(root, "current");
   fs.mkdirSync(path.join(stateRoot, "releases", "transactions"), { recursive: true });
   fs.mkdirSync(path.join(releaseRoot, "staging"), { recursive: true });
-  const schema = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "schemas", "release-transaction.schema.json"), "utf8"));
+  const schema = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "schemas", "release-transaction.schema.json"),
+      "utf8"
+    )
+  );
   const ajv = new Ajv({ allErrors: true });
   addFormats(ajv);
   const validate = ajv.compile(schema);
@@ -40,9 +45,17 @@ function fixture(options = {}) {
     },
     productionHealthRequester: async (url) => {
       calls.health.push(url);
-      return options.health || { statusCode: 200, body: { service: "multimedica-production", ok: true, state: "healthy" } };
+      return (
+        options.health || {
+          statusCode: 200,
+          body: { service: "multimedica-production", ok: true, state: "healthy" },
+        }
+      );
     },
-    postPromotionVerifier: async (value) => { calls.verify.push(value); return options.verify === undefined ? { ok: true } : options.verify; },
+    postPromotionVerifier: async (value) => {
+      calls.verify.push(value);
+      return options.verify === undefined ? { ok: true } : options.verify;
+    },
     rollbackVerifier: async () => ({ ok: true }),
     switchCurrent: (target, transactionId) => {
       calls.switches.push({ target, transactionId });
@@ -92,7 +105,10 @@ function cleanup(value) {
 
 describe("release promotion interruption recovery", () => {
   let value;
-  afterEach(() => { if (value) cleanup(value); value = null; });
+  afterEach(() => {
+    if (value) cleanup(value);
+    value = null;
+  });
 
   test.each([
     ["promotion_started", "failed"],
@@ -119,21 +135,23 @@ describe("release promotion interruption recovery", () => {
     expect(value.calls.service).toEqual(["enable", "restart"]);
   });
 
-  test.each(["symlink_updated", "production_started", "production_health_passed", "post_promotion_verified"])(
-    "resumes %s without rewriting a valid immutable directory",
-    async (stage) => {
-      value = fixture();
-      const versionDir = path.join(value.releaseRoot, "5.2.4-recovery");
-      fs.mkdirSync(versionDir, { recursive: true });
-      fs.symlinkSync(versionDir, value.currentLink, "junction");
-      transaction(value, stage);
-      const result = await value.manager.reconcileInterruptedPromotions();
-      expect(result[0].stage).toBe("complete");
-      expect(fs.existsSync(versionDir)).toBe(true);
-      expect(value.calls.service).toContain("restart");
-      expect(value.calls.switches).toEqual([]);
-    }
-  );
+  test.each([
+    "symlink_updated",
+    "production_started",
+    "production_health_passed",
+    "post_promotion_verified",
+  ])("resumes %s without rewriting a valid immutable directory", async (stage) => {
+    value = fixture();
+    const versionDir = path.join(value.releaseRoot, "5.2.4-recovery");
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.symlinkSync(versionDir, value.currentLink, "junction");
+    transaction(value, stage);
+    const result = await value.manager.reconcileInterruptedPromotions();
+    expect(result[0].stage).toBe("complete");
+    expect(fs.existsSync(versionDir)).toBe(true);
+    expect(value.calls.service).toContain("restart");
+    expect(value.calls.switches).toEqual([]);
+  });
 
   test("finalizes known_good_promoted without rerunning service activation", async () => {
     value = fixture();
