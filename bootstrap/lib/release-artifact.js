@@ -103,7 +103,10 @@ function createManifest(version, files, options) {
 }
 
 function writeOctal(buffer, offset, length, value) {
-  const text = Number(value).toString(8).padStart(length - 1, "0") + "\0";
+  const text =
+    Number(value)
+      .toString(8)
+      .padStart(length - 1, "0") + "\0";
   buffer.write(text.slice(-length), offset, length, "ascii");
 }
 

@@ -61,6 +61,16 @@
     "network_connected": { "type": ["boolean", "null"] },
     "release_version": { "type": ["string", "null"] },
     "production_healthy": { "type": ["boolean", "null"] },
+    "release_manager_installed": { "type": ["boolean", "null"] },
+    "release_artifact_validator_installed": { "type": ["boolean", "null"] },
+    "release_recovery_unit_installed": { "type": ["boolean", "null"] },
+    "production_unit_installed": { "type": ["boolean", "null"] },
+    "release_recovery_enabled": { "type": ["boolean", "null"] },
+    "release_recovery_active": { "type": ["boolean", "null"] },
+    "production_enabled": { "type": ["boolean", "null"] },
+    "production_active": { "type": ["boolean", "null"] },
+    "production_gate_present": { "type": ["boolean", "null"] },
+    "current_release_present": { "type": ["boolean", "null"] },
     "errors": { "type": "array", "items": { "type": "string" } },
     "warnings": { "type": "array", "items": { "type": "string" } }
   }

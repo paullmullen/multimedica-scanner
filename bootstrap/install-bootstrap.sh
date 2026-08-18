@@ -147,6 +147,33 @@ fi
 
 [[ -f "$SRC_DIR/controller.js" ]] || fail "Source directory does not contain controller.js: $SRC_DIR"
 
+# This bootstrap installer is not release-aware. Never overwrite an active or
+# already-activated release installation; a later release-aware upgrade path
+# must handle that state explicitly.
+for release_service in multimedica-release-recovery.service multimedica-production.service; do
+  if systemctl is-active --quiet "$release_service" 2>/dev/null; then
+    fail "$release_service is active; use the future release-aware upgrade path"
+  fi
+done
+
+if [[ -e "$INSTALL_ROOT/current" || -L "$INSTALL_ROOT/current" ]]; then
+  fail "An activated production release is present; use the future release-aware upgrade path"
+fi
+
+if [[ -f "$STATE_DIR/installed-version.json" ]]; then
+  "$NODE_BIN" - "$STATE_DIR/installed-version.json" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+let record;
+try { record = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { process.exit(2); }
+if (record && (record.current_version || record.last_known_good_version)) process.exit(3);
+NODE
+  state_rc=$?
+  if [[ $state_rc -ne 0 ]]; then
+    fail "Activated or malformed installed-version state is present; use the future release-aware upgrade path"
+  fi
+fi
+
 # =============================================================================
 # 1. Create user and directories
 # =============================================================================
@@ -335,9 +362,12 @@ The installer did NOT modify or stop any existing service."
   for svc in multimedica-controller.service \
              multimedica-display.service \
              multimedica-kiosk.service \
+             multimedica-release-recovery.service \
              multimedica-production.service; do
     if [[ -f "$UNIT_SRC/$svc" ]]; then
       cp "$UNIT_SRC/$svc" "$SYSTEMD_DIR/$svc"
+      chown root:root "$SYSTEMD_DIR/$svc"
+      chmod 0644 "$SYSTEMD_DIR/$svc"
       log "Installed $svc"
     fi
   done
@@ -354,7 +384,8 @@ systemctl enable multimedica-display.service     2>/dev/null || true
 systemctl enable multimedica-controller.service  2>/dev/null || true
 systemctl enable multimedica-kiosk.service       2>/dev/null || true
 # Production service is NOT enabled here — activated by Milestone 5
-systemctl disable multimedica-production.service 2>/dev/null || true
+# Release recovery and production services remain disabled and inactive until
+# a later explicit release activation. Do not alter their persistent policy.
 # tty1 belongs to the appliance kiosk. SSH remains available for recovery.
 systemctl disable getty@tty1.service             2>/dev/null || true
 

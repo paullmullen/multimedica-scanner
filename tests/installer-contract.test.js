@@ -619,6 +619,138 @@ describe("provisioning-result.schema.json", () => {
     expect(validate(failResult)).toBe(true);
     expect(failResult.exit_code).not.toBe(0); // nonzero on failure
   });
+
+  test("includes non-secret pre-release infrastructure fields", () => {
+    const schema = loadSchema("provisioning-result.schema.json");
+    const fields = [
+      "release_manager_installed",
+      "release_artifact_validator_installed",
+      "release_recovery_unit_installed",
+      "production_unit_installed",
+      "release_recovery_enabled",
+      "release_recovery_active",
+      "production_enabled",
+      "production_active",
+      "production_gate_present",
+      "current_release_present",
+    ];
+    for (const field of fields) {
+      expect(schema.properties[field]).toEqual({ type: ["boolean", "null"] });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 2.6a bootstrap release-management installation contract
+// ---------------------------------------------------------------------------
+
+describe("bootstrap release-management installation", () => {
+  const installScript = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "install-bootstrap.sh"), "utf8");
+  const provisioningScript = () => fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+  const productionUnit = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-production.service"), "utf8");
+  const recoveryUnit = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-release-recovery.service"), "utf8");
+
+  test("transfers the complete bootstrap and schema closure without the workstation builder", () => {
+    const script = provisioningScript();
+    expect(script).toContain('Copy-DirToRemote \'Copying bootstrap source\' "$proj\\bootstrap" "$tmp/bootstrap"');
+    expect(script).toContain('Copy-DirToRemote \'Copying schemas\'           "$proj\\schemas"   "$tmp/schemas"');
+    expect(script).not.toContain("release/build-production-release.js");
+    for (const file of [
+      "release-startup-recovery.js",
+      "lib/release-manager.js",
+      "lib/release-artifact.js",
+      "lib/state-store.js",
+      "lib/config-store.js",
+      "lib/secrets-store.js",
+    ]) {
+      expect(fs.existsSync(path.join(__dirname, "..", "bootstrap", file))).toBe(true);
+    }
+    for (const file of [
+      "release-manifest.schema.json",
+      "release-transaction.schema.json",
+      "installed-version.schema.json",
+      "config.schema.json",
+      "secrets.schema.json",
+    ]) {
+      expect(fs.existsSync(path.join(__dirname, "..", "schemas", file))).toBe(true);
+    }
+  });
+
+  test("installs both release units with explicit root ownership and mode 0644", () => {
+    const script = installScript();
+    expect(script).toContain("multimedica-release-recovery.service");
+    expect(script).toContain('chown root:root "$SYSTEMD_DIR/$svc"');
+    expect(script).toContain('chmod 0644 "$SYSTEMD_DIR/$svc"');
+    expect(script).toContain("systemctl daemon-reload");
+  });
+
+  test("does not activate or persist-enable release services during bootstrap install", () => {
+    const script = installScript();
+    expect(script).toContain("multimedica-release-recovery.service");
+    expect(script).toContain("multimedica-production.service");
+    expect(script).not.toMatch(/systemctl\s+(enable|restart|start)\s+multimedica-(release-recovery|production)\.service/);
+    expect(script).not.toMatch(/systemctl\s+disable\s+multimedica-production\.service/);
+    expect(script).toContain("Release recovery and production services remain disabled and inactive");
+  });
+
+  test("fails safely for active release services and activated or malformed release state", () => {
+    const script = installScript();
+    expect(script).toContain('systemctl is-active --quiet "$release_service"');
+    expect(script).toContain("An activated production release is present");
+    expect(script).toContain("installed-version state is present");
+    expect(script).toContain("future release-aware upgrade path");
+  });
+
+  test("does not create current, release, transaction, or gate state", () => {
+    const script = installScript();
+    expect(script).not.toMatch(/mkdir[^\n]*\/opt\/multimedica-scanner\/current/);
+    expect(script).not.toMatch(/mkdir[^\n]*\/opt\/multimedica-scanner\/releases\/[^\n]*\b(?!staging)/);
+    expect(script).not.toContain("production-allowed");
+    expect(script).toContain("installed-version.json");
+    expect(script).toContain("An activated production release is present");
+    expect(script).toContain("releases/staging");
+    expect(script).toContain("releases/transactions");
+  });
+
+  test("preserves controller, display, kiosk, config, secrets, and evtest behavior", () => {
+    const script = installScript();
+    expect(script).toContain("multimedica-controller.service");
+    expect(script).toContain("multimedica-display.service");
+    expect(script).toContain("multimedica-kiosk.service");
+    expect(script).toContain("Existing secrets.json preserved");
+    expect(script).toContain("Existing config.json preserved");
+    expect(provisioningScript()).toContain("pgrep -u multimedica_edge -x evtest");
+  });
+
+  test("keeps production gated and release recovery unprivileged until later activation", () => {
+    const production = productionUnit();
+    const recovery = recoveryUnit();
+    expect(production).toContain("ConditionPathExists=/run/multimedica-scanner/production-allowed");
+    expect(production).toContain("User=multimedica_edge");
+    expect(production).toContain("Group=multimedica_edge");
+    expect(recovery).toContain("User=root");
+    expect(recovery).toContain("Group=root");
+    expect(recovery).toContain("Type=oneshot");
+  });
+
+  test("initializes expected pre-release Verify booleans", () => {
+    const script = provisioningScript();
+    for (const field of [
+      "release_manager_installed",
+      "release_artifact_validator_installed",
+      "release_recovery_unit_installed",
+      "production_unit_installed",
+      "release_recovery_enabled",
+      "release_recovery_active",
+      "production_enabled",
+      "production_active",
+      "production_gate_present",
+      "current_release_present",
+    ]) {
+      expect(script).toMatch(new RegExp(`${field}\\s*=\\s*\\$null`));
+    }
+    expect(script).toContain("Release infrastructure state is unsafe or malformed");
+  });
 });
 
 // ---------------------------------------------------------------------------

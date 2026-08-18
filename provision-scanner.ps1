@@ -157,6 +157,16 @@ function New-ProvisioningResult {
         network_connected       = $null
         release_version         = $null
         production_healthy      = $null
+        release_manager_installed = $null
+        release_artifact_validator_installed = $null
+        release_recovery_unit_installed = $null
+        production_unit_installed = $null
+        release_recovery_enabled = $null
+        release_recovery_active = $null
+        production_enabled = $null
+        production_active = $null
+        production_gate_present = $null
+        current_release_present = $null
         errors                  = [System.Collections.Generic.List[string]]::new()
         warnings                = [System.Collections.Generic.List[string]]::new()
     }
@@ -575,6 +585,91 @@ function Install-Bootstrap { param([hashtable]$Result, [object]$Cfg, [switch]$Is
     $null = Invoke-Remote 'Running bootstrap installer' "sudo bash $tmp/bootstrap/install-bootstrap.sh --src $tmp/bootstrap --secrets $stRemote $ff 2>&1" }
 
 # ---------------------------------------------------------------------------
+# Release infrastructure status (read-only, non-secret)
+# ---------------------------------------------------------------------------
+
+function Test-ReleaseInfrastructure { param([hashtable]$Result)
+        $probe = @'
+release_manager_installed=0
+release_artifact_validator_installed=0
+release_recovery_unit_installed=0
+production_unit_installed=0
+release_recovery_enabled=0
+release_recovery_active=0
+production_enabled=0
+production_active=0
+production_gate_present=0
+current_release_present=0
+state_valid=1
+contradiction=0
+
+test -f /opt/multimedica-scanner/bootstrap/lib/release-manager.js && release_manager_installed=1
+test -f /opt/multimedica-scanner/bootstrap/lib/release-artifact.js && release_artifact_validator_installed=1
+test -f /etc/systemd/system/multimedica-release-recovery.service && release_recovery_unit_installed=1
+test -f /etc/systemd/system/multimedica-production.service && production_unit_installed=1
+systemctl is-enabled --quiet multimedica-release-recovery.service && release_recovery_enabled=1
+systemctl is-active --quiet multimedica-release-recovery.service && release_recovery_active=1
+systemctl is-enabled --quiet multimedica-production.service && production_enabled=1
+systemctl is-active --quiet multimedica-production.service && production_active=1
+test -e /run/multimedica-scanner/production-allowed && production_gate_present=1
+if [ -d /opt/multimedica-scanner/current ] || [ -L /opt/multimedica-scanner/current ]; then
+    target=$(readlink -f /opt/multimedica-scanner/current 2>/dev/null || true)
+    case "$target" in
+        /opt/multimedica-scanner/releases/*) current_release_present=1 ;;
+    esac
+fi
+if [ -f /var/lib/multimedica-scanner/state/installed-version.json ]; then
+    node - <<'NODE' >/dev/null 2>&1 || state_valid=0
+const fs = require('fs');
+const root = '/opt/multimedica-scanner/releases/';
+const r = JSON.parse(fs.readFileSync('/var/lib/multimedica-scanner/state/installed-version.json', 'utf8'));
+const safe = (v) => typeof v === 'string' && v.startsWith(root) && !v.includes('..');
+if ((r.current_version || r.last_known_good_version) && (!safe(r.current_dir) || !safe(r.last_known_good_dir))) process.exit(1);
+NODE
+fi
+if [ "$production_gate_present" -eq 1 ] && [ "$current_release_present" -eq 0 ]; then contradiction=1; fi
+if [ "$production_active" -eq 1 ] && [ "$current_release_present" -eq 0 ]; then contradiction=1; fi
+if [ "$release_recovery_active" -eq 1 ] && [ "$current_release_present" -eq 0 ]; then contradiction=1; fi
+printf 'MM_RELEASE_MANAGER=%s\n' "$release_manager_installed"
+printf 'MM_RELEASE_ARTIFACT=%s\n' "$release_artifact_validator_installed"
+printf 'MM_RELEASE_UNIT=%s\n' "$release_recovery_unit_installed"
+printf 'MM_PRODUCTION_UNIT=%s\n' "$production_unit_installed"
+printf 'MM_RELEASE_ENABLED=%s\n' "$release_recovery_enabled"
+printf 'MM_RELEASE_ACTIVE=%s\n' "$release_recovery_active"
+printf 'MM_PRODUCTION_ENABLED=%s\n' "$production_enabled"
+printf 'MM_PRODUCTION_ACTIVE=%s\n' "$production_active"
+printf 'MM_GATE=%s\n' "$production_gate_present"
+printf 'MM_CURRENT=%s\n' "$current_release_present"
+printf 'MM_STATE_VALID=%s\n' "$state_valid"
+printf 'MM_CONTRADICTION=%s\n' "$contradiction"
+'@
+        $out = Invoke-RemoteCapture 'Checking release infrastructure state' "printf %s '$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($probe)))' | base64 -d | bash"
+        if ($script:LastRemoteCaptureExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($out)) {
+                $Result.warnings.Add('Release infrastructure status unavailable')
+                return $false
+        }
+        $values = @{}
+        foreach ($line in @($out -split "`n")) {
+                if ($line -match '^MM_([A-Z_]+)=(0|1)$') { $values[$Matches[1]] = ($Matches[2] -eq '1') }
+        }
+        $Result.release_manager_installed = $values['RELEASE_MANAGER']
+        $Result.release_artifact_validator_installed = $values['RELEASE_ARTIFACT']
+        $Result.release_recovery_unit_installed = $values['RELEASE_UNIT']
+        $Result.production_unit_installed = $values['PRODUCTION_UNIT']
+        $Result.release_recovery_enabled = $values['RELEASE_ENABLED']
+        $Result.release_recovery_active = $values['RELEASE_ACTIVE']
+        $Result.production_enabled = $values['PRODUCTION_ENABLED']
+        $Result.production_active = $values['PRODUCTION_ACTIVE']
+        $Result.production_gate_present = $values['GATE']
+        $Result.current_release_present = $values['CURRENT']
+        if ($values['STATE_VALID'] -eq $false -or $values['CONTRADICTION'] -eq $true) {
+                $Result.errors.Add('Release infrastructure state is unsafe or malformed')
+                return $false
+        }
+        return $true
+}
+
+# ---------------------------------------------------------------------------
 # Service health check
 # ---------------------------------------------------------------------------
 
@@ -719,9 +814,10 @@ function Invoke-Verify { param([hashtable]$R)
         $R.warnings.Add("$($status.Diagnostic); device status unparseable")
         $R.exit_code = 10
     }
+    $releaseStateOk = Test-ReleaseInfrastructure -Result $R
     $servicesOk = Test-Services -Result $R
     $scannerOk = Test-Scanner -Result $R
-    if (-not $servicesOk -or -not $scannerOk) {
+    if (-not $servicesOk -or -not $scannerOk -or -not $releaseStateOk) {
         $R.bootstrap_complete = $false
         $R.exit_code = 20
     }
