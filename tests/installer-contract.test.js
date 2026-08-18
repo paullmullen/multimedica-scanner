@@ -645,15 +645,29 @@ describe("provisioning-result.schema.json", () => {
 // ---------------------------------------------------------------------------
 
 describe("bootstrap release-management installation", () => {
-  const installScript = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "install-bootstrap.sh"), "utf8");
-  const provisioningScript = () => fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
-  const productionUnit = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-production.service"), "utf8");
-  const recoveryUnit = () => fs.readFileSync(path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-release-recovery.service"), "utf8");
+  const installScript = () =>
+    fs.readFileSync(path.join(__dirname, "..", "bootstrap", "install-bootstrap.sh"), "utf8");
+  const provisioningScript = () =>
+    fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+  const productionUnit = () =>
+    fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-production.service"),
+      "utf8"
+    );
+  const recoveryUnit = () =>
+    fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-release-recovery.service"),
+      "utf8"
+    );
 
   test("transfers the complete bootstrap and schema closure without the workstation builder", () => {
     const script = provisioningScript();
-    expect(script).toContain('Copy-DirToRemote \'Copying bootstrap source\' "$proj\\bootstrap" "$tmp/bootstrap"');
-    expect(script).toContain('Copy-DirToRemote \'Copying schemas\'           "$proj\\schemas"   "$tmp/schemas"');
+    expect(script).toContain(
+      'Copy-DirToRemote \'Copying bootstrap source\' "$proj\\bootstrap" "$tmp/bootstrap"'
+    );
+    expect(script).toContain(
+      'Copy-DirToRemote \'Copying schemas\'           "$proj\\schemas"   "$tmp/schemas"'
+    );
     expect(script).not.toContain("release/build-production-release.js");
     for (const file of [
       "release-startup-recovery.js",
@@ -688,9 +702,13 @@ describe("bootstrap release-management installation", () => {
     const script = installScript();
     expect(script).toContain("multimedica-release-recovery.service");
     expect(script).toContain("multimedica-production.service");
-    expect(script).not.toMatch(/systemctl\s+(enable|restart|start)\s+multimedica-(release-recovery|production)\.service/);
+    expect(script).not.toMatch(
+      /systemctl\s+(enable|restart|start)\s+multimedica-(release-recovery|production)\.service/
+    );
     expect(script).not.toMatch(/systemctl\s+disable\s+multimedica-production\.service/);
-    expect(script).toContain("Release recovery and production services remain disabled and inactive");
+    expect(script).toContain(
+      "Release recovery and production services remain disabled and inactive"
+    );
   });
 
   test("fails safely for active release services and activated or malformed release state", () => {
@@ -704,7 +722,9 @@ describe("bootstrap release-management installation", () => {
   test("does not create current, release, transaction, or gate state", () => {
     const script = installScript();
     expect(script).not.toMatch(/mkdir[^\n]*\/opt\/multimedica-scanner\/current/);
-    expect(script).not.toMatch(/mkdir[^\n]*\/opt\/multimedica-scanner\/releases\/[^\n]*\b(?!staging)/);
+    expect(script).not.toMatch(
+      /mkdir[^\n]*\/opt\/multimedica-scanner\/releases\/[^\n]*\b(?!staging)/
+    );
     expect(script).not.toContain("production-allowed");
     expect(script).toContain("installed-version.json");
     expect(script).toContain("An activated production release is present");
