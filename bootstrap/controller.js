@@ -514,7 +514,6 @@ function _sanitiseError(err) {
 
 async function main() {
   console.log("[controller] starting");
-
   const ctrl = createController();
   const tokenOk = ctrl.loadAdminToken();
   if (!tokenOk) {

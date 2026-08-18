@@ -20,6 +20,16 @@ const CANDIDATE_PORT = 3003;
 const PRODUCTION_PORT = 3002;
 const HEALTH_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 5_000;
+const RECOVERABLE_PROMOTION_STAGES = new Set([
+  "promotion_started",
+  "candidate_stopped",
+  "version_dir_renamed",
+  "symlink_updated",
+  "production_started",
+  "production_health_passed",
+  "post_promotion_verified",
+  "known_good_promoted",
+]);
 
 function createReleaseManager(deps = {}) {
   const fs = deps.fs || fsDefault;
@@ -297,6 +307,110 @@ function createReleaseManager(deps = {}) {
     }
   }
 
+  async function reconcileInterruptedPromotions() {
+    const lockPath = resolveInside(roots.releaseRoot, ".promotion-lock", path);
+    if (fs.existsSync(lockPath)) removeIfExists(fs, lockPath);
+    acquirePromotionLock(fs, lockPath);
+    const results = [];
+    try {
+      if (!fs.existsSync(transactionRoot)) return results;
+      for (const file of fs.readdirSync(transactionRoot).sort()) {
+        if (!file.endsWith(".json")) continue;
+        const transaction = stateStore.readJson(`releases/transactions/${file}`, roots.stateRoot);
+        if (!transaction || !RECOVERABLE_PROMOTION_STAGES.has(transaction.stage)) continue;
+        results.push(await reconcilePromotion(transaction));
+      }
+      return results;
+    } finally {
+      removeIfExists(fs, lockPath);
+    }
+  }
+
+  async function reconcilePromotion(transaction) {
+    const preSwitch = transaction.stage === "promotion_started" || transaction.stage === "candidate_stopped";
+    if (preSwitch) {
+      updateTransaction(transaction, "failed", { candidate_pid: null, error: "interrupted_before_switch" });
+      return { transactionId: transaction.txn_id, stage: "failed" };
+    }
+
+    const versionDir = resolveInside(roots.releaseRoot, transaction.target_version, path);
+    try {
+      assertImmutableVersionDirectory(fs, versionDir, path);
+      const previousTarget = transaction.rollback_target || null;
+      if (previousTarget) assertReleaseTarget(previousTarget, roots.releaseRoot, fs, path);
+
+      if (transaction.stage === "version_dir_renamed") {
+        switchCurrent(versionDir, transaction.txn_id);
+        updateTransaction(transaction, "symlink_updated");
+      } else {
+        assertCurrentTarget(versionDir, roots.currentLink, roots.releaseRoot, fs, path);
+      }
+
+      if (transaction.stage !== "known_good_promoted") {
+        await serviceController.enable();
+        await serviceController.restart();
+        const health = await waitForProductionHealth(productionHealthRequester, sleep);
+        if (!health) throw new Error("recovery production health failed");
+        if (!["production_health_passed", "post_promotion_verified"].includes(transaction.stage)) {
+          updateTransaction(transaction, "production_health_passed");
+        }
+        const verification = await postPromotionVerifier({
+          transactionId: transaction.txn_id,
+          version: transaction.target_version,
+          releaseDir: versionDir,
+        });
+        if (!verifierPassed(verification)) throw new Error("recovery post-promotion verification failed");
+        if (transaction.stage !== "post_promotion_verified") {
+          updateTransaction(transaction, "post_promotion_verified");
+        }
+      }
+
+      const installed = createInstalledVersion(
+        transaction,
+        versionDir,
+        previousTarget,
+        stateStore.readJson("installed-version.json", roots.stateRoot),
+        roots.currentLink,
+        clock
+      );
+      validateInstalledVersion(installed, roots.releaseRoot, path, validateInstalledRecord);
+      stateStore.writeJson("installed-version.json", installed, roots.stateRoot);
+      updateTransaction(transaction, "known_good_promoted");
+      updateTransaction(transaction, "complete", { candidate_pid: null, completed_at: clock().toISOString() });
+      return { transactionId: transaction.txn_id, stage: "complete" };
+    } catch {
+      const rollback = await recoverPromotionFailure(transaction);
+      updateTransaction(transaction, rollback.stage, { candidate_pid: null, error: rollback.error });
+      return { transactionId: transaction.txn_id, stage: rollback.stage };
+    }
+  }
+
+  async function recoverPromotionFailure(transaction) {
+    try {
+      await serviceController.stop();
+      const previousTarget = transaction.rollback_target;
+      if (previousTarget) {
+        assertReleaseTarget(previousTarget, roots.releaseRoot, fs, path);
+        switchCurrent(previousTarget, transaction.txn_id);
+        await serviceController.restart();
+        if (!await waitForProductionHealth(productionHealthRequester, sleep)) throw new Error("recovery rollback health failed");
+        const verification = await rollbackVerifier({
+          transactionId: transaction.txn_id,
+          version: path.basename(previousTarget),
+          releaseDir: previousTarget,
+        });
+        if (!verifierPassed(verification)) throw new Error("recovery rollback verification failed");
+        return { stage: "rolled_back", error: "interrupted_promotion_rolled_back" };
+      }
+      removeIfExists(fs, roots.currentLink);
+      await serviceController.disable();
+      return { stage: "first_activation_failed", error: "first_activation_failed" };
+    } catch {
+      try { await serviceController.disable(); } catch { /* retain bounded failure code */ }
+      return { stage: "rollback_failed", error: "rollback_failed" };
+    }
+  }
+
   async function automaticRollback({ transaction, previousTarget }) {
     try {
       await serviceController.stop();
@@ -393,6 +507,8 @@ function createReleaseManager(deps = {}) {
     startCandidate,
     stopCandidate,
     promoteCandidate,
+    reconcileInterruptedPromotions,
+    waitForProductionHealth: () => waitForProductionHealth(productionHealthRequester, sleep),
     abandonStaging,
     readTransaction,
     roots,
@@ -450,6 +566,27 @@ function assertPromotionPreconditions(
     throw new Error("invalid release staging path");
   const finalDir = resolveInside(releaseRoot, transaction.target_version, path);
   if (fs.existsSync(finalDir)) throw new Error("release version directory already exists");
+}
+
+function assertImmutableVersionDirectory(fs, versionDir, path) {
+  if (!fs.existsSync(versionDir)) throw new Error("promoted version directory is missing");
+  const stat = fs.lstatSync(versionDir);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("promoted version directory is not immutable");
+  if (!isInside(path.dirname(versionDir), versionDir, path)) throw new Error("promoted version path is invalid");
+}
+
+function assertReleaseTarget(target, releaseRoot, fs, path) {
+  if (typeof target !== "string" || !path.isAbsolute(target) || !isInside(releaseRoot, target, path)) {
+    throw new Error("rollback target is outside release root");
+  }
+  if (!fs.existsSync(target)) throw new Error("rollback target is missing");
+  const stat = fs.lstatSync(target);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("rollback target is not immutable");
+}
+
+function assertCurrentTarget(expected, currentLink, releaseRoot, fs, path) {
+  const actual = readCurrentTarget(fs, path, currentLink, releaseRoot);
+  if (actual !== expected) throw new Error("current target does not match interrupted promotion");
 }
 
 function acquirePromotionLock(fs, lockPath) {

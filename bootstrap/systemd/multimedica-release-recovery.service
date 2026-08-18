@@ -1,0 +1,32 @@
+[Unit]
+Description=Multimedica Production Release Recovery Gate
+After=local-fs.target network-online.target multimedica-controller.service
+Wants=network-online.target multimedica-controller.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/multimedica-scanner/bootstrap
+ExecStart=/usr/bin/node /opt/multimedica-scanner/bootstrap/release-startup-recovery.js
+RemainAfterExit=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/opt/multimedica-scanner /var/lib/multimedica-scanner/state /run/multimedica-scanner
+UMask=0077
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=multimedica-release-recovery
+
+[Install]
+WantedBy=multi-user.target

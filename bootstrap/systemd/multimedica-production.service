@@ -3,8 +3,9 @@ Description=Multimedica Production Scanner
 Documentation=https://github.com/paullmullen/multimedica-scanner
 # Production service starts only after network is fully available.
 # Managed by the controller in Milestone 5+.
-After=network-online.target
-Wants=network-online.target
+After=network-online.target multimedica-controller.service
+Wants=network-online.target multimedica-controller.service
+ConditionPathExists=/run/multimedica-scanner/production-allowed
 
 [Service]
 Type=simple
