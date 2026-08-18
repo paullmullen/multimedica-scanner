@@ -9,6 +9,7 @@ const crypto = require("crypto");
 const fsDefault = require("fs");
 const pathDefault = require("path");
 const { spawn } = require("child_process");
+const { execFile } = require("child_process");
 const http = require("http");
 const Ajv = require("ajv");
 const addFormats = require("ajv-formats");
@@ -16,6 +17,7 @@ const stateStoreDefault = require("./state-store");
 const { validateArtifact } = require("./release-artifact");
 
 const CANDIDATE_PORT = 3003;
+const PRODUCTION_PORT = 3002;
 const HEALTH_TIMEOUT_MS = 5_000;
 const STOP_TIMEOUT_MS = 5_000;
 
@@ -27,6 +29,11 @@ function createReleaseManager(deps = {}) {
   const commandRunner = deps.commandRunner || defaultCommandRunner;
   const processLauncher = deps.processLauncher || defaultProcessLauncher;
   const healthRequester = deps.healthRequester || defaultHealthRequester;
+  const productionHealthRequester = deps.productionHealthRequester || defaultHealthRequester;
+  const serviceController = deps.serviceController || defaultServiceController;
+  const postPromotionVerifier = deps.postPromotionVerifier || defaultPromotionVerifier;
+  const rollbackVerifier = deps.rollbackVerifier || defaultPromotionVerifier;
+  const switchCurrent = deps.switchCurrent || ((target, transactionId) => atomicallySwitchCurrent(fs, path, roots.currentLink, target, transactionId));
   const isPortAvailable = deps.isPortAvailable || defaultPortAvailable;
   const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const clock = deps.clock || (() => new Date());
@@ -35,12 +42,15 @@ function createReleaseManager(deps = {}) {
     {
       stateRoot: "/var/lib/multimedica-scanner/state",
       releaseRoot: "/opt/multimedica-scanner/releases",
+      currentLink: "/opt/multimedica-scanner/current",
     },
     deps.roots || {}
   );
   const candidates = new Map();
   const transactionSchema = loadTransactionSchema(fs, path);
   const validateTransaction = createValidator(transactionSchema);
+  const installedVersionSchema = loadInstalledVersionSchema(fs, path);
+  const validateInstalledRecord = createValidator(installedVersionSchema);
 
   const transactionRoot = resolveInside(roots.stateRoot, "releases/transactions", path);
   const artifactRoot = resolveInside(roots.stateRoot, "releases/staging", path);
@@ -95,6 +105,8 @@ function createReleaseManager(deps = {}) {
       artifact_path: artifactCopy,
       staging_dir: stagingDir,
       candidate_pid: null,
+      candidate_manifest: safeManifest(validated.manifest),
+      rollback_target: null,
       error: null,
       completed_at: null,
     };
@@ -168,6 +180,90 @@ function createReleaseManager(deps = {}) {
     return safeTransaction(transaction);
   }
 
+  async function promoteCandidate(transactionId) {
+    const lockPath = resolveInside(roots.releaseRoot, ".promotion-lock", path);
+    acquirePromotionLock(fs, lockPath);
+    let symlinkChanged = false;
+    let transaction;
+    let previousTarget = null;
+    let installedBefore = null;
+    try {
+      transaction = readTransaction(transactionId);
+      assertPromotionPreconditions(transaction, transactionId, candidates, stagingRoot, roots.releaseRoot, fs, path);
+      installedBefore = stateStore.readJson("installed-version.json", roots.stateRoot);
+      previousTarget = readCurrentTarget(fs, path, roots.currentLink, roots.releaseRoot);
+      transaction = updateTransaction(transaction, "promotion_started", {
+        rollback_target: previousTarget,
+      });
+
+      await stopCandidate(transactionId);
+      transaction = readTransaction(transactionId);
+      const versionDir = resolveInside(roots.releaseRoot, transaction.target_version, path);
+      if (fs.existsSync(versionDir)) throw new Error("release version directory already exists");
+      if (!isInside(stagingRoot, transaction.staging_dir, path)) throw new Error("invalid release staging path");
+      fs.renameSync(transaction.staging_dir, versionDir);
+      transaction = updateTransaction(transaction, "version_dir_renamed");
+      createSiblingSymlink(fs, path, versionDir, `${versionDir}.${transactionId}.linktmp`, "release link");
+      removeIfExists(fs, `${versionDir}.${transactionId}.linktmp`);
+      switchCurrent(versionDir, transactionId);
+      symlinkChanged = true;
+      transaction = updateTransaction(transaction, "symlink_updated");
+
+      await serviceController.enable();
+      await serviceController.restart();
+      transaction = updateTransaction(transaction, "production_started");
+      const health = await waitForProductionHealth(productionHealthRequester, sleep);
+      if (!health) throw new Error("production health failed");
+      transaction = updateTransaction(transaction, "production_health_passed");
+      const verification = await postPromotionVerifier({ transactionId, version: transaction.target_version, releaseDir: versionDir });
+      if (!verifierPassed(verification)) throw new Error("post-promotion verification failed");
+      transaction = updateTransaction(transaction, "post_promotion_verified");
+
+      const installed = createInstalledVersion(transaction, versionDir, previousTarget, installedBefore, roots.currentLink, clock);
+      validateInstalledVersion(installed, roots.releaseRoot, path, validateInstalledRecord);
+      stateStore.writeJson("installed-version.json", installed, roots.stateRoot);
+      transaction = updateTransaction(transaction, "known_good_promoted");
+      transaction = updateTransaction(transaction, "complete", { completed_at: clock().toISOString(), candidate_pid: null });
+      return safeTransaction(transaction);
+    } catch (error) {
+      if (!transaction) throw new Error("release promotion failed");
+      if (!symlinkChanged) {
+        try { await stopCandidate(transactionId); } catch { /* preserve the original safe failure */ }
+        updateTransaction(transaction, "failed", { error: safePromotionError(error) });
+        throw new Error("release promotion failed");
+      }
+      const rollback = await automaticRollback({ transaction, previousTarget, installedBefore });
+      if (rollback.ok) {
+        updateTransaction(transaction, rollback.stage || "rolled_back", { error: rollback.error });
+        throw new Error("release promotion rolled back");
+      }
+      updateTransaction(transaction, "rollback_failed", { error: "rollback_failed" });
+      throw new Error("release promotion rollback failed");
+    } finally {
+      removeIfExists(fs, lockPath);
+    }
+  }
+
+  async function automaticRollback({ transaction, previousTarget }) {
+    try {
+      await serviceController.stop();
+      if (previousTarget) {
+        switchCurrent(previousTarget, transaction.txn_id);
+        await serviceController.restart();
+        if (!await waitForProductionHealth(productionHealthRequester, sleep)) throw new Error("rollback health failed");
+        const verification = await rollbackVerifier({ transactionId: transaction.txn_id, version: path.basename(previousTarget), releaseDir: previousTarget });
+        if (!verifierPassed(verification)) throw new Error("rollback verification failed");
+        return { ok: true, error: "promotion_failed_rolled_back" };
+      }
+      removeIfExists(fs, roots.currentLink);
+      await serviceController.disable();
+      return { ok: true, stage: "first_activation_failed", error: "first_activation_failed" };
+    } catch {
+      try { await serviceController.disable(); } catch { /* retain bounded failure code */ }
+      return { ok: false };
+    }
+  }
+
   async function abandonStaging(transactionId) {
     const transaction = readTransaction(transactionId);
     if (["version_dir_renamed", "symlink_updated", "production_started", "complete"].includes(transaction.stage)) {
@@ -215,7 +311,7 @@ function createReleaseManager(deps = {}) {
     }
   }
 
-  return { stageArtifact, startCandidate, stopCandidate, abandonStaging, readTransaction, roots };
+  return { stageArtifact, startCandidate, stopCandidate, promoteCandidate, abandonStaging, readTransaction, roots };
 }
 
 function requireLocalArtifact(options, fs, path) {
@@ -225,6 +321,150 @@ function requireLocalArtifact(options, fs, path) {
     throw new Error("local release artifact is invalid");
   }
   return artifactPath;
+}
+
+function safeManifest(manifest) {
+  return {
+    version: manifest.version,
+    entry_point: manifest.entry_point,
+    candidate_port: manifest.candidate_port,
+    os_id: manifest.os_id,
+    arch: manifest.arch,
+    capability_policy: manifest.capability_policy,
+  };
+}
+
+function assertPromotionPreconditions(transaction, transactionId, candidates, stagingRoot, releaseRoot, fs, path) {
+  if (transaction.stage !== "candidate_health_passed") throw new Error("release candidate is not health verified");
+  const candidate = candidates.get(transactionId);
+  if (!candidate || candidate.pid !== transaction.candidate_pid) throw new Error("candidate does not belong to transaction");
+  if (!transaction.candidate_manifest || transaction.candidate_manifest.version !== transaction.target_version) {
+    throw new Error("candidate manifest does not match transaction");
+  }
+  if (transaction.candidate_manifest.candidate_port !== CANDIDATE_PORT) throw new Error("candidate manifest port is invalid");
+  if (!isInside(stagingRoot, transaction.staging_dir, path)) throw new Error("invalid release staging path");
+  const finalDir = resolveInside(releaseRoot, transaction.target_version, path);
+  if (fs.existsSync(finalDir)) throw new Error("release version directory already exists");
+}
+
+function acquirePromotionLock(fs, lockPath) {
+  try {
+    fs.mkdirSync(lockPath, { recursive: false, mode: 0o750 });
+  } catch {
+    throw new Error("release promotion is already active or has a stale lock");
+  }
+}
+
+function readCurrentTarget(fs, path, currentLink, releaseRoot) {
+  if (!fs.existsSync(currentLink) && !isSymlink(fs, currentLink)) return null;
+  const stat = fs.lstatSync(currentLink);
+  if (!stat.isSymbolicLink()) throw new Error("current release target is not a symlink");
+  const rawTarget = fs.readlinkSync(currentLink);
+  const resolved = path.resolve(path.dirname(currentLink), rawTarget);
+  if (!isInside(releaseRoot, resolved, path)) throw new Error("current release target is outside release root");
+  return resolved;
+}
+
+function isSymlink(fs, target) {
+  try { return fs.lstatSync(target).isSymbolicLink(); } catch { return false; }
+}
+
+function createSiblingSymlink(fs, path, target, temporary, label) {
+  removeIfExists(fs, temporary);
+  fs.symlinkSync(target, temporary, process.platform === "win32" ? "junction" : "dir");
+  if (!isSymlink(fs, temporary)) throw new Error(`${label} was not created atomically`);
+}
+
+function atomicallySwitchCurrent(fs, path, currentLink, target, transactionId) {
+  const releaseRoot = path.dirname(currentLink);
+  const temporary = path.join(releaseRoot, `.current.${transactionId}.tmp`);
+  createSiblingSymlink(fs, path, target, temporary, "current release link");
+  try {
+    fs.renameSync(temporary, currentLink);
+  } catch (error) {
+    removeIfExists(fs, temporary);
+    throw error;
+  }
+}
+
+function removeIfExists(fs, target) {
+  try {
+    if (isSymlink(fs, target)) fs.unlinkSync(target);
+    else if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best effort; the owning operation reports its bounded failure.
+  }
+}
+
+function createInstalledVersion(transaction, versionDir, previousTarget, previousRecord, currentLink, clock) {
+  const previousVersion = previousTarget ? pathBase(previousTarget) : null;
+  return {
+    current_version: transaction.target_version,
+    current_dir: versionDir,
+    current_symlink: currentLink,
+    previous_version: previousVersion,
+    previous_dir: previousTarget,
+    last_known_good_version: transaction.target_version,
+    last_known_good_dir: versionDir,
+    last_activation_at: clock().toISOString(),
+    last_activation_txn: transaction.txn_id,
+  };
+}
+
+function pathBase(value) {
+  return value.split(/[\\/]/).filter(Boolean).pop();
+}
+
+function validateInstalledVersion(record, releaseRoot, path, validateRecord) {
+  if (!record.current_dir || !record.current_symlink || !record.last_known_good_dir) throw new Error("installed version record is incomplete");
+  if (!path.isAbsolute(record.current_dir) || !path.isAbsolute(record.last_known_good_dir)) throw new Error("installed version paths are invalid");
+  if (!isInside(releaseRoot, record.current_dir, path) || !isInside(releaseRoot, record.last_known_good_dir, path)) throw new Error("installed version paths escape release root");
+  if (!validateRecord(record)) throw new Error("installed version record is invalid");
+}
+
+async function waitForProductionHealth(requester, sleep) {
+  const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const response = await requester(`http://127.0.0.1:${PRODUCTION_PORT}/api/status`);
+      const status = response && response.body && typeof response.statusCode === "number" ? response.body : response;
+      const code = response && typeof response.statusCode === "number" ? response.statusCode : 200;
+      if (code >= 200 && code < 300 && status && typeof status === "object" && !Array.isArray(status) &&
+        status.service === "multimedica-production" && status.ok === true && status.state === "healthy") return status;
+    } catch {
+      // bounded retry; no response is retained
+    }
+    await sleep(100);
+  }
+  return null;
+}
+
+function verifierPassed(result) {
+  return result === true || Boolean(result && result.ok === true);
+}
+
+function defaultPromotionVerifier() {
+  throw new Error("post-promotion verifier is required");
+}
+
+function defaultServiceController() {
+  const unit = "multimedica-production.service";
+  const run = (command) => new Promise((resolve, reject) => {
+    execFile("systemctl", [command, unit], { shell: false, timeout: HEALTH_TIMEOUT_MS }, (error) => {
+      if (error) reject(new Error("production service control failed"));
+      else resolve();
+    });
+  });
+  return {
+    enable: () => run("enable"),
+    restart: () => run("restart"),
+    stop: () => run("stop"),
+    disable: () => run("disable"),
+  };
+}
+
+function safePromotionError() {
+  return "promotion_failed";
 }
 
 function validateCompatibility(manifest, version) {
@@ -278,6 +518,10 @@ function createValidator(schema) {
 
 function loadTransactionSchema(fs, path) {
   return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "schemas", "release-transaction.schema.json"), "utf8"));
+}
+
+function loadInstalledVersionSchema(fs, path) {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "schemas", "installed-version.schema.json"), "utf8"));
 }
 
 function assertSafeTransaction(transaction) {

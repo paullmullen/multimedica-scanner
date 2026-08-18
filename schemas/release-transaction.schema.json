@@ -21,6 +21,7 @@
         "deps_installed",
         "candidate_started",
         "candidate_health_passed",
+        "promotion_started",
         "readiness_passed",
         "health_passed",
         "candidate_stopped",
@@ -28,6 +29,7 @@
         "symlink_updated",
         "production_started",
         "production_health_passed",
+        "post_promotion_verified",
         "known_good_promoted",
         "complete",
         "download_failed",
@@ -37,9 +39,11 @@
         "deps_failed",
         "readiness_failed",
         "production_start_failed",
-        "rolled_back"
-        ,"abandoned"
-        ,"failed"
+        "rolled_back",
+        "first_activation_failed",
+        "rollback_failed",
+        "abandoned",
+        "failed"
       ]
     },
     "stages_completed": {
@@ -49,6 +53,19 @@
     "artifact_path": { "type": ["string", "null"] },
     "staging_dir": { "type": ["string", "null"] },
     "candidate_pid": { "type": ["integer", "null"] },
+    "candidate_manifest": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string" },
+        "entry_point": { "type": "string" },
+        "candidate_port": { "type": "integer" },
+        "os_id": { "type": "string" },
+        "arch": { "type": "string" },
+        "capability_policy": { "type": "string" }
+      }
+    },
+    "rollback_target": { "type": ["string", "null"] },
     "error": { "type": ["string", "null"] },
     "completed_at": { "type": ["string", "null"] }
   }
