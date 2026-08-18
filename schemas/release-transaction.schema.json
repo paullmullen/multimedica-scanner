@@ -20,6 +20,7 @@
         "extracted",
         "deps_installed",
         "candidate_started",
+        "candidate_health_passed",
         "readiness_passed",
         "health_passed",
         "candidate_stopped",
@@ -37,6 +38,8 @@
         "readiness_failed",
         "production_start_failed",
         "rolled_back"
+        ,"abandoned"
+        ,"failed"
       ]
     },
     "stages_completed": {
