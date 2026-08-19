@@ -245,13 +245,22 @@ chown -R "$APP_USER:$APP_GROUP" "$INSTALL_ROOT"
 chmod -R u+rX,g+rX,o-rwx "$INSTALL_ROOT"
 find "$INSTALL_ROOT" -name '*.sh' -exec chmod +x {} \;
 
+RELEASE_INSTALL_LAUNCHER="/usr/local/sbin/multimedica-release-install"
 install -o root -g root -m 0755 \
   "$BOOTSTRAP_DIR/bin/multimedica-release-install" \
-  /usr/local/sbin/multimedica-release-install
+  "$RELEASE_INSTALL_LAUNCHER"
+# These extensionless security files may arrive from a Windows checkout with
+# CRLF endings. Normalize the installed copy before it is parsed or executed.
+sed -i 's/\r$//' "$RELEASE_INSTALL_LAUNCHER"
+chown root:root "$RELEASE_INSTALL_LAUNCHER"
+chmod 0755 "$RELEASE_INSTALL_LAUNCHER"
 SUDOERS_TMP="/etc/sudoers.d/.multimedica-release-install.tmp"
 install -o root -g root -m 0440 \
   "$BOOTSTRAP_DIR/sudoers/multimedica-release-install" \
   "$SUDOERS_TMP"
+sed -i 's/\r$//' "$SUDOERS_TMP"
+chown root:root "$SUDOERS_TMP"
+chmod 0440 "$SUDOERS_TMP"
 visudo -cf "$SUDOERS_TMP" >/dev/null
 mv -f "$SUDOERS_TMP" /etc/sudoers.d/multimedica-release-install
 chown root:root /etc/sudoers.d/multimedica-release-install
