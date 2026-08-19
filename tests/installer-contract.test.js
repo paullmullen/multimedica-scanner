@@ -698,6 +698,13 @@ describe("bootstrap release-management installation", () => {
     expect(script).toContain("systemctl daemon-reload");
   });
 
+  test("recovery unit creates its volatile runtime directory before sandbox setup", () => {
+    const unit = recoveryUnit();
+    expect(unit).toContain("RuntimeDirectory=multimedica-scanner");
+    expect(unit).toContain("RuntimeDirectoryMode=0755");
+    expect(unit).toContain("/run/multimedica-scanner");
+  });
+
   test("does not activate or persist-enable release services during bootstrap install", () => {
     const script = installScript();
     expect(script).toContain("multimedica-release-recovery.service");

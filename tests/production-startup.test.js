@@ -227,6 +227,10 @@ describe("privileged production recovery gate", () => {
     expect(source).toContain("User=root");
     expect(source).toContain("Group=root");
     expect(source).toContain("RemainAfterExit=yes");
+    expect(source).toContain("RuntimeDirectory=multimedica-scanner");
+    expect(source).toContain("RuntimeDirectoryMode=0755");
+    expect(source).toContain("ReadWritePaths=");
+    expect(source).toContain("/run/multimedica-scanner");
     expect(source).toContain(
       "ExecStart=/usr/bin/node /opt/multimedica-scanner/bootstrap/release-startup-recovery.js"
     );
