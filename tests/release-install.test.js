@@ -4,7 +4,13 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { PassThrough } = require("stream");
-const { parseArgs, claimArtifact, acquireLock, readYes } = require("../bootstrap/release-install");
+const {
+  parseArgs,
+  claimArtifact,
+  acquireLock,
+  readYes,
+  verifyProductionActivation,
+} = require("../bootstrap/release-install");
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mm-install-"));
@@ -51,11 +57,61 @@ describe("simplified InstallRelease root operation", () => {
 
   test("confirmation closes readline and pauses stdin after exact lowercase yes", async () => {
     const input = new PassThrough();
+    input.unref = jest.fn();
     const output = new PassThrough();
     const confirmation = readYes(input, output);
     input.end("yes\n");
     await expect(confirmation).resolves.toBeUndefined();
     expect(input.isPaused()).toBe(true);
+    expect(input.unref).toHaveBeenCalledTimes(1);
+  });
+
+  test("production activation verifier checks link, version, gate, service, and health", async () => {
+    const releaseDir = path.join(root, "releases", "1.2.3");
+    const currentLink = "/opt/multimedica-scanner/current";
+    const gatePath = "/run/multimedica-scanner/production-allowed";
+    const fakeFs = {
+      lstatSync: jest.fn((file) => {
+        if (file === currentLink)
+          return { isSymbolicLink: () => true };
+        if (file === gatePath)
+          return { isFile: () => true, isSymbolicLink: () => false };
+        throw new Error("unexpected path");
+      }),
+      readlinkSync: jest.fn(() => releaseDir),
+    };
+    const isServiceActive = jest.fn(async () => true);
+    const getJson = jest.fn(async () => ({
+      statusCode: 200,
+      body: JSON.stringify({
+        service: "multimedica-production",
+        ok: true,
+        state: "healthy",
+      }),
+    }));
+
+    await expect(
+      verifyProductionActivation(
+        { version: "1.2.3", releaseDir },
+        { fs: fakeFs, isServiceActive, getJson }
+      )
+    ).resolves.toEqual({ ok: true });
+    expect(isServiceActive).toHaveBeenCalledWith("multimedica-production.service");
+    expect(getJson).toHaveBeenCalledWith("http://127.0.0.1:3002/api/status");
+  });
+
+  test("production activation verifier rejects a mismatched version", async () => {
+    const releaseDir = path.join(root, "releases", "1.2.4");
+    const fakeFs = {
+      lstatSync: jest.fn(() => ({ isSymbolicLink: () => true })),
+      readlinkSync: jest.fn(() => releaseDir),
+    };
+    await expect(
+      verifyProductionActivation(
+        { version: "1.2.3", releaseDir },
+        { fs: fakeFs }
+      )
+    ).rejects.toThrow("version");
   });
 
   test("claims an ordinary artifact atomically into a root-only operation directory", () => {
@@ -269,6 +325,9 @@ describe("simplified InstallRelease root operation", () => {
       "unlock",
     ]);
     expect(fixture.deps.createReleaseManager).toHaveBeenCalledTimes(1);
+    const managerDeps = fixture.deps.createReleaseManager.mock.calls[0][0];
+    expect(managerDeps.postPromotionVerifier).toEqual(expect.any(Function));
+    expect(managerDeps.rollbackVerifier).toBe(managerDeps.postPromotionVerifier);
     expect(fs.existsSync(fixture.claimed)).toBe(false);
   });
 

@@ -192,6 +192,59 @@ function getJson(url) {
     request.on("error", reject);
   });
 }
+function systemctlIsActive(unit, exec = execFile) {
+  return new Promise((resolve, reject) => {
+    exec("systemctl", ["is-active", unit], { shell: false, timeout: 5_000 }, (error, stdout) => {
+      if (error) return reject(new Error("production service is not active"));
+      resolve(String(stdout || "").trim() === "active");
+    });
+  });
+}
+async function verifyProductionActivation(
+  { version, releaseDir },
+  deps = {}
+) {
+  const fileSystem = deps.fs || fs;
+  const pathModule = deps.path || path;
+  const requestStatus = deps.getJson || getJson;
+  const isServiceActive =
+    deps.isServiceActive || ((unit) => systemctlIsActive(unit, deps.execFile || execFile));
+
+  const currentStat = fileSystem.lstatSync(CURRENT_LINK);
+  if (!currentStat.isSymbolicLink()) throw new Error("current release is not a symlink");
+  const currentTarget = pathModule.resolve(
+    pathModule.dirname(CURRENT_LINK),
+    fileSystem.readlinkSync(CURRENT_LINK)
+  );
+  if (currentTarget !== pathModule.resolve(releaseDir))
+    throw new Error("current release target does not match activation");
+  if (pathModule.basename(pathModule.resolve(releaseDir)) !== version)
+    throw new Error("active release version does not match activation");
+
+  const gateStat = fileSystem.lstatSync(GATE_PATH);
+  if (!gateStat.isFile() || gateStat.isSymbolicLink())
+    throw new Error("production gate is invalid");
+  if (!(await isServiceActive(PRODUCTION_UNIT)))
+    throw new Error("production service is not active");
+
+  const response = await requestStatus(`http://127.0.0.1:${PRODUCTION_PORT}/api/status`);
+  let status;
+  try {
+    status = typeof response.body === "string" ? JSON.parse(response.body) : response.body;
+  } catch {
+    throw new Error("production status response is invalid");
+  }
+  if (
+    response.statusCode < 200 ||
+    response.statusCode >= 300 ||
+    !status ||
+    status.service !== "multimedica-production" ||
+    status.ok !== true ||
+    status.state !== "healthy"
+  )
+    throw new Error("production status is not healthy");
+  return { ok: true };
+}
 async function verifySyntheticState() {
   const stateId = `candidate-${crypto.randomUUID()}`;
   const response = await postJson("http://127.0.0.1:3000/api/runtime-state", {
@@ -220,6 +273,7 @@ function readYes(inputStream = process.stdin, outputStream = process.stdout) {
     });
     input.once("close", () => {
       if (typeof inputStream.pause === "function") inputStream.pause();
+      if (typeof inputStream.unref === "function") inputStream.unref();
       if (!settled) reject(new Error("operator session ended before authorization"));
     });
   });
@@ -233,6 +287,7 @@ async function runOperation(options, deps = {}) {
   const available = deps.portAvailable || portAvailable;
   const syntheticState = deps.verifySyntheticState || verifySyntheticState;
   const confirmation = deps.readYes || readYes;
+  const activationVerifier = deps.verifyProductionActivation || verifyProductionActivation;
   const fileSystem = deps.fs || fs;
   lock(deps.operationRoot);
   let claimed;
@@ -251,6 +306,8 @@ async function runOperation(options, deps = {}) {
       roots: { stateRoot: STATE_ROOT, releaseRoot: RELEASE_ROOT, currentLink: CURRENT_LINK },
       serviceController: controller,
       preparePromotion: controller.preparePromotion,
+      postPromotionVerifier: activationVerifier,
+      rollbackVerifier: activationVerifier,
     });
     staged = await manager.stageArtifact({
       artifactPath: claimed,
@@ -303,4 +360,5 @@ module.exports = {
   runOperation,
   serviceController,
   readYes,
+  verifyProductionActivation,
 };
