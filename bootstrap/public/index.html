@@ -1,40 +1,80 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Multimedica Scanner — Bootstrap</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div id="app">
-      <header>
-        <h1>Multimedica Scanner</h1>
-        <span id="last-updated"></span>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multimedica Scanner</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <section id="commissioning-screen" class="commissioning-screen">
+    <div class="commissioning-card">
+      <img src="./full_logo.png" alt="El Alfarero Multimédica" class="commissioning-logo" />
+      <div id="commissioning-state" class="commissioning-state state-starting">Iniciando…</div>
+      <div id="commissioning-message" class="commissioning-message"></div>
+      <ul id="commissioning-missing" class="commissioning-missing"></ul>
+      <div id="commissioning-identity" class="commissioning-identity"></div>
+    </div>
+  </section>
+
+  <div id="app" class="screen state-vacant hidden">
+    <div class="panel">
+      <header class="header">
+        <div class="logo-wrap">
+          <img
+            src="./full_logo.png"
+            alt="El Alfarero Multimédica"
+            class="logo"
+          />
+        </div>
       </header>
 
-      <main>
-        <div id="status-card">
-          <div id="state-label" class="state">Starting&hellip;</div>
-          <div id="message-box"></div>
-          <ul id="missing-list" aria-label="Required configuration"></ul>
-        </div>
+      <main class="content">
+        <section class="status-section">
+          <div class="status-row">
+            <div class="section-label">&nbsp;</div>
+            <div id="stationBadge" class="station-badge">REG</div>
+          </div>
 
-        <section id="identity-panel" class="hidden" aria-label="Device identity">
-          <h2>Device Identity</h2>
-          <dl id="identity-dl"></dl>
+          <div id="statusText" class="status-text">VACANTE</div>
         </section>
 
-        <section id="operational-panel" class="hidden" aria-label="Operational room state">
-          <div id="operational-station"></div>
-          <div id="operational-status"></div>
-          <div id="operational-patient"></div>
-          <div id="operational-room"></div>
-          <div id="operational-elapsed"></div>
+        <section class="patient-section">
+          <div class="section-label">Paciente</div>
+          <div id="patientName" class="patient-name">—</div>
+        </section>
+
+        <section class="info-grid">
+          <!-- <div class="info-card">
+            <div class="info-label">Sala</div>
+            <div id="roomValue" class="info-value">reg_room_1</div>
+          </div> -->
+
+          <div class="info-card">
+            <div class="info-label">Estación</div>
+            <div id="stationValue" class="info-value">reg</div>
+          </div>
+
+
+          <div class="info-card">
+            <div class="info-label">Actualizado</div>
+            <div id="updatedValue" class="info-value">--:--</div>
+          </div>
         </section>
       </main>
-    </div>
 
-    <script src="app.js"></script>
-  </body>
+      <footer class="footer">
+        <div id="dateTimeValue" class="date-time">
+          Tuesday, April 23, 2024 - 9:15 AM
+        </div>
+
+        <div id="healthStrip" class="health-strip health-healthy">
+          ● Conectado
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
 </html>

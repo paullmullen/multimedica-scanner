@@ -69,6 +69,62 @@ body {
   background: var(--unavailable-bg);
 }
 
+.hidden {
+  display: none !important;
+}
+
+/* Commissioning remains visually separate from ordinary clinic operation. */
+.commissioning-screen {
+  width: 100vw;
+  height: 100vh;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f2f5;
+}
+
+.commissioning-card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border-radius: 24px;
+  background: #fff;
+  color: #17384a;
+  box-shadow: 0 12px 40px rgba(18, 43, 57, 0.16);
+}
+
+.commissioning-logo {
+  display: block;
+  width: min(100%, 500px);
+  margin: 0 auto 28px;
+}
+
+.commissioning-state {
+  font-size: clamp(1.6rem, 6vw, 2.5rem);
+  font-weight: 800;
+  color: var(--clinic-blue);
+}
+
+.commissioning-message { margin-top: 18px; padding: 12px 16px; border-radius: 10px; }
+.commissioning-message:empty { display: none; }
+.commissioning-missing { margin: 18px 0 0; padding-left: 24px; color: #b42318; }
+.commissioning-identity { margin-top: 22px; color: #4d6a79; overflow-wrap: anywhere; }
+.msg-success { background: #e8f5e9; color: #1b5e20; }
+.msg-error { background: #ffebee; color: #b71c1c; }
+.msg-applying { background: #e3f2fd; color: #0d47a1; }
+.msg-info { background: #f5f5f5; color: #37474f; }
+
+/* CANDIDATE must never resemble a normal room-status screen. */
+.screen.state-candidate {
+  background: repeating-linear-gradient(135deg, #14213d 0, #14213d 34px, #6d28d9 34px, #6d28d9 68px);
+}
+
+.screen.state-candidate .status-section { background: #111827; }
+.screen.state-candidate .station-badge { background: #facc15; color: #111827; }
+.screen.state-candidate .patient-section { background: #fef3c7; }
+.screen.state-candidate .patient-name { color: #111827; }
+.health-candidate { background: #111827; color: #facc15; }
+
 .state-identity {
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
 }

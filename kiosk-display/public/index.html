@@ -3,11 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scanner Display</title>
-  <link rel="stylesheet" href="./styles.css?v=4" />
+  <title>Multimedica Scanner</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div id="app" class="screen state-vacant">
+  <section id="commissioning-screen" class="commissioning-screen">
+    <div class="commissioning-card">
+      <img src="./full_logo.png" alt="El Alfarero Multimédica" class="commissioning-logo" />
+      <div id="commissioning-state" class="commissioning-state state-starting">Iniciando…</div>
+      <div id="commissioning-message" class="commissioning-message"></div>
+      <ul id="commissioning-missing" class="commissioning-missing"></ul>
+      <div id="commissioning-identity" class="commissioning-identity"></div>
+    </div>
+  </section>
+
+  <div id="app" class="screen state-vacant hidden">
     <div class="panel">
       <header class="header">
         <div class="logo-wrap">
@@ -65,6 +75,6 @@
     </div>
   </div>
 
-  <script src="./app.js?v=4"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

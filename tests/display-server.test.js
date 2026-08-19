@@ -8,6 +8,7 @@
  */
 
 const http = require("http");
+const fs = require("fs");
 const path = require("path");
 
 // We start a fresh display-server instance for each test via a separate require
@@ -181,4 +182,46 @@ test("GET / serves index.html", (done) => {
       });
     })
     .on("error", done);
+});
+
+test("display client maps current runtime states into approved visual modes", () => {
+  const client = require("../bootstrap/public/app");
+  expect(client.runtimeView(null).mode).toBe("commissioning");
+  expect(
+    client.runtimeView({
+      kind: "room",
+      state_id: "closed-1",
+      display: { mode: "closed", status: { code: "closed" }, room: {}, station: {} },
+    }).mode
+  ).toBe("closed");
+  expect(
+    client.runtimeView({
+      kind: "room",
+      state_id: "candidate-test",
+      display: {
+        mode: "room_status",
+        status: { code: "available", label: "CANDIDATE" },
+        station: {},
+      },
+    }).mode
+  ).toBe("candidate");
+  expect(
+    client.runtimeView({
+      kind: "overlay",
+      state_id: "warning-1",
+      overlay: { severity: "warning", title: "Aviso", detail: "Detalle" },
+    })
+  ).toMatchObject({ mode: "overlay", severity: "warning" });
+});
+
+test("approved display assets preserve branding and separate candidate styling", () => {
+  const publicRoot = path.join(__dirname, "..", "bootstrap", "public");
+  const html = fs.readFileSync(path.join(publicRoot, "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(publicRoot, "styles.css"), "utf8");
+  expect(html).toContain("full_logo.png");
+  expect(html).toContain('id="commissioning-screen"');
+  expect(html).toContain('id="app"');
+  expect(css).toContain(".screen.state-candidate");
+  expect(css).toContain("#app.state-clinic-closed");
+  expect(fs.existsSync(path.join(publicRoot, "full_logo.png"))).toBe(true);
 });

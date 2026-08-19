@@ -1,154 +1,219 @@
-/* global fetch, document, setInterval, clearInterval */
-(function () {
+/* global document, fetch, setInterval, window */
+(function (root, factory) {
+  "use strict";
+  var api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  if (root && root.document) api.start(root.document);
+})(typeof window !== "undefined" ? window : null, function () {
   "use strict";
 
-  var POLL_INTERVAL = 2000;
+  var POLL_INTERVAL_MS = 2000;
+  var lastRuntime = null;
 
   var STATE_LABELS = {
-    starting: "Starting\u2026",
-    bootstrap_installed: "Scan Wi\u2011Fi QR to begin",
-    network_configured: "Wi\u2011Fi configured",
-    identity_configured: "Station configured",
-    cloud_configured: "Configuration complete",
-    operational: "Operational",
+    starting: "Iniciando…",
+    bootstrap_installed: "Escanee el QR de Wi‑Fi para comenzar",
+    network_configured: "Wi‑Fi configurado",
+    identity_configured: "Estación configurada",
+    cloud_configured: "Configuración completa",
+    operational: "Operacional",
   };
 
   var QR_LABELS = {
-    wifi_config: "Wi\u2011Fi configuration QR",
-    station_config: "Station configuration QR",
-    cloud_config: "Cloud configuration QR",
+    wifi_config: "configuración de Wi‑Fi",
+    station_config: "configuración de estación",
+    cloud_config: "configuración de nube",
   };
 
-  function el(id) {
-    return document.getElementById(id);
-  }
+  var DISPLAY_CLASSES = [
+    "state-vacant",
+    "state-in-process",
+    "state-unavailable",
+    "state-waiting",
+    "state-clinic-closed",
+    "state-candidate",
+    "overlay-success",
+    "overlay-error",
+    "overlay-warning",
+    "overlay-info",
+  ];
 
-  function stateClass(state) {
-    return "state state-" + state.replace(/_/g, "-");
-  }
-
-  function escapeHtml(s) {
-    if (!s) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function renderState(data) {
-    var stateEl = el("state-label");
-    stateEl.textContent = STATE_LABELS[data.commissioning_state] || data.commissioning_state;
-    stateEl.className = stateClass(data.commissioning_state || "starting");
-
-    renderMessage(data.message);
-    renderMissing(data.missing_fields);
-    renderIdentity(data.identity);
-    renderRuntime(data.runtime);
-
-    var luEl = el("last-updated");
-    if (luEl && data.last_updated) {
-      luEl.textContent = "Updated " + new Date(data.last_updated).toLocaleTimeString();
-    }
-  }
-
-  function renderRuntime(runtime) {
-    var operational = el("operational-panel");
-    var commissioning = el("status-card");
-    var identity = el("identity-panel");
-    if (!runtime) {
-      operational.classList.add("hidden");
-      return;
-    }
+  function runtimeView(runtime) {
+    if (!runtime || typeof runtime !== "object") return { mode: "commissioning" };
     if (runtime.kind === "overlay" && runtime.overlay) {
-      if (!operational.classList.contains("hidden")) operational.classList.remove("hidden");
-      renderMessage(runtime.overlay);
-      return;
+      return {
+        mode: "overlay",
+        severity: runtime.overlay.severity || "info",
+        title: runtime.overlay.title || "MENSAJE",
+        detail: runtime.overlay.detail || "",
+      };
     }
-    if (runtime.kind === "room" && runtime.display) {
-      commissioning.classList.add("hidden");
-      identity.classList.add("hidden");
-      operational.classList.remove("hidden");
-      var status = runtime.display.status || {},
-        room = runtime.display.room || {},
-        station = runtime.display.station || {},
-        patient = runtime.display.patient || {},
-        timing = runtime.display.timing || {};
-      el("operational-station").textContent = station.label || "—";
-      el("operational-status").textContent =
-        runtime.display.mode === "closed" ? "CLÍNICA CERRADA" : status.label || status.code || "—";
-      el("operational-status").className = "status-" + (status.code || "available");
-      el("operational-patient").textContent = patient.name || "—";
-      el("operational-room").textContent = room.label || "—";
-      el("operational-elapsed").textContent = timing.started_at
-        ? elapsedText(timing.started_at)
-        : "";
+    if (runtime.kind !== "room" || !runtime.display) return { mode: "commissioning" };
+
+    var display = runtime.display;
+    var status = display.status || {};
+    var room = display.room || {};
+    var station = display.station || {};
+    var patient = display.patient || {};
+    var label = status.label || statusLabel(status.code);
+    var candidate =
+      /^candidate-/i.test(runtime.state_id || "") || String(label).toUpperCase() === "CANDIDATE";
+    if (candidate) {
+      return {
+        mode: "candidate",
+        status: "CANDIDATE",
+        detail: "Validación física de la versión candidata",
+        station: station.label || station.id || "VALIDACIÓN",
+      };
     }
-  }
-
-  function elapsedText(startedAt) {
-    var ms = Date.now() - new Date(startedAt).getTime();
-    if (!Number.isFinite(ms) || ms < 0) return "";
-    var minutes = Math.floor(ms / 60000);
-    return minutes + " min";
-  }
-
-  function renderMessage(msg) {
-    var box = el("message-box");
-    if (!msg || !msg.text) {
-      box.textContent = "";
-      box.className = "";
-      return;
+    if (display.mode === "closed") {
+      return {
+        mode: "closed",
+        status: "CLÍNICA\nCERRADA",
+        patient: "El sistema está conectado y esperando la próxima jornada.",
+        room: room.label || room.id || "—",
+        station: station.label || station.id || "—",
+        updatedAt: display.updated_at,
+      };
     }
-    box.textContent = msg.text;
-    box.className = "msg-" + (msg.kind || "info");
+    return {
+      mode: "room",
+      code: status.code || "available",
+      status: label,
+      patient: patient.name || "—",
+      room: room.label || room.id || "—",
+      station: station.label || station.id || "—",
+      startedAt: display.timing && display.timing.started_at,
+      updatedAt: display.updated_at,
+    };
   }
 
-  function renderMissing(missing) {
-    var list = el("missing-list");
-    list.innerHTML = "";
-    if (!missing || missing.length === 0) return;
-    missing.forEach(function (key) {
-      var li = document.createElement("li");
-      li.textContent = "Still needed: " + (QR_LABELS[key] || key);
-      list.appendChild(li);
-    });
+  function statusLabel(code) {
+    return {
+      in_process: "EN\nPROCESO",
+      patient_waiting: "PACIENTE\nEN ESPERA",
+      unavailable: "NO\nDISPONIBLE",
+      available: "DISPONIBLE",
+      vacant: "DISPONIBLE",
+    }[code] || "DISPONIBLE";
   }
 
-  function renderIdentity(identity) {
-    var panel = el("identity-panel");
-    var dl = el("identity-dl");
-    if (!identity) {
-      panel.classList.add("hidden");
-      dl.innerHTML = "";
-      return;
+  function start(doc) {
+    function el(id) { return doc.getElementById(id); }
+
+    function showCommissioning(data) {
+      el("commissioning-screen").classList.remove("hidden");
+      el("app").classList.add("hidden");
+      var state = data.commissioning_state || "starting";
+      el("commissioning-state").textContent = STATE_LABELS[state] || state;
+      el("commissioning-state").className = "commissioning-state state-" + state.replace(/_/g, "-");
+      var message = data.message || {};
+      el("commissioning-message").textContent = message.text || "";
+      el("commissioning-message").className = "commissioning-message msg-" + (message.kind || "info");
+      var missing = data.missing_fields || [];
+      el("commissioning-missing").innerHTML = missing.map(function (key) {
+        return "<li>Falta: " + escapeHtml(QR_LABELS[key] || key) + "</li>";
+      }).join("");
+      var identity = data.identity || {};
+      el("commissioning-identity").textContent = [
+        identity.location_id,
+        identity.room_id,
+        identity.station_id,
+        identity.device_id,
+      ].filter(Boolean).join(" · ");
     }
-    panel.classList.remove("hidden");
-    var fields = [
-      ["Location", identity.location_id],
-      ["Room", identity.room_id],
-      ["Station", identity.station_id],
-      ["Device ID", identity.device_id],
-    ];
-    dl.innerHTML = fields
-      .map(function (f) {
-        return "<dt>" + escapeHtml(f[0]) + "</dt><dd>" + escapeHtml(f[1] || "\u2014") + "</dd>";
-      })
-      .join("");
+
+    function showRuntime(view) {
+      el("commissioning-screen").classList.add("hidden");
+      el("app").classList.remove("hidden");
+      DISPLAY_CLASSES.forEach(function (name) { el("app").classList.remove(name); });
+      if (view.mode === "overlay") {
+        el("app").classList.add("overlay-" + view.severity);
+        setText("statusText", overlayIcon(view.severity) + "\n" + view.title);
+        setText("patientName", view.detail || " ");
+        setText("stationBadge", "ALERTA");
+        setText("stationValue", " ");
+        setText("updatedValue", shortTime(Date.now()));
+        setHealth("◆ Mensaje del sistema", "health-degraded");
+        return;
+      }
+      if (view.mode === "candidate") {
+        el("app").classList.add("state-candidate");
+        setText("statusText", view.status);
+        setText("patientName", view.detail);
+        setText("stationBadge", "CAND");
+        setText("stationValue", view.station);
+        setText("updatedValue", shortTime(Date.now()));
+        setHealth("◆ VALIDACIÓN DE VERSIÓN · Confirme físicamente", "health-candidate");
+        return;
+      }
+      if (view.mode === "closed") {
+        el("app").classList.add("state-clinic-closed");
+      } else {
+        el("app").classList.add(roomClass(view.code));
+      }
+      setText("statusText", view.status);
+      setText("patientName", view.patient);
+      setText("stationValue", view.station);
+      setText("stationBadge", String(view.station || "—").slice(0, 3).toUpperCase());
+      setText("updatedValue", shortTime(view.updatedAt || Date.now()));
+      setHealth(view.mode === "closed" ? "○ Clínica cerrada · Conectado" : "● Conectado", "health-healthy");
+    }
+
+    function render(data) {
+      var view = runtimeView(data.runtime);
+      if (view.mode === "commissioning") showCommissioning(data);
+      else { lastRuntime = data.runtime; showRuntime(view); }
+    }
+
+    function poll() {
+      fetch("/api/state", { cache: "no-store" })
+        .then(function (response) {
+          if (!response.ok) throw new Error("Display API " + response.status);
+          return response.json();
+        })
+        .then(render)
+        .catch(function () {
+          if (lastRuntime) showRuntime(runtimeView(lastRuntime));
+          setHealth("⚠ Sin conexión con la pantalla", "health-degraded");
+        });
+    }
+
+    function setText(id, value) { var node = el(id); if (node) node.textContent = value || "—"; }
+    function setHealth(text, className) { var node = el("healthStrip"); if (node) { node.textContent = text; node.className = "health-strip " + className; } }
+
+    function refreshClock() {
+      setText("dateTimeValue", new Date().toLocaleString("es-GT", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: false,
+      }));
+    }
+
+    poll();
+    refreshClock();
+    setInterval(poll, POLL_INTERVAL_MS);
+    setInterval(refreshClock, 1000);
   }
 
-  function poll() {
-    fetch("/api/state")
-      .then(function (r) {
-        return r.json();
-      })
-      .then(renderState)
-      .catch(function (err) {
-        var stateEl = el("state-label");
-        if (stateEl) stateEl.textContent = "Display error: " + err.message;
-      });
+  function roomClass(code) {
+    return {
+      in_process: "state-in-process",
+      patient_waiting: "state-waiting",
+      unavailable: "state-unavailable",
+    }[code] || "state-vacant";
   }
 
-  poll();
-  setInterval(poll, POLL_INTERVAL);
-})();
+  function overlayIcon(severity) {
+    return { success: "✓", error: "!", warning: "⚠", info: "i" }[severity] || "i";
+  }
+
+  function shortTime(value) {
+    return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function escapeHtml(value) {
+    return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  return { runtimeView: runtimeView, statusLabel: statusLabel, roomClass: roomClass, start: start };
+});
