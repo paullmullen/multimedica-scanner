@@ -71,6 +71,14 @@
     "production_active": { "type": ["boolean", "null"] },
     "production_gate_present": { "type": ["boolean", "null"] },
     "current_release_present": { "type": ["boolean", "null"] },
+    "install_operation_status": { "type": ["string", "null"] },
+    "recovery_enabled_for_future_boots": { "type": ["boolean", "null"] },
+    "candidate_health_passed": { "type": ["boolean", "null"] },
+    "candidate_display_verified": { "type": ["boolean", "null"] },
+    "operator_confirmed": { "type": ["boolean", "null"] },
+    "promotion_completed": { "type": ["boolean", "null"] },
+    "automatic_rollback": { "type": ["boolean", "null"] },
+    "transaction_stage": { "type": ["string", "null"] },
     "errors": { "type": "array", "items": { "type": "string" } },
     "warnings": { "type": "array", "items": { "type": "string" } }
   }

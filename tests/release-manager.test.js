@@ -52,6 +52,11 @@ function setup({
   healthRequester,
   isPortAvailable,
   artifactValidator,
+  serviceController,
+  preparePromotion,
+  postPromotionVerifier,
+  switchCurrent,
+  productionHealthRequester,
 } = {}) {
   const root = tempDir();
   const artifactDir = path.join(root, "artifact");
@@ -67,6 +72,16 @@ function setup({
     roots: { stateRoot: path.join(root, "state"), releaseRoot: path.join(root, "releases") },
     stateStore,
     artifactValidator,
+    serviceController: serviceController || {
+      enable: async () => {},
+      restart: async () => {},
+      stop: async () => {},
+      disable: async () => {},
+    },
+    preparePromotion,
+    postPromotionVerifier,
+    switchCurrent,
+    productionHealthRequester,
     commandRunner:
       commandRunner ||
       (async (command, args, options) => {
@@ -292,6 +307,30 @@ describe("release manager local staging and candidate lifecycle", () => {
     await fixture.manager.stopCandidate(staged.transactionId);
     expect(child.signals).toContain("SIGTERM");
     expect(readTransaction(fixture.root, staged.transactionId).stage).toBe("candidate_stopped");
+  });
+
+  test("promoteCandidate invokes preparePromotion after stopping the manager-owned candidate", async () => {
+    const order = [];
+    const child = fakeChild();
+    fixture = setup({
+      processLauncher: () => child,
+      preparePromotion: async () => order.push("preparePromotion"),
+      postPromotionVerifier: async () => ({ ok: true }),
+      productionHealthRequester: async () => ({ statusCode: 200, body: { service: "multimedica-production", ok: true, state: "healthy" } }),
+      switchCurrent: (target, transactionId) => {
+        const current = path.join(fixture.root, "current");
+        const temporary = `${current}.${transactionId}.tmp`;
+        fs.symlinkSync(target, temporary, "junction");
+        if (fs.existsSync(current)) fs.unlinkSync(current);
+        fs.renameSync(temporary, current);
+      },
+      serviceController: { enable: async () => {}, restart: async () => {}, stop: async () => {}, disable: async () => {} },
+    });
+    const staged = await fixture.manager.stageArtifact({ artifactPath: fixture.artifact.artifactPath, expectedSha256: fixture.artifact.sha256, version: VERSION });
+    await fixture.manager.startCandidate(staged.transactionId);
+    await fixture.manager.promoteCandidate(staged.transactionId);
+    expect(child.signals).toContain("SIGTERM");
+    expect(order).toEqual(["preparePromotion"]);
   });
 
   test("accepts only true healthy responses and rejects start-up failure states", async () => {

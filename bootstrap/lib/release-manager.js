@@ -43,6 +43,7 @@ function createReleaseManager(deps = {}) {
   const serviceController = deps.serviceController || defaultServiceController;
   const postPromotionVerifier = deps.postPromotionVerifier || defaultPromotionVerifier;
   const rollbackVerifier = deps.rollbackVerifier || defaultPromotionVerifier;
+  const preparePromotion = deps.preparePromotion || (async () => {});
   const switchCurrent =
     deps.switchCurrent ||
     ((target, transactionId) =>
@@ -235,6 +236,7 @@ function createReleaseManager(deps = {}) {
       });
 
       await stopCandidate(transactionId);
+      await preparePromotion({ transactionId, version: transaction.target_version });
       transaction = readTransaction(transactionId);
       const versionDir = resolveInside(roots.releaseRoot, transaction.target_version, path);
       if (fs.existsSync(versionDir)) throw new Error("release version directory already exists");

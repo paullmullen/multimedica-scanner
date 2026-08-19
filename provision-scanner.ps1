@@ -75,6 +75,14 @@ param(
     [Parameter(ParameterSetName = 'Commission')]
     [string]$ReleaseVersion,
 
+    [Parameter(Mandatory, ParameterSetName = 'InstallRelease')]
+    [ValidateScript({ if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) { throw 'ArtifactPath must identify a regular local file.' }; $true })]
+    [string]$ArtifactPath,
+
+    [Parameter(Mandatory, ParameterSetName = 'InstallRelease')]
+    [ValidatePattern('^[0-9a-fA-F]{64}$')]
+    [string]$ArtifactSha256,
+
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'Commission')]
     [Parameter(ParameterSetName = 'Repair')]
@@ -167,6 +175,14 @@ function New-ProvisioningResult {
         production_active = $null
         production_gate_present = $null
         current_release_present = $null
+        install_operation_status = $null
+        recovery_enabled_for_future_boots = $null
+        candidate_health_passed = $null
+        candidate_display_verified = $null
+        operator_confirmed = $null
+        promotion_completed = $null
+        automatic_rollback = $null
+        transaction_stage = $null
         errors                  = [System.Collections.Generic.List[string]]::new()
         warnings                = [System.Collections.Generic.List[string]]::new()
     }
@@ -205,7 +221,11 @@ function Get-OptionalPropertyValue {
 function Write-ProvisioningResult { param([hashtable]$Result)
     $out  = $Result | ConvertTo-Json -Depth 4
     $utf8 = New-Object System.Text.UTF8Encoding($false)
-    $dest = Join-Path (Get-Location).Path $ResultFile
+    $dest = if ([System.IO.Path]::IsPathRooted($ResultFile)) {
+        [System.IO.Path]::GetFullPath($ResultFile)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $ResultFile))
+    }
     [System.IO.File]::WriteAllText($dest, $out, $utf8)
     Write-Phase "Result written to $ResultFile" }
 
@@ -474,6 +494,43 @@ function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
     $out = & $script:SshExe @a 2>$null
     $script:LastRemoteCaptureExitCode = $LASTEXITCODE
     return ($out -join "`n")  }
+
+function Invoke-InteractiveRemote { param([string]$Desc, [string[]]$Arguments, [string]$ArtifactRemotePath)
+    if ($Desc) { Write-Phase $Desc }
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $script:SshExe
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.Arguments = (($script:SshCommon + $Arguments) | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' '
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $psi
+    if (-not $process.Start()) { throw 'Could not start attached release operation.' }
+    $claimed = $false
+    try {
+        while (-not $process.StandardOutput.EndOfStream) {
+            $line = $process.StandardOutput.ReadLine()
+            if ($line -eq 'ARTIFACT_CLAIMED') { $claimed = $true; continue }
+            if ($line -like '*Type lowercase yes to continue*') {
+                $answer = Read-Host $line
+                if ($answer -cne 'yes') { $process.StandardInput.WriteLine('no'); $process.StandardInput.Flush(); throw 'Operator confirmation must be exactly lowercase yes.' }
+                $process.StandardInput.WriteLine('yes')
+                $process.StandardInput.Flush()
+            } else { Write-Host $line }
+        }
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw 'Remote release operation failed.' }
+        return @{ Claimed = $claimed; ExitCode = $process.ExitCode }
+    } finally {
+        if (-not $process.HasExited) { $process.Kill() }
+        $process.Dispose()
+        if (-not $claimed -and $ArtifactRemotePath) {
+            Invoke-Remote '' "rm -f '$ArtifactRemotePath'" -AllowFail | Out-Null
+        }
+    }
+}
 
 function Test-PlatformPreflight { param([hashtable]$Result)
     $probeCommand = @'
@@ -841,6 +898,42 @@ function Invoke-Repair { param([hashtable]$R)
     return $R }
 
 # ---------------------------------------------------------------------------
+# Mode: -InstallRelease
+# ---------------------------------------------------------------------------
+
+function Invoke-InstallRelease { param([hashtable]$R)
+    if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') { throw 'ReleaseVersion must be semantic.' }
+    if (-not (Test-Path -LiteralPath $ArtifactPath -PathType Leaf)) { throw 'ArtifactPath must identify a regular local file.' }
+    $localHash = (Get-FileHash -LiteralPath $ArtifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($localHash -ne $ArtifactSha256.ToLowerInvariant()) { throw 'ArtifactSha256 does not match the local artifact.' }
+
+    Initialize-Ssh $PiPort
+    $artifactName = "install-$([Guid]::NewGuid().ToString('N')).tgz"
+    $remoteRoot = '/var/lib/multimedica-scanner/release-transfer'
+    $remoteArtifact = "$remoteRoot/$artifactName"
+    $remoteArtifactDestination = "$PiHost`:$remoteArtifact"
+    $copyArgs = $script:ScpCommon + @($ArtifactPath, $remoteArtifactDestination)
+    & $script:ScpExe @copyArgs 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw 'SCP artifact transfer failed.' }
+
+    $wrapper = '/usr/local/sbin/multimedica-release-install'
+    $operationCommand = "sudo -n $wrapper --version '$ReleaseVersion' --artifact-name '$artifactName' --sha256 '$($ArtifactSha256.ToLowerInvariant())'"
+    $R.install_operation_status = 'attached'
+    $R.release_version = $ReleaseVersion
+    $result = Invoke-InteractiveRemote 'Running attached release operation' @($PiHost, $operationCommand) $remoteArtifact
+    $R.operator_confirmed = $true
+    $R.candidate_health_passed = $true
+    $R.candidate_display_verified = $true
+    $R.promotion_completed = $true
+    $R.install_operation_status = 'complete'
+    $R.transaction_stage = 'complete'
+    $R.release_installed = $true
+    $R.production_healthy = $true
+    $R.exit_code = 0
+    return $R
+}
+
+# ---------------------------------------------------------------------------
 # Mode: -Commission (stub; full implementation in Milestone 5)
 # ---------------------------------------------------------------------------
 
@@ -1020,8 +1113,8 @@ try {
         'Verify'          { Invoke-Verify      -R $result | Out-Null }
         'Commission'      { Invoke-Commission  -R $result | Out-Null }
         'Repair'          { Invoke-Repair      -R $result | Out-Null }
+        'InstallRelease'  { Invoke-InstallRelease -R $result | Out-Null }
         'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }
-        'InstallRelease'  { $result.warnings.Add('InstallRelease: Milestone 5');  $result.exit_code = 10 }
         'RollbackRelease' { $result.warnings.Add('RollbackRelease: Milestone 5'); $result.exit_code = 10 }
     }
 } catch {

@@ -200,6 +200,14 @@ mkdir -p \
 chown -R "$APP_USER:$APP_GROUP" "$STATE_DIR"
 chmod 750 "$STATE_DIR"
 
+TRANSFER_DIR="$STATE_DIR/release-transfer"
+OPERATION_DIR="$STATE_DIR/release-operation"
+mkdir -p "$TRANSFER_DIR" "$OPERATION_DIR"
+chown root:"$APP_GROUP" "$TRANSFER_DIR"
+chmod 0730 "$TRANSFER_DIR"
+chown root:root "$OPERATION_DIR"
+chmod 0700 "$OPERATION_DIR"
+
 log "Creating installation root $INSTALL_ROOT"
 mkdir -p "$INSTALL_ROOT"
 chown "$APP_USER:$APP_GROUP" "$INSTALL_ROOT"
@@ -236,6 +244,18 @@ fi
 chown -R "$APP_USER:$APP_GROUP" "$INSTALL_ROOT"
 chmod -R u+rX,g+rX,o-rwx "$INSTALL_ROOT"
 find "$INSTALL_ROOT" -name '*.sh' -exec chmod +x {} \;
+
+install -o root -g root -m 0755 \
+  "$BOOTSTRAP_DIR/bin/multimedica-release-install" \
+  /usr/local/sbin/multimedica-release-install
+SUDOERS_TMP="/etc/sudoers.d/.multimedica-release-install.tmp"
+install -o root -g root -m 0440 \
+  "$BOOTSTRAP_DIR/sudoers/multimedica-release-install" \
+  "$SUDOERS_TMP"
+visudo -cf "$SUDOERS_TMP" >/dev/null
+mv -f "$SUDOERS_TMP" /etc/sudoers.d/multimedica-release-install
+chown root:root /etc/sudoers.d/multimedica-release-install
+chmod 0440 /etc/sudoers.d/multimedica-release-install
 
 # =============================================================================
 # 3. Install npm dependencies
@@ -397,6 +417,7 @@ systemctl restart multimedica-controller.service
 
 log "Starting physical kiosk service"
 systemctl restart multimedica-kiosk.service
+
 
 # =============================================================================
 # 8. Post-install verification
