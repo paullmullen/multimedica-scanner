@@ -3,21 +3,59 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { parseArgs, claimArtifact, acquireLock } = require("../bootstrap/release-install");
+const { PassThrough } = require("stream");
+const { parseArgs, claimArtifact, acquireLock, readYes } = require("../bootstrap/release-install");
 
-function tempDir() { return fs.mkdtempSync(path.join(os.tmpdir(), "mm-install-")); }
-function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
+function tempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mm-install-"));
+}
+function cleanup(root) {
+  fs.rmSync(root, { recursive: true, force: true });
+}
 
 describe("simplified InstallRelease root operation", () => {
   let root;
-  beforeEach(() => { root = tempDir(); });
+  beforeEach(() => {
+    root = tempDir();
+  });
   afterEach(() => cleanup(root));
 
   test("accepts only fixed semantic version, basename, and literal SHA arguments", () => {
-    expect(parseArgs(["--version", "1.2.3", "--artifact-name", "release.tgz", "--sha256", "a".repeat(64)])).toMatchObject({ version: "1.2.3", artifactName: "release.tgz" });
-    expect(() => parseArgs(["--version", "1.2", "--artifact-name", "release.tgz", "--sha256", "a".repeat(64)])).toThrow();
-    expect(() => parseArgs(["--version", "1.2.3", "--artifact-name", "../release.tgz", "--sha256", "a".repeat(64)])).toThrow();
-    expect(() => parseArgs(["--version", "1.2.3", "--artifact-name", "release.tgz", "--sha256", "hash-file"])).toThrow();
+    expect(
+      parseArgs([
+        "--version",
+        "1.2.3",
+        "--artifact-name",
+        "release.tgz",
+        "--sha256",
+        "a".repeat(64),
+      ])
+    ).toMatchObject({ version: "1.2.3", artifactName: "release.tgz" });
+    expect(() =>
+      parseArgs(["--version", "1.2", "--artifact-name", "release.tgz", "--sha256", "a".repeat(64)])
+    ).toThrow();
+    expect(() =>
+      parseArgs([
+        "--version",
+        "1.2.3",
+        "--artifact-name",
+        "../release.tgz",
+        "--sha256",
+        "a".repeat(64),
+      ])
+    ).toThrow();
+    expect(() =>
+      parseArgs(["--version", "1.2.3", "--artifact-name", "release.tgz", "--sha256", "hash-file"])
+    ).toThrow();
+  });
+
+  test("confirmation closes readline and pauses stdin after exact lowercase yes", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const confirmation = readYes(input, output);
+    input.end("yes\n");
+    await expect(confirmation).resolves.toBeUndefined();
+    expect(input.isPaused()).toBe(true);
   });
 
   test("claims an ordinary artifact atomically into a root-only operation directory", () => {
@@ -44,7 +82,8 @@ describe("simplified InstallRelease root operation", () => {
     jest.doMock("fs", () => ({
       ...jest.requireActual("fs"),
       lstatSync(file) {
-        if (file === path.join(transfer, "release.tgz")) return { isFile: () => true, isSymbolicLink: () => true, nlink: 1 };
+        if (file === path.join(transfer, "release.tgz"))
+          return { isFile: () => true, isSymbolicLink: () => true, nlink: 1 };
         return actualFs.lstatSync(file);
       },
     }));
@@ -111,16 +150,30 @@ describe("simplified InstallRelease root operation", () => {
   });
 
   test("fixed launcher and sudoers restrict execution", () => {
-    const launcher = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "bin", "multimedica-release-install"), "utf8");
-    const sudoers = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "sudoers", "multimedica-release-install"), "utf8");
-    expect(launcher).toContain("exec /usr/bin/node /opt/multimedica-scanner/bootstrap/release-install.js");
-    expect(sudoers.trim()).toBe("multimedica_edge ALL=(root) NOPASSWD: /usr/local/sbin/multimedica-release-install");
+    const launcher = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "bin", "multimedica-release-install"),
+      "utf8"
+    );
+    const sudoers = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "sudoers", "multimedica-release-install"),
+      "utf8"
+    );
+    expect(launcher).toContain(
+      "exec /usr/bin/node /opt/multimedica-scanner/bootstrap/release-install.js"
+    );
+    expect(sudoers.trim()).toBe(
+      "multimedica_edge ALL=(root) NOPASSWD: /usr/local/sbin/multimedica-release-install"
+    );
   });
 
   test("installer installs fixed transfer/operation roots and validates sudoers", () => {
-    const installer = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "install-bootstrap.sh"), "utf8");
-    expect(installer).toContain('TRANSFER_DIR="$STATE_DIR/release-transfer"');
-    expect(installer).toContain('OPERATION_DIR="$STATE_DIR/release-operation"');
+    const installer = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "install-bootstrap.sh"),
+      "utf8"
+    );
+    expect(installer).toContain('DATA_ROOT="/var/lib/multimedica-scanner"');
+    expect(installer).toContain('TRANSFER_DIR="$DATA_ROOT/release-transfer"');
+    expect(installer).toContain('OPERATION_DIR="$DATA_ROOT/release-operation"');
     expect(installer).toContain('chmod 0730 "$TRANSFER_DIR"');
     expect(installer).toContain('chmod 0700 "$OPERATION_DIR"');
     expect(installer).toContain("visudo -cf");
@@ -143,13 +196,29 @@ describe("simplified InstallRelease root operation", () => {
     fs.mkdirSync(path.dirname(claimed), { recursive: true });
     fs.writeFileSync(claimed, "claimed artifact");
     const manager = {
-      stageArtifact: jest.fn(async () => { calls.push("stageArtifact"); return { transactionId: "txn-1" }; }),
-      startCandidate: jest.fn(async () => { calls.push("startCandidate"); }),
-      promoteCandidate: jest.fn(async () => { calls.push("promoteCandidate"); return { stage: "complete" }; }),
-      abandonStaging: jest.fn(async () => { calls.push("abandonStaging"); }),
+      stageArtifact: jest.fn(async () => {
+        calls.push("stageArtifact");
+        return { transactionId: "txn-1" };
+      }),
+      startCandidate: jest.fn(async () => {
+        calls.push("startCandidate");
+      }),
+      promoteCandidate: jest.fn(async () => {
+        calls.push("promoteCandidate");
+        return { stage: "complete" };
+      }),
+      abandonStaging: jest.fn(async () => {
+        calls.push("abandonStaging");
+      }),
       readTransaction: jest.fn(() => ({ stage: overrides.transactionStage || "failed" })),
     };
-    const controller = { preparePromotion: jest.fn(async () => calls.push("preparePromotion")), enable: jest.fn(), restart: jest.fn(), stop: jest.fn(), disable: jest.fn() };
+    const controller = {
+      preparePromotion: jest.fn(async () => calls.push("preparePromotion")),
+      enable: jest.fn(),
+      restart: jest.fn(),
+      stop: jest.fn(),
+      disable: jest.fn(),
+    };
     return {
       calls,
       claimed,
@@ -160,10 +229,15 @@ describe("simplified InstallRelease root operation", () => {
         transferRoot: path.join(root, "transfer"),
         acquireLock: jest.fn(() => calls.push("lock")),
         releaseLock: jest.fn(() => calls.push("unlock")),
-        claimArtifact: jest.fn(() => { calls.push("claimArtifact"); return claimed; }),
+        claimArtifact: jest.fn(() => {
+          calls.push("claimArtifact");
+          return claimed;
+        }),
         createReleaseManager: jest.fn(() => manager),
         serviceController: () => controller,
-        portAvailable: jest.fn(async () => overrides.productionAvailable === undefined ? true : overrides.productionAvailable),
+        portAvailable: jest.fn(async () =>
+          overrides.productionAvailable === undefined ? true : overrides.productionAvailable
+        ),
         verifySyntheticState: jest.fn(async () => calls.push("syntheticState")),
         readYes: overrides.readYes || jest.fn(async () => calls.push("yes")),
         fs,
@@ -173,15 +247,50 @@ describe("simplified InstallRelease root operation", () => {
 
   test("runOperation orchestrates first installation through one manager and cleans claim/lock", async () => {
     const fixture = operationFixture();
-    await require("../bootstrap/release-install").runOperation({ version: "1.2.3", artifactName: "release.tgz", expectedSha256: require("crypto").createHash("sha256").update(fs.readFileSync(fixture.claimed)).digest("hex") }, fixture.deps);
-    expect(fixture.calls).toEqual(["lock", "claimArtifact", "stageArtifact", "startCandidate", "syntheticState", "yes", "promoteCandidate", "unlock"]);
+    await require("../bootstrap/release-install").runOperation(
+      {
+        version: "1.2.3",
+        artifactName: "release.tgz",
+        expectedSha256: require("crypto")
+          .createHash("sha256")
+          .update(fs.readFileSync(fixture.claimed))
+          .digest("hex"),
+      },
+      fixture.deps
+    );
+    expect(fixture.calls).toEqual([
+      "lock",
+      "claimArtifact",
+      "stageArtifact",
+      "startCandidate",
+      "syntheticState",
+      "yes",
+      "promoteCandidate",
+      "unlock",
+    ]);
     expect(fixture.deps.createReleaseManager).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(fixture.claimed)).toBe(false);
   });
 
   test.each(["decline", "eof"])("runOperation %s never promotes and abandons", async (kind) => {
-    const fixture = operationFixture({ readYes: jest.fn(async () => { throw new Error("operator ended"); }) });
-    await expect(require("../bootstrap/release-install").runOperation({ version: "1.2.3", artifactName: "release.tgz", expectedSha256: require("crypto").createHash("sha256").update(fs.readFileSync(fixture.claimed)).digest("hex") }, fixture.deps)).rejects.toThrow("release installation failed");
+    const fixture = operationFixture({
+      readYes: jest.fn(async () => {
+        throw new Error("operator ended");
+      }),
+    });
+    await expect(
+      require("../bootstrap/release-install").runOperation(
+        {
+          version: "1.2.3",
+          artifactName: "release.tgz",
+          expectedSha256: require("crypto")
+            .createHash("sha256")
+            .update(fs.readFileSync(fixture.claimed))
+            .digest("hex"),
+        },
+        fixture.deps
+      )
+    ).rejects.toThrow("release installation failed");
     expect(fixture.manager.promoteCandidate).not.toHaveBeenCalled();
     expect(fixture.manager.abandonStaging).toHaveBeenCalledTimes(1);
     expect(fixture.calls).toContain("unlock");
@@ -192,23 +301,63 @@ describe("simplified InstallRelease root operation", () => {
   test("candidate failure leaves promotion and service control untouched", async () => {
     const fixture = operationFixture();
     fixture.manager.startCandidate.mockRejectedValue(new Error("candidate failed"));
-    await expect(require("../bootstrap/release-install").runOperation({ version: "1.2.3", artifactName: "release.tgz", expectedSha256: require("crypto").createHash("sha256").update(fs.readFileSync(fixture.claimed)).digest("hex") }, fixture.deps)).rejects.toThrow("release installation failed");
+    await expect(
+      require("../bootstrap/release-install").runOperation(
+        {
+          version: "1.2.3",
+          artifactName: "release.tgz",
+          expectedSha256: require("crypto")
+            .createHash("sha256")
+            .update(fs.readFileSync(fixture.claimed))
+            .digest("hex"),
+        },
+        fixture.deps
+      )
+    ).rejects.toThrow("release installation failed");
     expect(fixture.manager.promoteCandidate).not.toHaveBeenCalled();
     expect(fixture.controller.preparePromotion).not.toHaveBeenCalled();
   });
 
   test("upgrade validation reaches promotion only after authorization on the same manager", async () => {
     const fixture = operationFixture();
-    await require("../bootstrap/release-install").runOperation({ version: "1.2.3", artifactName: "release.tgz", expectedSha256: require("crypto").createHash("sha256").update(fs.readFileSync(fixture.claimed)).digest("hex") }, fixture.deps);
+    await require("../bootstrap/release-install").runOperation(
+      {
+        version: "1.2.3",
+        artifactName: "release.tgz",
+        expectedSha256: require("crypto")
+          .createHash("sha256")
+          .update(fs.readFileSync(fixture.claimed))
+          .digest("hex"),
+      },
+      fixture.deps
+    );
     expect(fixture.calls.indexOf("syntheticState")).toBeLessThan(fixture.calls.indexOf("yes"));
     expect(fixture.calls.indexOf("yes")).toBeLessThan(fixture.calls.indexOf("promoteCandidate"));
     expect(fixture.deps.createReleaseManager).toHaveBeenCalledTimes(1);
   });
 
   test("runOperation does not expose injected sensitive dependency values", async () => {
-    const fixture = operationFixture({ readYes: jest.fn(async () => { throw new Error("secret barcode patient raw subprocess"); }) });
+    const fixture = operationFixture({
+      readYes: jest.fn(async () => {
+        throw new Error("secret barcode patient raw subprocess");
+      }),
+    });
     let error;
-    try { await require("../bootstrap/release-install").runOperation({ version: "1.2.3", artifactName: "release.tgz", expectedSha256: require("crypto").createHash("sha256").update(fs.readFileSync(fixture.claimed)).digest("hex") }, fixture.deps); } catch (caught) { error = caught; }
+    try {
+      await require("../bootstrap/release-install").runOperation(
+        {
+          version: "1.2.3",
+          artifactName: "release.tgz",
+          expectedSha256: require("crypto")
+            .createHash("sha256")
+            .update(fs.readFileSync(fixture.claimed))
+            .digest("hex"),
+        },
+        fixture.deps
+      );
+    } catch (caught) {
+      error = caught;
+    }
     expect(String(error)).not.toMatch(/secret|barcode|patient|subprocess/);
   });
 });

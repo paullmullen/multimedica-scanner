@@ -60,6 +60,9 @@ function createReleaseManager(deps = {}) {
     },
     deps.roots || {}
   );
+  const prepareReleaseAccess =
+    deps.prepareReleaseAccess ||
+    ((releaseDir) => prepareImmutableReleaseAccess(fs, path, roots.stateRoot, releaseDir));
   const candidates = new Map();
   const transactionSchema = loadTransactionSchema(fs, path);
   const validateTransaction = createValidator(transactionSchema);
@@ -236,6 +239,7 @@ function createReleaseManager(deps = {}) {
       });
 
       await stopCandidate(transactionId);
+      prepareReleaseAccess(transaction.staging_dir);
       await preparePromotion({ transactionId, version: transaction.target_version });
       transaction = readTransaction(transactionId);
       const versionDir = resolveInside(roots.releaseRoot, transaction.target_version, path);
@@ -595,6 +599,39 @@ function assertImmutableVersionDirectory(fs, versionDir, path) {
     throw new Error("promoted version path is invalid");
 }
 
+function prepareImmutableReleaseAccess(fs, path, stateRoot, releaseDir) {
+  const stateStat = fs.lstatSync(stateRoot);
+  if (!stateStat.isDirectory() || stateStat.isSymbolicLink())
+    throw new Error("release state root is invalid");
+  const runtimeGid = stateStat.gid;
+  const root = path.resolve(releaseDir);
+
+  function visit(target) {
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) {
+      const resolved = fs.realpathSync(target);
+      if (!isInside(root, resolved, path)) throw new Error("release symlink escapes release root");
+      if (typeof fs.lchownSync === "function") fs.lchownSync(target, 0, runtimeGid);
+      return;
+    }
+    if (stat.isDirectory()) {
+      fs.chownSync(target, 0, runtimeGid);
+      fs.chmodSync(target, 0o750);
+      for (const name of fs.readdirSync(target)) visit(path.join(target, name));
+      return;
+    }
+    if (stat.isFile()) {
+      const executable = (stat.mode & 0o111) !== 0;
+      fs.chownSync(target, 0, runtimeGid);
+      fs.chmodSync(target, executable ? 0o750 : 0o640);
+      return;
+    }
+    throw new Error("release contains unsupported filesystem entry");
+  }
+
+  visit(root);
+}
+
 function assertReleaseTarget(target, releaseRoot, fs, path) {
   if (
     typeof target !== "string" ||
@@ -937,4 +974,4 @@ async function terminateChild(child, sleep) {
   if (typeof child.waitForExit === "function") await child.waitForExit(STOP_TIMEOUT_MS);
 }
 
-module.exports = { CANDIDATE_PORT, createReleaseManager };
+module.exports = { CANDIDATE_PORT, createReleaseManager, prepareImmutableReleaseAccess };

@@ -49,6 +49,7 @@ FORCE=0
 INSTALL_ROOT="/opt/multimedica-scanner"
 BOOTSTRAP_DIR="$INSTALL_ROOT/bootstrap"
 SCHEMAS_DIR="$INSTALL_ROOT/schemas"
+DATA_ROOT="/var/lib/multimedica-scanner"
 STATE_DIR="/var/lib/multimedica-scanner/state"
 SYSTEMD_DIR="/etc/systemd/system"
 APP_USER="multimedica_edge"
@@ -200,8 +201,8 @@ mkdir -p \
 chown -R "$APP_USER:$APP_GROUP" "$STATE_DIR"
 chmod 750 "$STATE_DIR"
 
-TRANSFER_DIR="$STATE_DIR/release-transfer"
-OPERATION_DIR="$STATE_DIR/release-operation"
+TRANSFER_DIR="$DATA_ROOT/release-transfer"
+OPERATION_DIR="$DATA_ROOT/release-operation"
 mkdir -p "$TRANSFER_DIR" "$OPERATION_DIR"
 chown root:"$APP_GROUP" "$TRANSFER_DIR"
 chmod 0730 "$TRANSFER_DIR"

@@ -6,6 +6,8 @@ Documentation=https://github.com/paullmullen/multimedica-scanner
 After=network-online.target multimedica-controller.service
 Wants=network-online.target multimedica-controller.service
 ConditionPathExists=/run/multimedica-scanner/production-allowed
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -16,8 +18,6 @@ Environment=MULTIMEDICA_STATE_DIR=/var/lib/multimedica-scanner/state
 ExecStart=/usr/bin/node /opt/multimedica-scanner/current/production/scan-server.js
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal

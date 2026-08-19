@@ -8,7 +8,11 @@ const Ajv = require("ajv");
 const addFormats = require("ajv-formats");
 const stateStore = require("../bootstrap/lib/state-store");
 const { buildRelease } = require("../release/build-production-release");
-const { createReleaseManager, CANDIDATE_PORT } = require("../bootstrap/lib/release-manager");
+const {
+  createReleaseManager,
+  CANDIDATE_PORT,
+  prepareImmutableReleaseAccess,
+} = require("../bootstrap/lib/release-manager");
 
 const ROOT = path.join(__dirname, "..");
 const VERSION = "5.2.2-test";
@@ -57,6 +61,7 @@ function setup({
   postPromotionVerifier,
   switchCurrent,
   productionHealthRequester,
+  prepareReleaseAccess,
 } = {}) {
   const root = tempDir();
   const artifactDir = path.join(root, "artifact");
@@ -82,6 +87,7 @@ function setup({
     postPromotionVerifier,
     switchCurrent,
     productionHealthRequester,
+    prepareReleaseAccess: prepareReleaseAccess || (() => {}),
     commandRunner:
       commandRunner ||
       (async (command, args, options) => {
@@ -314,9 +320,13 @@ describe("release manager local staging and candidate lifecycle", () => {
     const child = fakeChild();
     fixture = setup({
       processLauncher: () => child,
+      prepareReleaseAccess: () => order.push("prepareReleaseAccess"),
       preparePromotion: async () => order.push("preparePromotion"),
       postPromotionVerifier: async () => ({ ok: true }),
-      productionHealthRequester: async () => ({ statusCode: 200, body: { service: "multimedica-production", ok: true, state: "healthy" } }),
+      productionHealthRequester: async () => ({
+        statusCode: 200,
+        body: { service: "multimedica-production", ok: true, state: "healthy" },
+      }),
       switchCurrent: (target, transactionId) => {
         const current = path.join(fixture.root, "current");
         const temporary = `${current}.${transactionId}.tmp`;
@@ -324,13 +334,108 @@ describe("release manager local staging and candidate lifecycle", () => {
         if (fs.existsSync(current)) fs.unlinkSync(current);
         fs.renameSync(temporary, current);
       },
-      serviceController: { enable: async () => {}, restart: async () => {}, stop: async () => {}, disable: async () => {} },
+      serviceController: {
+        enable: async () => {},
+        restart: async () => {},
+        stop: async () => {},
+        disable: async () => {},
+      },
     });
-    const staged = await fixture.manager.stageArtifact({ artifactPath: fixture.artifact.artifactPath, expectedSha256: fixture.artifact.sha256, version: VERSION });
+    const staged = await fixture.manager.stageArtifact({
+      artifactPath: fixture.artifact.artifactPath,
+      expectedSha256: fixture.artifact.sha256,
+      version: VERSION,
+    });
     await fixture.manager.startCandidate(staged.transactionId);
     await fixture.manager.promoteCandidate(staged.transactionId);
     expect(child.signals).toContain("SIGTERM");
-    expect(order).toEqual(["preparePromotion"]);
+    expect(order).toEqual(["prepareReleaseAccess", "preparePromotion"]);
+  });
+
+  test("normalizes the immutable release tree for root-owned runtime read access", () => {
+    const treeRoot = tempDir();
+    try {
+      const stateRoot = path.join(treeRoot, "state");
+      const releaseRoot = path.join(treeRoot, "release");
+      const nested = path.join(releaseRoot, "production");
+      const regular = path.join(nested, "scan-server.js");
+      const executable = path.join(nested, "helper");
+      fs.mkdirSync(stateRoot);
+      fs.mkdirSync(nested, { recursive: true });
+      fs.writeFileSync(regular, "module.exports = {};\n");
+      fs.writeFileSync(executable, "#!/bin/sh\n");
+      fs.chmodSync(executable, 0o755);
+
+      if (process.platform === "win32") {
+        const calls = [];
+        const stats = new Map([
+          [stateRoot, { gid: 1234, isDirectory: () => true, isSymbolicLink: () => false }],
+          [
+            releaseRoot,
+            {
+              mode: 0o40750,
+              isDirectory: () => true,
+              isSymbolicLink: () => false,
+              isFile: () => false,
+            },
+          ],
+          [
+            nested,
+            {
+              mode: 0o40750,
+              isDirectory: () => true,
+              isSymbolicLink: () => false,
+              isFile: () => false,
+            },
+          ],
+          [
+            regular,
+            {
+              mode: 0o100644,
+              isDirectory: () => false,
+              isSymbolicLink: () => false,
+              isFile: () => true,
+            },
+          ],
+          [
+            executable,
+            {
+              mode: 0o100755,
+              isDirectory: () => false,
+              isSymbolicLink: () => false,
+              isFile: () => true,
+            },
+          ],
+        ]);
+        const fakeFs = {
+          lstatSync: (target) => stats.get(target),
+          readdirSync: (target) =>
+            target === releaseRoot ? ["production"] : ["scan-server.js", "helper"],
+          chownSync: (target, uid, gid) => calls.push(["chown", target, uid, gid]),
+          chmodSync: (target, mode) => calls.push(["chmod", target, mode]),
+        };
+        prepareImmutableReleaseAccess(fakeFs, path, stateRoot, releaseRoot);
+        expect(calls).toEqual(
+          expect.arrayContaining([
+            ["chmod", releaseRoot, 0o750],
+            ["chmod", nested, 0o750],
+            ["chmod", regular, 0o640],
+            ["chmod", executable, 0o750],
+            ["chown", regular, 0, 1234],
+          ])
+        );
+      } else {
+        prepareImmutableReleaseAccess(fs, path, stateRoot, releaseRoot);
+        const runtimeGid = fs.lstatSync(stateRoot).gid;
+        expect(fs.lstatSync(releaseRoot).gid).toBe(runtimeGid);
+        expect(fs.lstatSync(releaseRoot).mode & 0o777).toBe(0o750);
+        expect(fs.lstatSync(nested).mode & 0o777).toBe(0o750);
+        expect(fs.lstatSync(regular).mode & 0o777).toBe(0o640);
+        expect(fs.lstatSync(executable).mode & 0o777).toBe(0o750);
+      }
+    } finally {
+      removeDir(treeRoot);
+    }
   });
 
   test("accepts only true healthy responses and rejects start-up failure states", async () => {

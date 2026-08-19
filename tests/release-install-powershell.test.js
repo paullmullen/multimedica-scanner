@@ -10,7 +10,9 @@ const addFormats = require("ajv-formats");
 
 const ROOT = path.join(__dirname, "..");
 const SCRIPT = path.join(ROOT, "provision-scanner.ps1");
-const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, "schemas", "provisioning-result.schema.json"), "utf8"));
+const SCHEMA = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "schemas", "provisioning-result.schema.json"), "utf8")
+);
 const HASH = "a".repeat(64);
 
 function tempDir() {
@@ -27,15 +29,15 @@ function writeFakeExecutables(root) {
     [
       "@echo off",
       `>>"${sshLog}" echo %*`,
-      "echo %* | findstr /C:\" true\" >nul",
+      'echo %* | findstr /C:" true" >nul',
       "if not errorlevel 1 exit /b 0",
-      "echo %* | findstr /C:\"sudo -n /usr/local/sbin/multimedica-release-install\" >nul",
+      'echo %* | findstr /C:"sudo -n /usr/local/sbin/multimedica-release-install" >nul',
       "if errorlevel 1 exit /b 0",
-      "if /I \"%FAKE_SSH_MODE%\"==\"eof\" exit /b 7",
+      'if /I "%FAKE_SSH_MODE%"=="eof" exit /b 7',
       "echo ARTIFACT_CLAIMED",
       "echo Confirm the physical display showed the CANDIDATE state. Type lowercase yes to continue:",
       "set /p answer=",
-      "if \"%answer%\"==\"yes\" (echo INSTALL_RELEASE_COMPLETE&exit /b 0)",
+      'if "%answer%"=="yes" (echo INSTALL_RELEASE_COMPLETE&exit /b 0)',
       "echo release installation failed 1>&2",
       "exit /b 7",
     ].join("\r\n")
@@ -45,14 +47,20 @@ function writeFakeExecutables(root) {
     [
       "@echo off",
       `>>"${scpLog}" echo %*`,
-      "if not \"%FAKE_SCP_EXIT%\"==\"\" exit /b %FAKE_SCP_EXIT%",
+      'if not "%FAKE_SCP_EXIT%"=="" exit /b %FAKE_SCP_EXIT%',
       "exit /b 0",
     ].join("\r\n")
   );
   return { ssh, scp, sshLog, scpLog };
 }
 
-function runInstall({ artifactPath, artifactSha256, input = "yes\n", sshMode = "success", scpExit = "" } = {}) {
+function runInstall({
+  artifactPath,
+  artifactSha256,
+  input = "yes\n",
+  sshMode = "success",
+  scpExit = "",
+} = {}) {
   const root = tempDir();
   const home = path.join(root, "home");
   fs.mkdirSync(path.join(home, ".ssh"), { recursive: true });
@@ -61,7 +69,8 @@ function runInstall({ artifactPath, artifactSha256, input = "yes\n", sshMode = "
   const resultFile = path.join(root, "provisioning-result.json");
   const artifact = artifactPath || path.join(root, "release.tgz");
   if (!artifactPath) fs.writeFileSync(artifact, "temporary artifact bytes");
-  const expectedHash = artifactSha256 || crypto.createHash("sha256").update(fs.readFileSync(artifact)).digest("hex");
+  const expectedHash =
+    artifactSha256 || crypto.createHash("sha256").update(fs.readFileSync(artifact)).digest("hex");
   const result = spawnSync(
     "powershell.exe",
     [
@@ -128,7 +137,9 @@ function executionEvidence(run) {
 function expectSchemaValid(run) {
   const evidence = executionEvidence(run);
   if (!evidence.schema.valid) {
-    throw new Error(`Provisioning result failed schema validation:\n${JSON.stringify(evidence, null, 2)}`);
+    throw new Error(
+      `Provisioning result failed schema validation:\n${JSON.stringify(evidence, null, 2)}`
+    );
   }
 }
 
@@ -141,7 +152,9 @@ describe("InstallRelease executable PowerShell workflow", () => {
     const run = runInstall();
     try {
       if (run.result.status !== 0) {
-        throw new Error(`InstallRelease success path exited nonzero:\n${JSON.stringify(executionEvidence(run), null, 2)}`);
+        throw new Error(
+          `InstallRelease success path exited nonzero:\n${JSON.stringify(executionEvidence(run), null, 2)}`
+        );
       }
       expect(run.sshText).toContain("sudo -n /usr/local/sbin/multimedica-release-install");
       expect(run.sshText).not.toContain("systemctl");
@@ -149,11 +162,17 @@ describe("InstallRelease executable PowerShell workflow", () => {
       expect(run.sshText).not.toContain("node ");
       expect(run.sshText).toMatch(/--version\s+'1\.2\.3'/);
       expect(run.sshText).toContain("--sha256");
-      expect(run.scpText).toMatch(/multimedica_edge@fake-host:.*\/release-transfer\/install-[a-f0-9]{32}\.tgz/);
+      expect(run.scpText).toMatch(
+        /multimedica_edge@fake-host:.*\/release-transfer\/install-[a-f0-9]{32}\.tgz/
+      );
       expectSchemaValid(run);
       expect(run.output.install_operation_status).toBe("complete");
-      expect(JSON.stringify(run.output)).not.toMatch(/temporary artifact bytes|fake-secret|patient|barcode|PATH=|MULTIMEDICA_STATE_DIR/);
-    } finally { remove(run.root); }
+      expect(JSON.stringify(run.output)).not.toMatch(
+        /temporary artifact bytes|fake-secret|patient|barcode|PATH=|MULTIMEDICA_STATE_DIR/
+      );
+    } finally {
+      remove(run.root);
+    }
   });
 
   test("local SHA mismatch prevents SCP and attached SSH", () => {
@@ -163,7 +182,9 @@ describe("InstallRelease executable PowerShell workflow", () => {
       expect(run.scpText).toBe("");
       expect(run.sshText).toBe("");
       expectSchemaValid(run);
-    } finally { remove(run.root); }
+    } finally {
+      remove(run.root);
+    }
   });
 
   test("SCP failure prevents the attached wrapper operation", () => {
@@ -174,19 +195,28 @@ describe("InstallRelease executable PowerShell workflow", () => {
       expect(run.sshText).toContain(" true");
       expect(run.sshText).not.toContain("sudo -n /usr/local/sbin/multimedica-release-install");
       expectSchemaValid(run);
-    } finally { remove(run.root); }
+    } finally {
+      remove(run.root);
+    }
   });
 
-  test.each(["Yes\n", "y\n", "\n", "anything\n"])("non-lowercase confirmation %j fails safely", (input) => {
-    const run = runInstall({ input });
-    try {
-      expect(run.result.status).not.toBe(0);
-      expect(run.sshText).toContain("sudo -n /usr/local/sbin/multimedica-release-install");
-      expect(run.result.stdout).toContain("Operator confirmation must be exactly lowercase yes");
-      expectSchemaValid(run);
-      expect(JSON.stringify(run.output)).not.toMatch(/temporary artifact bytes|fake-secret|patient|barcode/);
-    } finally { remove(run.root); }
-  });
+  test.each(["Yes\n", "y\n", "\n", "anything\n"])(
+    "non-lowercase confirmation %j fails safely",
+    (input) => {
+      const run = runInstall({ input });
+      try {
+        expect(run.result.status).not.toBe(0);
+        expect(run.sshText).toContain("sudo -n /usr/local/sbin/multimedica-release-install");
+        expect(run.result.stdout).toContain("Operator confirmation must be exactly lowercase yes");
+        expectSchemaValid(run);
+        expect(JSON.stringify(run.output)).not.toMatch(
+          /temporary artifact bytes|fake-secret|patient|barcode/
+        );
+      } finally {
+        remove(run.root);
+      }
+    }
+  );
 
   test("EOF/fake SSH failure propagates a bounded nonzero result", () => {
     const run = runInstall({ sshMode: "eof", input: "" });
@@ -194,14 +224,25 @@ describe("InstallRelease executable PowerShell workflow", () => {
       expect(run.result.status).not.toBe(0);
       expect(run.sshText).toContain("sudo -n /usr/local/sbin/multimedica-release-install");
       expectSchemaValid(run);
-      expect(JSON.stringify(run.output)).not.toMatch(/release installation failed 7|temporary artifact bytes/);
-    } finally { remove(run.root); }
+      expect(JSON.stringify(run.output)).not.toMatch(
+        /release installation failed 7|temporary artifact bytes/
+      );
+    } finally {
+      remove(run.root);
+    }
   });
 
   test("PowerShell AST parser accepts the installer source", () => {
     const parsed = spawnSync(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'provision-scanner.ps1').Path, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { exit 1 }"] ,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'provision-scanner.ps1').Path, [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count -gt 0) { exit 1 }",
+      ],
       { cwd: ROOT, encoding: "utf8" }
     );
     expect(parsed.status).toBe(0);
