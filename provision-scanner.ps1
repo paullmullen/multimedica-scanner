@@ -3,13 +3,14 @@
     Multimedica Scanner Bootstrap Provisioning Installer
 
 .DESCRIPTION
-    Six mutually exclusive action modes:
+    Seven mutually exclusive action modes:
         -Install        Install the bootstrap layer (acceptance point A)
         -Verify         Query and report current device state (read-only)
         -Commission     Verify commissioning acceptance point B
         -Repair         Re-run bootstrap installation safely
         -InstallRelease Install a specific named release artifact    (Milestone 5)
         -RollbackRelease Roll back to a prior installed release      (Milestone 5)
+        -UpdateDisplay  Atomically update bootstrap display assets
 
     One SSH setup utility:
         -ConfigureSshAccess  Install and verify the workstation's dedicated
@@ -52,6 +53,9 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'RollbackRelease')]
     [switch]$RollbackRelease,
 
+    [Parameter(Mandatory, ParameterSetName = 'UpdateDisplay')]
+    [switch]$UpdateDisplay,
+
     [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
     [switch]$ConfigureSshAccess,
 
@@ -67,6 +71,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'RollbackRelease')]
     [Parameter(Mandatory, ParameterSetName = 'ConfigureSshAccess')]
     [Parameter(Mandatory, ParameterSetName = 'ValidateProductionCandidate')]
+    [Parameter(Mandatory, ParameterSetName = 'UpdateDisplay')]
     [string]$PiHost,
 
     # ReleaseVersion: declared ONCE; required for release modes, optional for Commission
@@ -97,6 +102,7 @@ param(
     [Parameter(ParameterSetName = 'RollbackRelease')]
     [Parameter(ParameterSetName = 'ConfigureSshAccess')]
     [Parameter(ParameterSetName = 'ValidateProductionCandidate')]
+    [Parameter(ParameterSetName = 'UpdateDisplay')]
     [int]$PiPort = 22,
 
     [Parameter(ParameterSetName = 'Install')]
@@ -106,6 +112,7 @@ param(
     [Parameter(ParameterSetName = 'InstallRelease')]
     [Parameter(ParameterSetName = 'RollbackRelease')]
     [Parameter(ParameterSetName = 'ValidateProductionCandidate')]
+    [Parameter(ParameterSetName = 'UpdateDisplay')]
     [string]$ResultFile = '.\provisioning-result.json',
 
     [Parameter(ParameterSetName = 'Install')]
@@ -183,6 +190,8 @@ function New-ProvisioningResult {
         promotion_completed = $null
         automatic_rollback = $null
         transaction_stage = $null
+        display_update_status = $null
+        display_rollback_performed = $null
         errors                  = [System.Collections.Generic.List[string]]::new()
         warnings                = [System.Collections.Generic.List[string]]::new()
     }
@@ -934,6 +943,60 @@ function Invoke-InstallRelease { param([hashtable]$R)
 }
 
 # ---------------------------------------------------------------------------
+# Mode: -UpdateDisplay
+# ---------------------------------------------------------------------------
+
+function Invoke-UpdateDisplay { param([hashtable]$R)
+    Initialize-Ssh $PiPort
+    Test-PlatformPreflight -Result $R | Out-Null
+    $project = (Get-Location).Path
+    $public = Join-Path $project 'bootstrap\public'
+    $updater = Join-Path $project 'bootstrap\display-update.js'
+    $allowlist = @('app.js', 'full_logo.png', 'index.html', 'styles.css')
+    if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) { throw 'Display updater source is missing.' }
+    $manifestFiles = @()
+    foreach ($name in $allowlist) {
+        $file = Join-Path $public $name
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Required display asset is missing: $name" }
+        $item = Get-Item -LiteralPath $file
+        $manifestFiles += [ordered]@{
+            name = $name
+            sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            size = [Int64]$item.Length
+        }
+    }
+    $manifestLocal = [System.IO.Path]::GetTempFileName()
+    $remote = "/tmp/mm-display-update-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        $manifest = [ordered]@{ version = 1; files = $manifestFiles } | ConvertTo-Json -Depth 4
+        [System.IO.File]::WriteAllText($manifestLocal, $manifest, $utf8)
+        $null = Invoke-Remote 'Preparing display update staging' "umask 077; mkdir -p $remote/bundle"
+        Copy-ToRemote 'Copying display updater' $updater "$remote/display-update.js"
+        Copy-ToRemote 'Copying display manifest' $manifestLocal "$remote/bundle/manifest.json"
+        foreach ($name in $allowlist) {
+            Copy-ToRemote "Copying display asset $name" (Join-Path $public $name) "$remote/bundle/$name"
+        }
+        $R.install_operation_status = 'attached'
+        $R.display_update_status = 'installing'
+        $output = Invoke-RemoteCapture 'Installing display update' "sudo /usr/bin/node $remote/display-update.js --source $remote/bundle"
+        if ($script:LastRemoteCaptureExitCode -ne 0 -or $output -notmatch 'DISPLAY_UPDATE_COMPLETE') {
+            $R.display_rollback_performed = ($output -match 'DISPLAY_UPDATE_ROLLED_BACK')
+            throw 'Remote display update failed.'
+        }
+        $R.display_update_status = 'complete'
+        $R.display_rollback_performed = $false
+        $R.install_operation_status = 'complete'
+        $R.services_healthy = $true
+        $R.exit_code = 0
+    } finally {
+        if (Test-Path -LiteralPath $manifestLocal) { Remove-Item -Force $manifestLocal }
+        Invoke-Remote '' "rm -rf $remote" -AllowFail | Out-Null
+    }
+    return $R
+}
+
+# ---------------------------------------------------------------------------
 # Mode: -Commission (stub; full implementation in Milestone 5)
 # ---------------------------------------------------------------------------
 
@@ -1114,6 +1177,7 @@ try {
         'Commission'      { Invoke-Commission  -R $result | Out-Null }
         'Repair'          { Invoke-Repair      -R $result | Out-Null }
         'InstallRelease'  { Invoke-InstallRelease -R $result | Out-Null }
+        'UpdateDisplay'   { Invoke-UpdateDisplay -R $result | Out-Null }
         'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }
         'RollbackRelease' { $result.warnings.Add('RollbackRelease: Milestone 5'); $result.exit_code = 10 }
     }

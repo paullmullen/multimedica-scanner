@@ -247,4 +247,12 @@ describe("InstallRelease executable PowerShell workflow", () => {
     );
     expect(parsed.status).toBe(0);
   });
+
+  test("display update mode is separate from release installation", () => {
+    const source = fs.readFileSync(SCRIPT, "utf8");
+    expect(source).toContain("ParameterSetName = 'UpdateDisplay'");
+    expect(source).toContain("Invoke-UpdateDisplay");
+    expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
+    expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?multimedica-release-install/);
+  });
 });

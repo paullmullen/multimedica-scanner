@@ -26,7 +26,8 @@
         "Repair",
         "InstallRelease",
         "RollbackRelease",
-        "ValidateProductionCandidate"
+        "ValidateProductionCandidate",
+        "UpdateDisplay"
       ]
     },
     "timestamp": { "type": "string", "format": "date-time" },
@@ -79,6 +80,8 @@
     "promotion_completed": { "type": ["boolean", "null"] },
     "automatic_rollback": { "type": ["boolean", "null"] },
     "transaction_stage": { "type": ["string", "null"] },
+    "display_update_status": { "type": ["string", "null"] },
+    "display_rollback_performed": { "type": ["boolean", "null"] },
     "errors": { "type": "array", "items": { "type": "string" } },
     "warnings": { "type": "array", "items": { "type": "string" } }
   }
