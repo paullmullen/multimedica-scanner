@@ -526,7 +526,7 @@ describe("runtime display coordination", () => {
     }
   });
 
-  test("unavailable scan replaces active accepted feedback overlay immediately", async () => {
+  test("accepted scan has no overlay and a later unavailable scan remains visible", async () => {
     jest.useFakeTimers();
     const forwardProductionScan = jest
       .fn()
@@ -534,7 +534,7 @@ describe("runtime display coordination", () => {
       .mockResolvedValueOnce({ disposition: "unavailable" });
     const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
     await ctrl.handleScan("VISIT:one");
-    expect(display.showRuntimeState.mock.calls.at(-1)[0].overlay.title).toBe("Scan accepted");
+    expect(display.showRuntimeState).not.toHaveBeenCalled();
     await ctrl.handleScan("VISIT:two");
     expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
       priority: "feedback",

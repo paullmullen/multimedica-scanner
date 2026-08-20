@@ -231,14 +231,6 @@ function createController(deps) {
           detail: "Please check the visit and rescan.",
         },
       });
-    } else {
-      await _applyRuntimeState({
-        kind: "overlay",
-        state_id: `scan-accepted-${Date.now()}`,
-        priority: "feedback",
-        expires_in_ms: 5_000,
-        overlay: { severity: "success", title: "Scan accepted", detail: "Patient scan accepted." },
-      });
     }
   }
 
