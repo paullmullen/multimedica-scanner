@@ -488,6 +488,8 @@ function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail)
     $a = $script:SshCommon + @($PiHost, $Cmd)
     $remoteOutput = @(& $script:SshExe @a 2>&1)
     $remoteExitCode = $LASTEXITCODE
+    $script:LastRemoteOutput = @($remoteOutput)
+    $script:LastRemoteExitCode = $remoteExitCode
     foreach ($line in $remoteOutput) { Write-Host $line }
     if (-not $AllowFail -and $remoteExitCode -ne 0) {
         $detail = ($remoteOutput | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } | Select-Object -Last 1)
@@ -952,11 +954,11 @@ function Invoke-UpdateDisplay { param([hashtable]$R)
     $project = (Get-Location).Path
     $public = Join-Path $project 'bootstrap\public'
     $updater = Join-Path $project 'bootstrap\display-update.js'
-    $allowlist = @('app.js', 'full_logo.png', 'index.html', 'styles.css')
+    $allowlist = @('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')
     if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) { throw 'Display updater source is missing.' }
     $manifestFiles = @()
     foreach ($name in $allowlist) {
-        $file = Join-Path $public $name
+        $file = if ($name -eq 'start-kiosk.sh') { Join-Path $project 'bootstrap\start-kiosk.sh' } else { Join-Path $public $name }
         if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Required display asset is missing: $name" }
         $item = Get-Item -LiteralPath $file
         $manifestFiles += [ordered]@{
@@ -975,13 +977,17 @@ function Invoke-UpdateDisplay { param([hashtable]$R)
         Copy-ToRemote 'Copying display updater' $updater "$remote/display-update.js"
         Copy-ToRemote 'Copying display manifest' $manifestLocal "$remote/bundle/manifest.json"
         foreach ($name in $allowlist) {
-            Copy-ToRemote "Copying display asset $name" (Join-Path $public $name) "$remote/bundle/$name"
+            $sourceFile = if ($name -eq 'start-kiosk.sh') { Join-Path $project 'bootstrap\start-kiosk.sh' } else { Join-Path $public $name }
+            Copy-ToRemote "Copying display asset $name" $sourceFile "$remote/bundle/$name"
         }
         $R.install_operation_status = 'attached'
         $R.display_update_status = 'installing'
-        $output = Invoke-RemoteCapture 'Installing display update' "sudo /usr/bin/node $remote/display-update.js --source $remote/bundle"
-        if ($script:LastRemoteCaptureExitCode -ne 0 -or $output -notmatch 'DISPLAY_UPDATE_COMPLETE') {
+        $updateExitCode = Invoke-Remote 'Installing display update' "sudo /usr/bin/node $remote/display-update.js --source $remote/bundle" -AllowFail
+        $output = @($script:LastRemoteOutput) -join "`n"
+        if ($updateExitCode -ne 0 -or $output -notmatch 'DISPLAY_UPDATE_COMPLETE') {
             $R.display_rollback_performed = ($output -match 'DISPLAY_UPDATE_ROLLED_BACK')
+            $R.display_update_status = if ($R.display_rollback_performed) { 'rolled_back' } else { 'failed' }
+            $R.install_operation_status = 'failed'
             throw 'Remote display update failed.'
         }
         $R.display_update_status = 'complete'

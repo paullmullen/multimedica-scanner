@@ -252,6 +252,9 @@ describe("InstallRelease executable PowerShell workflow", () => {
     const source = fs.readFileSync(SCRIPT, "utf8");
     expect(source).toContain("ParameterSetName = 'UpdateDisplay'");
     expect(source).toContain("Invoke-UpdateDisplay");
+    expect(source).toContain("$script:LastRemoteOutput");
+    expect(source).toContain("DISPLAY_UPDATE_ROLLED_BACK");
+    expect(source).toContain("start-kiosk.sh");
     expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
     expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?multimedica-release-install/);
   });

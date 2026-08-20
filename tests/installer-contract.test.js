@@ -785,7 +785,10 @@ describe("supported display update operation", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
     expect(source).toContain("ParameterSetName = 'UpdateDisplay'");
     expect(source).toContain("Invoke-UpdateDisplay");
-    expect(source).toContain("@('app.js', 'full_logo.png', 'index.html', 'styles.css')");
+    expect(source).toContain("$script:LastRemoteOutput");
+    expect(source).toContain("'rolled_back'");
+    expect(source).toContain("start-kiosk.sh");
+    expect(source).toContain("@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')");
     expect(source).toContain("bootstrap\\display-update.js");
     expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
     expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?Install-Bootstrap/);

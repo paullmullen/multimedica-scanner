@@ -55,6 +55,9 @@ exec "$CHROMIUM_BIN" \
   --disable-features=Translate \
   --disable-restore-session-state \
   --overscroll-history-navigation=0 \
+  --window-position=0,0 \
+  --window-size=480,800 \
+  --start-fullscreen \
   --check-for-update-interval=31536000 \
   --enable-logging=stderr \
   --kiosk "$DISPLAY_URL" \
