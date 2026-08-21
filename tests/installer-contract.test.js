@@ -252,7 +252,7 @@ function qr(kind, payload, token = "test-tok") {
 // ---------------------------------------------------------------------------
 
 describe("installer-config.schema.json", () => {
-  test("only requires qr_admin_token — no shared_secret or endpoint_url", () => {
+  test("only requires qr_admin_token â€” no shared_secret or endpoint_url", () => {
     const schema = loadSchema("installer-config.schema.json");
     const av = makeValidator();
     const validate = av.compile(schema);
@@ -405,7 +405,7 @@ describe("cloud credentials via QR only", () => {
     // Controller should be operational (token loaded) without cloud creds
     const state = ctrl.getCommissioningState();
     expect(state.state).toBe("bootstrap_installed");
-    // No cloud config yet — controller is ready to accept QRs
+    // No cloud config yet â€” controller is ready to accept QRs
     expect(state.configured.cloud).toBe(false);
   });
 
@@ -499,7 +499,7 @@ describe("state field semantics", () => {
 // Existing config and secrets survive reinstall
 // ---------------------------------------------------------------------------
 
-describe("idempotent install — config/secrets preserved", () => {
+describe("idempotent install â€” config/secrets preserved", () => {
   let tmpDir;
   beforeEach(() => {
     tmpDir = makeTempDir();
@@ -784,6 +784,51 @@ describe("bootstrap release-management installation", () => {
     expect(script).toContain('chown root:"$APP_GROUP" "$RELEASE_ROOT"');
     expect(script).toContain('chmod 0750 "$RELEASE_ROOT"');
   });
+
+  test("marks bootstrap installation incomplete until the acceptance reboot", () => {
+    const script = installScript();
+    expect(script).toContain('RUNTIME_DIR="/run/multimedica-scanner"');
+    expect(script).toContain('touch "$RUNTIME_DIR/bootstrap-installing"');
+    expect(script).toContain('chmod 0640 "$RUNTIME_DIR/bootstrap-installing"');
+  });
+});
+
+describe("non-interactive provisioning SSH contract", () => {
+  test("normal operations cannot fall back to a password prompt", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain(
+      "$script:SshCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')"
+    );
+    expect(source).toContain(
+      "$script:ScpCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')"
+    );
+    expect(source).toContain("Rebooting Pi (no operator input required)");
+    expect(source).toContain("Do not type a password or scan a QR code");
+  });
+
+  test("SSH setup handles a re-imaged Pi before making the first connection", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("Was this Pi re-imaged since it was last used from this computer?");
+    expect(source).toContain("& $keygen.Source -R $knownHostLookup");
+    expect(source).toContain("Previous SSH host key removed");
+  });
+});
+
+describe("bootstrap acceptance display gate", () => {
+  test("does not invite QR scanning while bootstrap acceptance is incomplete", () => {
+    const controller = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "controller.js"),
+      "utf8"
+    );
+    const app = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "public", "app.js"),
+      "utf8"
+    );
+    expect(controller).toContain("/run/multimedica-scanner/bootstrap-installing");
+    expect(controller).toContain("Espere. No escanee cÃ³digos todavÃ­a.");
+    expect(app).toContain("Finalizando la instalaciÃ³n");
+    expect(app).toContain('message.kind === "installing" ? []');
+  });
 });
 
 describe("supported display update operation", () => {
@@ -794,7 +839,9 @@ describe("supported display update operation", () => {
     expect(source).toContain("$script:LastRemoteOutput");
     expect(source).toContain("'rolled_back'");
     expect(source).toContain("start-kiosk.sh");
-    expect(source).toContain("@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')");
+    expect(source).toContain(
+      "@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')"
+    );
     expect(source).toContain("bootstrap\\display-update.js");
     expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
     expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?Install-Bootstrap/);

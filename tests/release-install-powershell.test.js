@@ -157,6 +157,8 @@ describe("InstallRelease executable PowerShell workflow", () => {
         );
       }
       expect(run.sshText).toContain("sudo -n /usr/local/sbin/multimedica-release-install");
+      expect(run.sshText).toContain("BatchMode=yes");
+      expect(run.sshText).toContain("NumberOfPasswordPrompts=0");
       expect(run.sshText).not.toContain("systemctl");
       expect(run.sshText).not.toContain("/bin/sh");
       expect(run.sshText).not.toContain("node ");

@@ -441,10 +441,34 @@ function Initialize-Ssh { param([int]$Port, [switch]$AllowPassword)
         if ($LASTEXITCODE -ne 0) {
             throw 'Key-based SSH verification failed. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
         }
+        # All normal provisioning operations are non-interactive. Never fall
+        # back to a password prompt after the dedicated key has been verified.
+        # This prevents a prompt from appearing beneath an unrelated phase
+        # heading and keeps password input out of captured diagnostic output.
+        $script:SshCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')
+        $script:ScpCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')
     }
     Write-Host "    SSH: $($script:SshExe)" -ForegroundColor DarkGray }
 
 function Invoke-ConfigureSshAccess {
+    $reimaged = Read-Host 'Was this Pi re-imaged since it was last used from this computer? Type lowercase yes or no'
+    if ($reimaged -cne 'yes' -and $reimaged -cne 'no') {
+        throw 'Re-image response must be exactly lowercase yes or no.'
+    }
+    if ($reimaged -ceq 'yes') {
+        $keygen = Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue
+        if (-not $keygen) { $keygen = Get-Command ssh-keygen -ErrorAction SilentlyContinue }
+        if (-not $keygen) { throw 'ssh-keygen not found. Install OpenSSH for Windows.' }
+        $knownHost = ($PiHost -split '@')[-1]
+        $knownHostLookup = if ($PiPort -eq 22) { $knownHost } else { "[$knownHost]:$PiPort" }
+        Write-Phase "Removing the previous SSH host key for $knownHostLookup"
+        & $keygen.Source -R $knownHostLookup
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not remove the previous SSH host key for $knownHostLookup"
+        }
+        Write-Ok 'Previous SSH host key removed; the new image will be verified on first connection'
+    }
+
     $keyDir = Split-Path -Parent $script:ProvisioningKey
     if (-not (Test-Path -LiteralPath $keyDir)) {
         New-Item -ItemType Directory -Path $keyDir -Force | Out-Null
@@ -782,8 +806,9 @@ function Test-Scanner { param([hashtable]$Result)
 # ---------------------------------------------------------------------------
 
 function Invoke-Reboot { param([hashtable]$Result)
-    Write-Phase 'Rebooting Pi'
+    Write-Phase 'Rebooting Pi (no operator input required)'
     Invoke-Remote '' 'sudo reboot' -AllowFail | Out-Null
+    Write-Host '    The Pi will disconnect temporarily. Do not type a password or scan a QR code.'
     Write-Host '    Waiting 30 seconds for Pi to reboot...'
     Start-Sleep -Seconds 30
     for ($i = 1; $i -le 12; $i++) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Multimedica Scanner — Bootstrap Installer
+# Multimedica Scanner â€” Bootstrap Installer
 # =============================================================================
 #
 # Installs the Multimedica bootstrap layer on a compatible 64-bit Raspberry Pi.
@@ -213,6 +213,15 @@ log "Creating installation root $INSTALL_ROOT"
 mkdir -p "$INSTALL_ROOT"
 chown "$APP_USER:$APP_GROUP" "$INSTALL_ROOT"
 
+# /run is cleared by reboot. While this marker exists, the controller may
+# detect the scanner but must not tell the operator to scan configuration QRs.
+# A normal Install/Repair acceptance ends with a reboot, which removes it.
+RUNTIME_DIR="/run/multimedica-scanner"
+install -d -o root -g "$APP_GROUP" -m 0755 "$RUNTIME_DIR"
+touch "$RUNTIME_DIR/bootstrap-installing"
+chown root:"$APP_GROUP" "$RUNTIME_DIR/bootstrap-installing"
+chmod 0640 "$RUNTIME_DIR/bootstrap-installing"
+
 # Production runs as APP_USER and reaches immutable versions through this
 # root-owned directory. Group traversal is required before current can point
 # at a promoted release.
@@ -292,7 +301,7 @@ popd >/dev/null
 # 4. Install bootstrap secrets (qr_admin_token)
 # =============================================================================
 # SECURITY: set +x ensures no shell tracing during secret handling.
-# The token is never passed as a shell argument — it is read via node.
+# The token is never passed as a shell argument â€” it is read via node.
 
 if [[ -n "$SECRETS_FILE" && -f "$SECRETS_FILE" ]]; then
   set +x
@@ -328,7 +337,7 @@ if (!r || !r.ok) { process.stderr.write('ERROR: failed to write secrets\\n'); pr
   log "Bootstrap token installed; transfer file deleted"
 else
   if [[ ! -f "$STATE_DIR/secrets.json" ]]; then
-    warn "No transfer file provided and no existing secrets.json — QR validation will fail until token is installed"
+    warn "No transfer file provided and no existing secrets.json â€” QR validation will fail until token is installed"
   else
     log "Existing secrets.json preserved"
   fi
@@ -421,7 +430,7 @@ log "Enabling bootstrap services"
 systemctl enable multimedica-display.service     2>/dev/null || true
 systemctl enable multimedica-controller.service  2>/dev/null || true
 systemctl enable multimedica-kiosk.service       2>/dev/null || true
-# Production service is NOT enabled here — activated by Milestone 5
+# Production service is NOT enabled here â€” activated by Milestone 5
 # Release recovery and production services remain disabled and inactive until
 # a later explicit release activation. Do not alter their persistent policy.
 # tty1 belongs to the appliance kiosk. SSH remains available for recovery.
@@ -472,7 +481,7 @@ else
 fi
 
 if [[ $FAIL -ne 0 ]]; then
-  fail "Post-install verification failed — check journalctl -u multimedica-controller -u multimedica-display"
+  fail "Post-install verification failed â€” check journalctl -u multimedica-controller -u multimedica-display"
 fi
 
 log "Bootstrap installation complete"
