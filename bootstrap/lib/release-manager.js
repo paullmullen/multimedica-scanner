@@ -63,6 +63,9 @@ function createReleaseManager(deps = {}) {
   const prepareReleaseAccess =
     deps.prepareReleaseAccess ||
     ((releaseDir) => prepareImmutableReleaseAccess(fs, path, roots.stateRoot, releaseDir));
+  const prepareReleaseRoot =
+    deps.prepareReleaseRoot ||
+    (() => prepareReleaseRootAccess(fs, path, roots.stateRoot, roots.releaseRoot));
   const candidates = new Map();
   const transactionSchema = loadTransactionSchema(fs, path);
   const validateTransaction = createValidator(transactionSchema);
@@ -133,6 +136,7 @@ function createReleaseManager(deps = {}) {
     writeTransaction(transaction);
 
     try {
+      prepareReleaseRoot();
       mkdir(fs, path.dirname(artifactCopy));
       fs.writeFileSync(artifactCopy, artifactBytes, { flag: "wx" });
       transaction = updateTransaction(transaction, "downloaded");
@@ -215,6 +219,7 @@ function createReleaseManager(deps = {}) {
   }
 
   async function promoteCandidate(transactionId) {
+    prepareReleaseRoot();
     const lockPath = resolveInside(roots.releaseRoot, ".promotion-lock", path);
     acquirePromotionLock(fs, lockPath);
     let symlinkChanged = false;
@@ -314,6 +319,7 @@ function createReleaseManager(deps = {}) {
   }
 
   async function reconcileInterruptedPromotions() {
+    prepareReleaseRoot();
     const lockPath = resolveInside(roots.releaseRoot, ".promotion-lock", path);
     if (fs.existsSync(lockPath)) removeIfExists(fs, lockPath);
     acquirePromotionLock(fs, lockPath);
@@ -630,6 +636,21 @@ function prepareImmutableReleaseAccess(fs, path, stateRoot, releaseDir) {
   }
 
   visit(root);
+}
+
+function prepareReleaseRootAccess(fs, path, stateRoot, releaseRoot) {
+  const stateStat = fs.lstatSync(stateRoot);
+  if (!stateStat.isDirectory() || stateStat.isSymbolicLink())
+    throw new Error("release state root is invalid");
+
+  const resolvedRoot = path.resolve(releaseRoot);
+  fs.mkdirSync(resolvedRoot, { recursive: true, mode: 0o750 });
+  const releaseStat = fs.lstatSync(resolvedRoot);
+  if (!releaseStat.isDirectory() || releaseStat.isSymbolicLink())
+    throw new Error("release root is invalid");
+
+  fs.chownSync(resolvedRoot, 0, stateStat.gid);
+  fs.chmodSync(resolvedRoot, 0o750);
 }
 
 function assertReleaseTarget(target, releaseRoot, fs, path) {
@@ -974,4 +995,9 @@ async function terminateChild(child, sleep) {
   if (typeof child.waitForExit === "function") await child.waitForExit(STOP_TIMEOUT_MS);
 }
 
-module.exports = { CANDIDATE_PORT, createReleaseManager, prepareImmutableReleaseAccess };
+module.exports = {
+  CANDIDATE_PORT,
+  createReleaseManager,
+  prepareImmutableReleaseAccess,
+  prepareReleaseRootAccess,
+};

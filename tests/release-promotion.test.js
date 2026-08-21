@@ -134,6 +134,32 @@ describe("release promotion and automatic rollback", () => {
   afterEach(() => {
     if (value) cleanup(value);
     value = null;
+    jest.restoreAllMocks();
+  });
+
+  test("repairs clean-image release-root traversal before staging", async () => {
+    value = fixture();
+    fs.chownSync(value.releaseRoot, 0, 0);
+    fs.chmodSync(value.releaseRoot, 0o700);
+
+    const chownSpy = jest.spyOn(fs, "chownSync");
+    const chmodSpy = jest.spyOn(fs, "chmodSync");
+    await value.manager.stageArtifact({
+      artifactPath: value.artifact.artifactPath,
+      expectedSha256: value.artifact.sha256,
+      version: VERSION,
+    });
+
+    const releaseRootStat = fs.statSync(value.releaseRoot);
+    const stateRootStat = fs.statSync(value.stateRoot);
+    expect(chownSpy).toHaveBeenCalledWith(value.releaseRoot, 0, stateRootStat.gid);
+    expect(chmodSpy).toHaveBeenCalledWith(value.releaseRoot, 0o750);
+
+    if (process.platform !== "win32") {
+      expect(releaseRootStat.mode & 0o777).toBe(0o750);
+      expect(releaseRootStat.uid).toBe(0);
+      expect(releaseRootStat.gid).toBe(stateRootStat.gid);
+    }
   });
 
   test("blocks promotion before candidate health and promotes first activation atomically", async () => {

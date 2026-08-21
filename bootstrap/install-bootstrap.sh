@@ -213,6 +213,14 @@ log "Creating installation root $INSTALL_ROOT"
 mkdir -p "$INSTALL_ROOT"
 chown "$APP_USER:$APP_GROUP" "$INSTALL_ROOT"
 
+# Production runs as APP_USER and reaches immutable versions through this
+# root-owned directory. Group traversal is required before current can point
+# at a promoted release.
+RELEASE_ROOT="$INSTALL_ROOT/releases"
+mkdir -p "$RELEASE_ROOT"
+chown root:"$APP_GROUP" "$RELEASE_ROOT"
+chmod 0750 "$RELEASE_ROOT"
+
 # =============================================================================
 # 2. Copy bootstrap application files
 # =============================================================================

@@ -778,6 +778,12 @@ describe("bootstrap release-management installation", () => {
     }
     expect(script).toContain("Release infrastructure state is unsafe or malformed");
   });
+  test("creates a root-owned release directory traversable by the production group", () => {
+    const script = installScript();
+    expect(script).toContain('RELEASE_ROOT="$INSTALL_ROOT/releases"');
+    expect(script).toContain('chown root:"$APP_GROUP" "$RELEASE_ROOT"');
+    expect(script).toContain('chmod 0750 "$RELEASE_ROOT"');
+  });
 });
 
 describe("supported display update operation", () => {
