@@ -79,8 +79,17 @@ function createProductionScanServer(deps = {}) {
     }
   });
 
+  let stopped = false;
+
   function start(onListening) {
-    return http.createServer(app).listen(port, "127.0.0.1", () => {
+    stopped = false;
+    const server = http.createServer(app);
+    server.once("close", () => {
+      stopped = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
+    });
+    return server.listen(port, "127.0.0.1", () => {
       logger(`[production] scan API listening on 127.0.0.1:${port}`);
       if (!process.env.MULTIMEDICA_DISABLE_BOOT_SYNC) syncNow();
       if (onListening) onListening();
@@ -120,14 +129,18 @@ function createProductionScanServer(deps = {}) {
 
   function schedulePolling(polling) {
     if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+    if (stopped) return;
     if (!polling || polling.should_poll !== true) return;
     const interval = Math.max(
       1_000,
       Math.min(30 * 60_000, Number(polling.recommended_interval_ms) || 30_000)
     );
     pollTimer = setTimeout(async () => {
+      pollTimer = null;
       await syncNow();
     }, interval);
+    if (pollTimer && typeof pollTimer.unref === "function") pollTimer.unref();
   }
 
   return { app, start, runtime };

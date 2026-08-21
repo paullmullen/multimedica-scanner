@@ -81,10 +81,14 @@ async function makeServer({
 describe("production scan API", () => {
   let server;
 
-  afterEach((done) => {
-    if (server) server.close(done);
-    else done();
+  afterEach(async () => {
+    jest.useRealTimers();
+    const activeServer = server;
     server = null;
+    if (!activeServer || !activeServer.listening) return;
+    await new Promise((resolve, reject) => {
+      activeServer.close((error) => (error ? reject(error) : resolve()));
+    });
   });
 
   test.each([
@@ -215,7 +219,11 @@ describe("production scan API", () => {
         "new-fake-secret",
       ])
     );
-    jest.useRealTimers();
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    expect(jest.getTimerCount()).toBe(0);
+    server = null;
   });
 
   test("boot sync delivers normalized state through controller loopback", async () => {

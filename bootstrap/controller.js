@@ -106,6 +106,7 @@ function createController(deps) {
         transientPriority = null;
         if (runtimeState) _displayClient.showRuntimeState(runtimeState).catch(() => {});
       }, safe.expires_in_ms);
+      if (transientTimer && typeof transientTimer.unref === "function") transientTimer.unref();
     }
     return true;
   }

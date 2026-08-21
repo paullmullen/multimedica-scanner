@@ -122,6 +122,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   delete process.env.MULTIMEDICA_STATE_DIR;
   rmTempDir(tmpDir);
   jest.clearAllMocks();
@@ -407,18 +408,21 @@ describe("handleScan â€” invalid inputs", () => {
   test("production loopback request times out and prompts a rescan", async () => {
     const production = http.createServer(() => {});
     await new Promise((resolve) => production.listen(0, "127.0.0.1", resolve));
-    const { port } = production.address();
-    const { ctrl, display } = makeCtrl(tmpDir, {
-      productionScanUrl: `http://127.0.0.1:${port}/api/scan`,
-      productionTimeoutMs: 20,
-    });
-    await ctrl.handleScan("VISIT:12345");
-    expect(display.showRuntimeState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }),
-      })
-    );
-    await new Promise((resolve) => production.close(resolve));
+    try {
+      const { port } = production.address();
+      const { ctrl, display } = makeCtrl(tmpDir, {
+        productionScanUrl: `http://127.0.0.1:${port}/api/scan`,
+        productionTimeoutMs: 20,
+      });
+      await ctrl.handleScan("VISIT:12345");
+      expect(display.showRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }),
+        })
+      );
+    } finally {
+      await new Promise((resolve) => production.close(resolve));
+    }
   });
 
   test("configuration QR never reaches production API", async () => {
