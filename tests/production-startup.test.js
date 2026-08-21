@@ -239,3 +239,23 @@ describe("privileged production recovery gate", () => {
     expect(source).not.toMatch(/ExecStart=.*\s--/);
   });
 });
+
+describe("physical kiosk startup presentation", () => {
+  test("keeps the panel blank until Chromium reports ready", () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "start-kiosk.sh"),
+      "utf8"
+    );
+    const blankAt = source.indexOf("xset dpms force off");
+    const launchAt = source.indexOf('"$CHROMIUM_BIN"');
+    const readyAt = source.indexOf('curl -fs "$CHROMIUM_READY_URL"');
+    const revealAt = source.indexOf("xset dpms force on");
+    expect(blankAt).toBeGreaterThan(-1);
+    expect(launchAt).toBeGreaterThan(blankAt);
+    expect(readyAt).toBeGreaterThan(launchAt);
+    expect(revealAt).toBeGreaterThan(readyAt);
+    expect(source).toContain("--remote-debugging-address=127.0.0.1");
+    expect(source).toContain("--remote-debugging-port=9222");
+    expect(source).toContain("xsetroot -solid black");
+  });
+});

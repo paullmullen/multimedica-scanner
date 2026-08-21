@@ -1130,7 +1130,7 @@ function Test-SyntheticRuntimeDisplay {
     $display = Invoke-RemoteCapture 'Verifying synthetic state on display endpoint' 'curl -fsS http://127.0.0.1:3001/api/state'
     if ($display -notmatch [Regex]::Escape($stateId)) { throw 'Synthetic candidate display state was not visible through the display-state endpoint.' }
     $R.warnings.Add("Slice 1 synthetic display state observed: $stateId")
-    Confirm-HardwareObservation -Prompt 'Confirm the physical display showed the CANDIDATE state.'
+    Confirm-HardwareObservation -Prompt 'Confirm the physical display showed the CANDIDATO state.'
 }
 
 function Invoke-ValidateProductionCandidate { param([hashtable]$R)

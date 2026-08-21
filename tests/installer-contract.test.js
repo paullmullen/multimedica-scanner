@@ -252,7 +252,7 @@ function qr(kind, payload, token = "test-tok") {
 // ---------------------------------------------------------------------------
 
 describe("installer-config.schema.json", () => {
-  test("only requires qr_admin_token â€” no shared_secret or endpoint_url", () => {
+  test("only requires qr_admin_token — no shared_secret or endpoint_url", () => {
     const schema = loadSchema("installer-config.schema.json");
     const av = makeValidator();
     const validate = av.compile(schema);
@@ -405,7 +405,7 @@ describe("cloud credentials via QR only", () => {
     // Controller should be operational (token loaded) without cloud creds
     const state = ctrl.getCommissioningState();
     expect(state.state).toBe("bootstrap_installed");
-    // No cloud config yet â€” controller is ready to accept QRs
+    // No cloud config yet — controller is ready to accept QRs
     expect(state.configured.cloud).toBe(false);
   });
 
@@ -499,7 +499,7 @@ describe("state field semantics", () => {
 // Existing config and secrets survive reinstall
 // ---------------------------------------------------------------------------
 
-describe("idempotent install â€” config/secrets preserved", () => {
+describe("idempotent install — config/secrets preserved", () => {
   let tmpDir;
   beforeEach(() => {
     tmpDir = makeTempDir();
@@ -796,12 +796,8 @@ describe("bootstrap release-management installation", () => {
 describe("non-interactive provisioning SSH contract", () => {
   test("normal operations cannot fall back to a password prompt", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
-    expect(source).toContain(
-      "$script:SshCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')"
-    );
-    expect(source).toContain(
-      "$script:ScpCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')"
-    );
+    expect(source).toContain("$script:SshCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')");
+    expect(source).toContain("$script:ScpCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')");
     expect(source).toContain("Rebooting Pi (no operator input required)");
     expect(source).toContain("Do not type a password or scan a QR code");
   });
@@ -825,8 +821,8 @@ describe("bootstrap acceptance display gate", () => {
       "utf8"
     );
     expect(controller).toContain("/run/multimedica-scanner/bootstrap-installing");
-    expect(controller).toContain("Espere. No escanee cÃ³digos todavÃ­a.");
-    expect(app).toContain("Finalizando la instalaciÃ³n");
+    expect(controller).toContain("Espere. No escanee códigos todavía.");
+    expect(app).toContain("Finalizando la instalación");
     expect(app).toContain('message.kind === "installing" ? []');
   });
 });
@@ -839,9 +835,7 @@ describe("supported display update operation", () => {
     expect(source).toContain("$script:LastRemoteOutput");
     expect(source).toContain("'rolled_back'");
     expect(source).toContain("start-kiosk.sh");
-    expect(source).toContain(
-      "@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')"
-    );
+    expect(source).toContain("@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')");
     expect(source).toContain("bootstrap\\display-update.js");
     expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
     expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?Install-Bootstrap/);
@@ -860,6 +854,12 @@ describe("supported display update operation", () => {
     expect(source).toContain("multimedica-kiosk.service");
     expect(source).not.toContain("multimedica-production.service");
   });
+});
+
+test("candidate confirmation shown to the operator is Spanish", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+  expect(source).toContain("physical display showed the CANDIDATO state");
+  expect(source).not.toContain("physical display showed the CANDIDATE state");
 });
 
 // ---------------------------------------------------------------------------

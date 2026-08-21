@@ -1,13 +1,13 @@
 "use strict";
 
 /**
- * Bootstrap Controller â€” Multimedica Scanner
+ * Bootstrap Controller — Multimedica Scanner
  *
  * The controller is the single owner of all barcode-scanner input during
  * bootstrap and commissioning.  It handles provisioning QRs (MMCFG: prefix)
  * and drives the commissioning-state machine.
  *
- * In Milestone 2 the controller does NOT handle production patient scans â€”
+ * In Milestone 2 the controller does NOT handle production patient scans —
  * those are routed by the production service (Milestone 4).
  *
  * SECURITY RULES:
@@ -144,7 +144,7 @@ function createController(deps) {
       wifi_security: result.runtime.security,
     });
 
-    // 2. Persist password to secrets only â€” never logged or displayed
+    // 2. Persist password to secrets only — never logged or displayed
     _secretsStore.writeSecrets({ wifi_password: result.runtime.password });
 
     // 3. Apply on Linux (or via injected function)
@@ -292,7 +292,7 @@ function createController(deps) {
     try {
       await handler();
     } catch (err) {
-      // Sanitise error text â€” never include raw values from storage writes
+      // Sanitise error text — never include raw values from storage writes
       const safeMsg = _sanitiseError(err);
       console.error("[controller] apply error:", safeMsg);
       await _showMsg("error", safeMsg);
@@ -352,7 +352,7 @@ function createController(deps) {
     loadAdminToken,
     handleScan,
     startStatusServer,
-    // Exposed for tests â€” allow reading current state without HTTP
+    // Exposed for tests — allow reading current state without HTTP
     getCommissioningState: () => {
       const cfg = _configStore.readConfig();
       const sec = _secretsStore.readSecrets();
@@ -497,7 +497,7 @@ function _defaultApplyWifi(runtime) {
 function _sanitiseError(err) {
   const msg = err && err.message ? err.message : "Configuration update failed";
   // Validation errors from Milestone 1 stores include only field paths and
-  // AJV keywords â€” no values.  This is a belt-and-suspenders truncation.
+  // AJV keywords — no values.  This is a belt-and-suspenders truncation.
   if (msg.length > 200) return msg.slice(0, 200) + "\u2026";
   return msg;
 }
@@ -544,11 +544,11 @@ async function main() {
               bootstrapInstalling
                 ? {
                     kind: "installing",
-                    text: "Espere. No escanee cÃ³digos todavÃ­a.",
+                    text: "Espere. No escanee códigos todavía.",
                   }
                 : {
                     kind: "info",
-                    text: "Scanner ready. Scan Wiâ€‘Fi configuration QR.",
+                    text: "Scanner ready. Scan ´Wi-Fi configuration QR.",
                   }
             )
             .catch(() => {});

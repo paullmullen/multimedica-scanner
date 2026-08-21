@@ -11,18 +11,18 @@
   var lastRuntime = null;
 
   var STATE_LABELS = {
-    starting: "Iniciandoâ€¦",
-    bootstrap_installed: "Escanee el QR de Wiâ€‘Fi para comenzar",
-    network_configured: "Wiâ€‘Fi configurado",
-    identity_configured: "EstaciÃ³n configurada",
-    cloud_configured: "ConfiguraciÃ³n completa",
+    starting: "Iniciando…",
+    bootstrap_installed: "Escanee el QR de Wi‑Fi para comenzar",
+    network_configured: "Wi‑Fi configurado",
+    identity_configured: "Estación configurada",
+    cloud_configured: "Configuración completa",
     operational: "Operacional",
   };
 
   var QR_LABELS = {
-    wifi_config: "configuraciÃ³n de Wiâ€‘Fi",
-    station_config: "configuraciÃ³n de estaciÃ³n",
-    cloud_config: "configuraciÃ³n de nube",
+    wifi_config: "configuración de Wi‑Fi",
+    station_config: "configuración de estación",
+    cloud_config: "configuración de nube",
   };
 
   var DISPLAY_CLASSES = [
@@ -57,22 +57,23 @@
     var patient = display.patient || {};
     var label = status.label || statusLabel(status.code);
     var candidate =
-      /^candidate-/i.test(runtime.state_id || "") || String(label).toUpperCase() === "CANDIDATE";
+      /^candidate-/i.test(runtime.state_id || "") ||
+      /^(CANDIDATE|CANDIDATO)$/.test(String(label).toUpperCase());
     if (candidate) {
       return {
         mode: "candidate",
-        status: "CANDIDATE",
-        detail: "ValidaciÃ³n fÃ­sica de la versiÃ³n candidata",
-        station: station.label || station.id || "VALIDACIÃ“N",
+        status: "CANDIDATO",
+        detail: "Validación física de la versión candidata",
+        station: station.label || station.id || "VALIDACIÓN",
       };
     }
     if (display.mode === "closed") {
       return {
         mode: "closed",
-        status: "CLÃNICA\nCERRADA",
-        patient: "El sistema estÃ¡ conectado y esperando la prÃ³xima jornada.",
-        room: room.label || room.id || "â€”",
-        station: station.label || station.id || "â€”",
+        status: "CLÍNICA\nCERRADA",
+        patient: "El sistema está conectado y esperando la próxima jornada.",
+        room: room.label || room.id || "—",
+        station: station.label || station.id || "—",
         updatedAt: display.updated_at,
       };
     }
@@ -80,30 +81,26 @@
       mode: "room",
       code: status.code || "available",
       status: label,
-      patient: patient.name || "â€”",
-      room: room.label || room.id || "â€”",
-      station: station.label || station.id || "â€”",
+      patient: patient.name || "—",
+      room: room.label || room.id || "—",
+      station: station.label || station.id || "—",
       startedAt: display.timing && display.timing.started_at,
       updatedAt: display.updated_at,
     };
   }
 
   function statusLabel(code) {
-    return (
-      {
-        in_process: "EN\nPROCESO",
-        patient_waiting: "PACIENTE\nEN ESPERA",
-        unavailable: "NO\nDISPONIBLE",
-        available: "DISPONIBLE",
-        vacant: "DISPONIBLE",
-      }[code] || "DISPONIBLE"
-    );
+    return {
+      in_process: "EN\nPROCESO",
+      patient_waiting: "PACIENTE\nEN ESPERA",
+      unavailable: "NO\nDISPONIBLE",
+      available: "DISPONIBLE",
+      vacant: "DISPONIBLE",
+    }[code] || "DISPONIBLE";
   }
 
   function start(doc) {
-    function el(id) {
-      return doc.getElementById(id);
-    }
+    function el(id) { return doc.getElementById(id); }
 
     function showCommissioning(data) {
       el("commissioning-screen").classList.remove("hidden");
@@ -113,35 +110,28 @@
       el("commissioning-state").className = "commissioning-state state-" + state.replace(/_/g, "-");
       var message = data.message || {};
       if (message.kind === "installing") {
-        el("commissioning-state").textContent = "Finalizando la instalaciÃ³n";
+        el("commissioning-state").textContent = "Finalizando la instalación";
         el("commissioning-state").className = "commissioning-state state-installing";
       }
       el("commissioning-message").textContent = message.text || "";
-      el("commissioning-message").className =
-        "commissioning-message msg-" + (message.kind || "info");
-      var missing = message.kind === "installing" ? [] : data.missing_fields || [];
-      el("commissioning-missing").innerHTML = missing
-        .map(function (key) {
-          return "<li>Falta: " + escapeHtml(QR_LABELS[key] || key) + "</li>";
-        })
-        .join("");
+      el("commissioning-message").className = "commissioning-message msg-" + (message.kind || "info");
+      var missing = message.kind === "installing" ? [] : (data.missing_fields || []);
+      el("commissioning-missing").innerHTML = missing.map(function (key) {
+        return "<li>Falta: " + escapeHtml(QR_LABELS[key] || key) + "</li>";
+      }).join("");
       var identity = data.identity || {};
       el("commissioning-identity").textContent = [
         identity.location_id,
         identity.room_id,
         identity.station_id,
         identity.device_id,
-      ]
-        .filter(Boolean)
-        .join(" Â· ");
+      ].filter(Boolean).join(" · ");
     }
 
     function showRuntime(view) {
       el("commissioning-screen").classList.add("hidden");
       el("app").classList.remove("hidden");
-      DISPLAY_CLASSES.forEach(function (name) {
-        el("app").classList.remove(name);
-      });
+      DISPLAY_CLASSES.forEach(function (name) { el("app").classList.remove(name); });
       if (view.mode === "overlay") {
         el("app").classList.add("overlay-" + view.severity);
         setText("statusText", overlayIcon(view.severity) + "\n" + view.title);
@@ -149,7 +139,7 @@
         setText("stationBadge", "ALERTA");
         setText("stationValue", " ");
         setText("updatedValue", shortTime(Date.now()));
-        setHealth("â—† Mensaje del sistema", "health-degraded");
+        setHealth("◆ Mensaje del sistema", "health-degraded");
         return;
       }
       if (view.mode === "candidate") {
@@ -159,7 +149,7 @@
         setText("stationBadge", "CAND");
         setText("stationValue", view.station);
         setText("updatedValue", shortTime(Date.now()));
-        setHealth("â—† VALIDACIÃ“N DE VERSIÃ“N Â· Confirme fÃ­sicamente", "health-candidate");
+        setHealth("◆ VALIDACIÓN DE VERSIÓN · Confirme físicamente", "health-candidate");
         return;
       }
       if (view.mode === "closed") {
@@ -170,26 +160,15 @@
       setText("statusText", view.status);
       setText("patientName", view.patient);
       setText("stationValue", view.station);
-      setText(
-        "stationBadge",
-        String(view.station || "â€”")
-          .slice(0, 3)
-          .toUpperCase()
-      );
+      setText("stationBadge", String(view.station || "—").slice(0, 3).toUpperCase());
       setText("updatedValue", shortTime(view.updatedAt || Date.now()));
-      setHealth(
-        view.mode === "closed" ? "â—‹ ClÃ­nica cerrada Â· Conectado" : "â— Conectado",
-        "health-healthy"
-      );
+      setHealth(view.mode === "closed" ? "○ Clínica cerrada · Conectado" : "● Conectado", "health-healthy");
     }
 
     function render(data) {
       var view = runtimeView(data.runtime);
       if (view.mode === "commissioning") showCommissioning(data);
-      else {
-        lastRuntime = data.runtime;
-        showRuntime(view);
-      }
+      else { lastRuntime = data.runtime; showRuntime(view); }
     }
 
     function poll() {
@@ -201,35 +180,18 @@
         .then(render)
         .catch(function () {
           if (lastRuntime) showRuntime(runtimeView(lastRuntime));
-          setHealth("âš  Sin conexiÃ³n con la pantalla", "health-degraded");
+          setHealth("⚠ Sin conexión con la pantalla", "health-degraded");
         });
     }
 
-    function setText(id, value) {
-      var node = el(id);
-      if (node) node.textContent = value || "â€”";
-    }
-    function setHealth(text, className) {
-      var node = el("healthStrip");
-      if (node) {
-        node.textContent = text;
-        node.className = "health-strip " + className;
-      }
-    }
+    function setText(id, value) { var node = el(id); if (node) node.textContent = value || "—"; }
+    function setHealth(text, className) { var node = el("healthStrip"); if (node) { node.textContent = text; node.className = "health-strip " + className; } }
 
     function refreshClock() {
-      setText(
-        "dateTimeValue",
-        new Date().toLocaleString("es-GT", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: false,
-        })
-      );
+      setText("dateTimeValue", new Date().toLocaleString("es-GT", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: false,
+      }));
     }
 
     poll();
@@ -239,17 +201,15 @@
   }
 
   function roomClass(code) {
-    return (
-      {
-        in_process: "state-in-process",
-        patient_waiting: "state-waiting",
-        unavailable: "state-unavailable",
-      }[code] || "state-vacant"
-    );
+    return {
+      in_process: "state-in-process",
+      patient_waiting: "state-waiting",
+      unavailable: "state-unavailable",
+    }[code] || "state-vacant";
   }
 
   function overlayIcon(severity) {
-    return { success: "âœ“", error: "!", warning: "âš ", info: "i" }[severity] || "i";
+    return { success: "✓", error: "!", warning: "⚠", info: "i" }[severity] || "i";
   }
 
   function shortTime(value) {
@@ -257,11 +217,7 @@
   }
 
   function escapeHtml(value) {
-    return String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   return { runtimeView: runtimeView, statusLabel: statusLabel, roomClass: roomClass, start: start };

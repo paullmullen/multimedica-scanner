@@ -35,7 +35,7 @@ function writeFakeExecutables(root) {
       "if errorlevel 1 exit /b 0",
       'if /I "%FAKE_SSH_MODE%"=="eof" exit /b 7',
       "echo ARTIFACT_CLAIMED",
-      "echo Confirm the physical display showed the CANDIDATE state. Type lowercase yes to continue:",
+      "echo Confirm the physical display showed the CANDIDATO state. Type lowercase yes to continue:",
       "set /p answer=",
       'if "%answer%"=="yes" (echo INSTALL_RELEASE_COMPLETE&exit /b 0)',
       "echo release installation failed 1>&2",

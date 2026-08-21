@@ -194,13 +194,23 @@ test("display client maps current runtime states into approved visual modes", ()
       display: { mode: "closed", status: { code: "closed" }, room: {}, station: {} },
     }).mode
   ).toBe("closed");
-  expect(
-    client.runtimeView({
+  const candidate = client.runtimeView({
       kind: "room",
       state_id: "candidate-test",
       display: {
         mode: "room_status",
         status: { code: "available", label: "CANDIDATE" },
+        station: {},
+      },
+    });
+  expect(candidate.mode).toBe("candidate");
+  expect(candidate.status).toBe("CANDIDATO");
+  expect(
+    client.runtimeView({
+      kind: "room",
+      display: {
+        mode: "room_status",
+        status: { code: "available", label: "CANDIDATO" },
         station: {},
       },
     }).mode

@@ -62,6 +62,7 @@ describe("simplified InstallRelease root operation", () => {
     const confirmation = readYes(input, output);
     input.end("yes\n");
     await expect(confirmation).resolves.toBeUndefined();
+    expect(output.read().toString()).toContain("CANDIDATO");
     expect(input.isPaused()).toBe(true);
     expect(input.unref).toHaveBeenCalledTimes(1);
   });

@@ -261,7 +261,7 @@ async function verifySyntheticState() {
 function readYes(inputStream = process.stdin, outputStream = process.stdout) {
   return new Promise((resolve, reject) => {
     outputStream.write(
-      "Confirm the physical display showed the CANDIDATE state. Type lowercase yes to continue:\n"
+      "Confirm the physical display showed the CANDIDATO state. Type lowercase yes to continue:\n"
     );
     const input = readline.createInterface({ input: inputStream, terminal: false });
     let settled = false;

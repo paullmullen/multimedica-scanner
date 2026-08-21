@@ -4,6 +4,7 @@ set -euo pipefail
 
 LOG_FILE="/home/multimedica_edge/kiosk-browser.log"
 DISPLAY_URL="http://127.0.0.1:3001/"
+CHROMIUM_READY_URL="http://127.0.0.1:9222/json/version"
 
 export DISPLAY="${DISPLAY:-:0}"
 
@@ -22,10 +23,11 @@ for _attempt in $(seq 1 30); do
   sleep 1
 done
 
-# Disable screen blanking
-xset s off
-xset -dpms
-xset s noblank
+# Keep unstable X/Chromium startup off the physical panel. xsetroot provides
+# a black fallback on displays that do not honor DPMS force-off.
+xsetroot -solid black >/dev/null 2>&1 || true
+xset +dpms >/dev/null 2>&1 || true
+xset dpms force off >/dev/null 2>&1 || true
 
 # Optional: hide cursor
 unclutter -idle 0.5 -root >> "$LOG_FILE" 2>&1 &
@@ -44,8 +46,9 @@ if [ -z "$CHROMIUM_BIN" ]; then
 fi
 echo "Using Chromium: $CHROMIUM_BIN" >> "$LOG_FILE"
 
-# Launch Chromium with logging. exec keeps systemd tied to the browser process.
-exec "$CHROMIUM_BIN" \
+# Launch Chromium with logging. The wrapper remains as the systemd main
+# process so it can reveal the panel only after Chromium itself is responsive.
+"$CHROMIUM_BIN" \
   --user-data-dir=/home/multimedica_edge/kiosk-profile \
   --no-first-run \
   --no-default-browser-check \
@@ -57,8 +60,44 @@ exec "$CHROMIUM_BIN" \
   --overscroll-history-navigation=0 \
   --window-position=0,0 \
   --window-size=480,800 \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
   --start-fullscreen \
   --check-for-update-interval=31536000 \
   --enable-logging=stderr \
   --kiosk "$DISPLAY_URL" \
-  >> "$LOG_FILE" 2>&1
+  >> "$LOG_FILE" 2>&1 &
+CHROMIUM_PID=$!
+
+cleanup() {
+  if kill -0 "$CHROMIUM_PID" >/dev/null 2>&1; then
+    kill "$CHROMIUM_PID" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+for _attempt in $(seq 1 30); do
+  if ! kill -0 "$CHROMIUM_PID" >/dev/null 2>&1; then
+    echo "ERROR: Chromium exited before the kiosk became ready." >&2
+    wait "$CHROMIUM_PID" || true
+    exit 1
+  fi
+  if curl -fs "$CHROMIUM_READY_URL" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$_attempt" -eq 30 ]; then
+    echo "ERROR: Chromium did not become ready." >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+# Allow the first kiosk frame to paint before revealing the panel, then keep
+# ordinary screen blanking disabled for appliance operation.
+sleep 1
+xset dpms force on >/dev/null 2>&1 || true
+xset s off
+xset -dpms
+xset s noblank
+
+wait "$CHROMIUM_PID"

@@ -114,7 +114,7 @@ body {
 .msg-applying { background: #e3f2fd; color: #0d47a1; }
 .msg-info { background: #f5f5f5; color: #37474f; }
 
-/* CANDIDATE must never resemble a normal room-status screen. */
+/* CANDIDATO must never resemble a normal room-status screen. */
 .screen.state-candidate {
   background: repeating-linear-gradient(135deg, #14213d 0, #14213d 34px, #6d28d9 34px, #6d28d9 68px);
 }
