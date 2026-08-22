@@ -222,6 +222,23 @@ test("display client maps current runtime states into approved visual modes", ()
       overlay: { severity: "warning", title: "Aviso", detail: "Detalle" },
     })
   ).toMatchObject({ mode: "overlay", severity: "warning" });
+  expect(
+    client.runtimeView({
+      kind: "identity",
+      state_id: "identity-1",
+      identity: {
+        location_id: "loc1",
+        room_id: "room1",
+        station_id: "lab",
+        device_id: "scanner01",
+        production_version: "1.0.4",
+      },
+    })
+  ).toMatchObject({
+    mode: "identity",
+    device: "scanner01",
+    productionVersion: "1.0.4",
+  });
 });
 
 test("display client localizes legacy English controller messages before presentation", () => {

@@ -82,6 +82,16 @@
         detail: localizeDisplayText(runtime.overlay.detail || ""),
       };
     }
+    if (runtime.kind === "identity" && runtime.identity) {
+      return {
+        mode: "identity",
+        location: runtime.identity.location_id || "—",
+        room: runtime.identity.room_id || "—",
+        station: runtime.identity.station_id || "—",
+        device: runtime.identity.device_id || "—",
+        productionVersion: runtime.identity.production_version || "No instalada",
+      };
+    }
     if (runtime.kind !== "room" || !runtime.display) return { mode: "commissioning" };
 
     var display = runtime.display;
@@ -184,6 +194,16 @@
         setText("stationValue", view.station);
         setText("updatedValue", shortTime(Date.now()));
         setHealth("◆ VALIDACIÓN DE VERSIÓN · Confirme físicamente", "health-candidate");
+        return;
+      }
+      if (view.mode === "identity") {
+        el("app").classList.add("overlay-info");
+        setText("statusText", "IDENTIDAD\nDEL ESCÁNER");
+        setText("patientName", "Dispositivo: " + view.device + "\nSala: " + view.room);
+        setText("stationBadge", "ID");
+        setText("stationValue", view.station);
+        setText("updatedValue", "Producción " + view.productionVersion);
+        setHealth("Ubicación: " + view.location, "health-healthy");
         return;
       }
       if (view.mode === "closed") {

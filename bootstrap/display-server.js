@@ -39,8 +39,8 @@ const INITIAL_STATE = Object.freeze({
 
 let _state = Object.assign({}, INITIAL_STATE);
 
-function _safeString(v) {
-  return typeof v === "string" ? v : null;
+function _safeString(v, max = 240) {
+  return typeof v === "string" && v.length <= max ? v : null;
 }
 
 function _safeBool(v, fallback) {
@@ -71,67 +71,54 @@ function _safeIdentity(v) {
 }
 
 function _safeRuntime(v) {
-  if (!v || typeof v !== "object" || !_safeBounded(v.state_id, 128)) return null;
+  if (!v || typeof v !== "object" || !_safeString(v.state_id, 128)) return null;
   if (v.kind === "room" && v.display && typeof v.display === "object") {
-    const display = v.display;
-    const status = display.status || {};
-    if (
-      !["room_status", "closed"].includes(display.mode) ||
-      !["available", "vacant", "patient_waiting", "in_process", "unavailable", "closed"].includes(
-        status.code
-      )
-    )
-      return null;
+    const source = v.display;
+    const mode = source.mode === "closed" ? "closed" : source.mode === "room_status" ? "room_status" : null;
+    if (!mode) return null;
+    const statusCode = source.status && ["available", "vacant", "patient_waiting", "in_process", "unavailable", "closed"].includes(source.status.code)
+      ? source.status.code : mode === "closed" ? "closed" : "available";
     return {
       kind: "room",
       state_id: v.state_id,
       display: {
-        mode: display.mode,
-        room: _safePair(display.room),
-        station: _safePair(display.station),
-        status: { code: status.code, label: _safeBounded(status.label) || status.code },
-        patient:
-          display.patient && _safeBounded(display.patient.name)
-            ? { name: display.patient.name }
-            : null,
-        timing:
-          display.timing && _safeBounded(display.timing.started_at)
-            ? { started_at: display.timing.started_at }
-            : null,
-        updated_at: typeof display.updated_at === "number" ? display.updated_at : Date.now(),
+        mode,
+        room: _safeLabel(source.room),
+        station: _safeLabel(source.station),
+        status: { code: statusCode, label: _safeString(source.status && source.status.label, 100) },
+        patient: source.patient && _safeString(source.patient.name, 160)
+          ? { name: _safeString(source.patient.name, 160) } : null,
+        timing: source.timing && _safeString(source.timing.started_at, 40)
+          ? { started_at: _safeString(source.timing.started_at, 40) } : null,
+        updated_at: _safeString(source.updated_at, 40),
       },
     };
   }
   if (v.kind === "overlay" && v.overlay && typeof v.overlay === "object") {
-    if (
-      !["feedback", "network"].includes(v.priority) ||
-      !Number.isInteger(v.expires_in_ms) ||
-      v.expires_in_ms < 1000 ||
-      v.expires_in_ms > 60000
-    )
-      return null;
-    if (
-      !["success", "info", "warning", "error"].includes(v.overlay.severity) ||
-      !_safeBounded(v.overlay.title) ||
-      !_safeBounded(v.overlay.detail)
-    )
-      return null;
-    return {
-      kind: "overlay",
-      state_id: v.state_id,
-      overlay: { severity: v.overlay.severity, title: v.overlay.title, detail: v.overlay.detail },
+    const severity = ["success", "info", "warning", "error"].includes(v.overlay.severity)
+      ? v.overlay.severity : "info";
+    const title = _safeString(v.overlay.title, 100);
+    const detail = _safeString(v.overlay.detail, 240);
+    if (!title && !detail) return null;
+    return { kind: "overlay", state_id: v.state_id, overlay: { severity, title, detail } };
+  }
+  if (v.kind === "identity" && v.identity && typeof v.identity === "object") {
+    const identity = {
+      location_id: _safeString(v.identity.location_id, 128),
+      room_id: _safeString(v.identity.room_id, 128),
+      station_id: _safeString(v.identity.station_id, 128),
+      device_id: _safeString(v.identity.device_id, 128),
+      production_version: _safeString(v.identity.production_version, 64),
     };
+    if (!Object.values(identity).some(Boolean)) return null;
+    return { kind: "identity", state_id: v.state_id, identity };
   }
   return null;
 }
 
-function _safeBounded(v, max = 128) {
-  return typeof v === "string" && v.length > 0 && v.length <= max ? v : null;
-}
-function _safePair(v) {
-  return v && typeof v === "object"
-    ? { id: _safeBounded(v.id), label: _safeBounded(v.label) }
-    : null;
+function _safeLabel(v) {
+  if (!v || typeof v !== "object") return null;
+  return { id: _safeString(v.id, 128), label: _safeString(v.label, 160) };
 }
 
 // ---------------------------------------------------------------------------

@@ -34,6 +34,8 @@ const CONTROLLER_PORT_DEFAULT = 3000;
 const PRODUCTION_SCAN_URL = "http://127.0.0.1:3002/api/scan";
 const PRODUCTION_TIMEOUT_MS = 10_000;
 const BOOTSTRAP_INSTALLING_MARKER = "/run/multimedica-scanner/bootstrap-installing";
+const INSTALLED_VERSION_PATH =
+  "/var/lib/multimedica-scanner/state/installed-version.json";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -57,6 +59,8 @@ function createController(deps) {
   const _applyWifi = deps && deps.applyWifi !== undefined ? deps.applyWifi : _defaultApplyWifi;
   const _productionScanUrl = (deps && deps.productionScanUrl) || PRODUCTION_SCAN_URL;
   const _productionTimeoutMs = (deps && deps.productionTimeoutMs) || PRODUCTION_TIMEOUT_MS;
+  const _installedVersionPath =
+    (deps && deps.installedVersionPath) || INSTALLED_VERSION_PATH;
   const _forwardProductionScan =
     (deps && deps.forwardProductionScan) ||
     ((scan) => postProductionScan(scan, _productionScanUrl, _productionTimeoutMs));
@@ -127,12 +131,28 @@ function createController(deps) {
 
   async function _handleShowIdentity() {
     const cfg = _configStore.readConfig() || {};
-    // Only non-secret identity fields; secrets are never sent to display
-    await _displayClient.showIdentity({
-      location_id: cfg.location_id || null,
-      room_id: cfg.room_id || null,
-      station_id: cfg.station_id || null,
-      device_id: cfg.device_id || null,
+    let productionVersion = null;
+    try {
+      const installed = JSON.parse(fs.readFileSync(_installedVersionPath, "utf8"));
+      productionVersion = _boundedString(installed.current_version, 64);
+    } catch {
+      // A production release is optional during commissioning.
+    }
+
+    // Identity is a transient runtime screen so it remains visible even when
+    // the normal clinic room state is active. Only explicitly safe fields pass.
+    await _applyRuntimeState({
+      kind: "identity",
+      state_id: `identity-${Date.now()}`,
+      priority: "feedback",
+      expires_in_ms: 15_000,
+      identity: {
+        location_id: cfg.location_id || null,
+        room_id: cfg.room_id || null,
+        station_id: cfg.station_id || null,
+        device_id: cfg.device_id || null,
+        production_version: productionVersion,
+      },
     });
   }
 
@@ -447,6 +467,32 @@ function _sanitizeRuntimeEnvelope(value) {
       priority: value.priority,
       expires_in_ms: value.expires_in_ms,
       overlay: { severity: overlay.severity, title, detail },
+    };
+  }
+  if (value.kind === "identity") {
+    if (
+      value.priority !== "feedback" ||
+      !Number.isInteger(value.expires_in_ms) ||
+      value.expires_in_ms < 1000 ||
+      value.expires_in_ms > 60000 ||
+      !value.identity ||
+      typeof value.identity !== "object"
+    )
+      return null;
+    const identity = {
+      location_id: _boundedString(value.identity.location_id),
+      room_id: _boundedString(value.identity.room_id),
+      station_id: _boundedString(value.identity.station_id),
+      device_id: _boundedString(value.identity.device_id),
+      production_version: _boundedString(value.identity.production_version, 64),
+    };
+    if (!Object.values(identity).some(Boolean)) return null;
+    return {
+      kind: "identity",
+      state_id: stateId,
+      priority: "feedback",
+      expires_in_ms: value.expires_in_ms,
+      identity,
     };
   }
   return null;

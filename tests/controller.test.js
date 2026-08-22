@@ -296,8 +296,10 @@ describe("handleScan â€” cloud_config", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleScan â€” show_identity", () => {
-  test("calls displayClient.showIdentity with non-secret fields only", async () => {
-    const { ctrl, display } = makeCtrl(tmpDir);
+  test("shows a transient identity screen with production version and no secrets", async () => {
+    const installedVersionPath = path.join(tmpDir, "installed-version.json");
+    fs.writeFileSync(installedVersionPath, JSON.stringify({ current_version: "1.0.4" }));
+    const { ctrl, display } = makeCtrl(tmpDir, { installedVersionPath });
     // Pre-populate config with identity fields
     configStore.writeConfig(
       {
@@ -313,9 +315,14 @@ describe("handleScan â€” show_identity", () => {
 
     await ctrl.handleScan(qr("show_identity", {}));
 
-    expect(display.showIdentity).toHaveBeenCalledTimes(1);
-    const arg = display.showIdentity.mock.calls[0][0];
-    expect(arg.station_id).toBe("s1");
+    expect(display.showRuntimeState).toHaveBeenCalledTimes(1);
+    const arg = display.showRuntimeState.mock.calls[0][0];
+    expect(arg).toMatchObject({
+      kind: "identity",
+      priority: "feedback",
+      expires_in_ms: 15000,
+      identity: { station_id: "s1", production_version: "1.0.4" },
+    });
     expect(arg).not.toHaveProperty("shared_secret");
     expect(arg).not.toHaveProperty("qr_admin_token");
     expect(arg).not.toHaveProperty("wifi_password");
