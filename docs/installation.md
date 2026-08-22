@@ -1,708 +1,593 @@
 # Multimedica Scanner Appliance Installation Guide
 
-## Purpose
-
-This guide describes how to install, provision, and validate a Multimedica Scanner Appliance.
-
-The intended audience is a technically capable installer who is comfortable with:
-
-- Windows
-- Raspberry Pi
-- SSH
-- GitHub
-- Basic networking
-
-No prior knowledge of the Multimedica project is assumed.
+**Audience:** Technical installer
+**Applies to:** New or freshly reimaged Raspberry Pi scanner appliances
+**Qualified baseline:** Raspberry Pi 4 Model B, Raspberry Pi OS Lite 64-bit, Debian 13 Trixie
+**Last validated:** August 2026
 
 ---
 
-# Overview
+## 1. Purpose
 
-A Multimedica Scanner Appliance consists of:
+This guide describes the supported procedure for turning a clean Raspberry Pi into a commissioned Multimedica scanner with a validated production release.
 
-- Raspberry Pi 4B
-- USB barcode scanner
-- HDMI kiosk display
-- Multimedica Scanner software
-- Multimedica Kiosk Display software
+Use the Windows provisioning script for installation and verification. Do not clone the repository onto the Pi, copy individual runtime files manually, or edit files under `/opt/multimedica-scanner` as part of ordinary installation.
 
-The appliance:
-
-1. Reads patient barcode scans
-2. Communicates with the Multimedica cloud platform
-3. Displays room status to patients and staff
-4. Supports QR-code based field configuration
-5. Can be reprovisioned without editing configuration files
+For architectural reasoning, see [Installation and Commissioning Theory of Operation](SCANNER-INSTALLATION-THEORY-OF-OPERATION.md).
 
 ---
 
-# Pre-Install Checklist
+## 2. What the procedure installs
 
-## Hardware
+The completed appliance contains two software layers:
 
-- [ ] Raspberry Pi 4B
-- [ ] 32GB+ SD Card
-- [ ] Power Supply
-- [ ] HDMI Display
-- [ ] USB Barcode Scanner
-- [ ] Network Access
+1. **Bootstrap layer:** scanner input, QR commissioning, display, kiosk, release management, and recovery.
+2. **Production release:** versioned everyday scan processing and clinic-cloud communication.
 
-## QR Codes
-
-- [ ] WiFi Configuration QR
-- [ ] Cloud Configuration QR
-- [ ] Station Configuration QR
-- [ ] Identity QR
-
-## Software / Access
-
-- [ ] GitHub Access
-- [ ] Windows Workstation
-- [ ] Raspberry Pi Imager Installed
-- [ ] Multimedica Admin Access
-
-## Expected Time
-
-- New Scanner Build: 30–45 minutes
-- Replacement Scanner: 10–15 minutes
+These layers are installed and accepted separately. A completed bootstrap installation does not by itself mean production is installed.
 
 ---
 
-# Command Conventions
+## 3. Command conventions
 
-## [WINDOWS]
+| Label | Meaning |
+|---|---|
+| **Windows** | Run in Windows PowerShell from the repository root |
+| **Scanner** | Scan a printed QR with the appliance barcode scanner |
+| **Physical** | Observe or manipulate the Pi, display, cables, or power |
 
-Commands run from a Windows workstation.
+PowerShell continuation commands use the backtick character at the end of each continued line. Do not add characters after the backtick.
 
-## [PI]
-
-Commands run on the Raspberry Pi, usually through an SSH session.
-
-## [SCANNER]
-
-Actions performed by scanning QR codes with the scanner appliance.
-
----
-
-# Installation Process
-
-## Build the Appliance
-
-- Generate QR codes
-- Assemble hardware
-- Flash Raspberry Pi OS
-- Install scanner software
-- Verify operation
-
-## Provision (setup/configure) the Appliance
-
-- Configure WiFi
-- Configure cloud connectivity
-- Assign station and room
-- Verify identity
-- Validate operation
-
----
-
-# Hardware Requirements
-
-## Known Working Hardware
-
-| Component    | Model                       |
-| ------------ | --------------------------- |
-| Raspberry Pi | Raspberry Pi 4B             |
-| Scanner      | BF SCAN USB Barcode Scanner |
-| Display      | Waveshare 4.3" HDMI LCD     |
-| Printer      | Epson TM-m30III             |
-
----
-
-# Hardware Assembly
-
-## Components
-
-- Raspberry Pi 4B
-- Waveshare 4.3" HDMI LCD
-- HDMI jumper board (included with display)
-- Display standoffs and screws
-- USB barcode scanner
-- Right-angle USB-C power cable
-- Raspberry Pi power supply
-
-## Attach the Display
-
-### Step 1 – Connect the GPIO Header
-
-Align the display board with the Raspberry Pi GPIO header.
-
-Verify:
-
-- Display sits flat
-- All pins are aligned
-- No bent pins
-
-### Step 2 – Install the HDMI Jumper
-
-Install the HDMI jumper adapter between the display and the Raspberry Pi Micro-HDMI port.
-
-*Insert photo: HDMI jumper installed*
-
-Notes:
-
-- Adapter is directional
-- Ensure both ends are fully seated
-- Do not stress the adapter
-
-### Step 3 – Install Standoffs
-
-Verify:
-
-- Display secured
-- HDMI jumper not under tension
-- Assembly rigid and stable
-
-## Connect the Barcode Scanner
-
-Connect the scanner to a USB port on the Pi.
-
-## Connect Power
-
-Use a right-angle USB-C cable.
-
-Reason:
-
-- The Pi power connector is on the side of the board.
-- Straight USB-C connectors may not fit inside the enclosure.
-
-## Cable Routing
-
-The appliance operates in portrait orientation.
-
-All external cables should exit through the bottom of the enclosure.
-
-This includes:
-
-- Scanner cable
-- Network cable
-- Future accessory cables
-
-The USB-C cable enters from the side and immediately turns downward.
-
-## Hardware Verification Checklist
-
-- [ ] Display attached
-- [ ] HDMI jumper installed
-- [ ] Standoffs installed
-- [ ] Scanner connected
-- [ ] Right-angle USB-C cable installed
-- [ ] SD card installed
-- [ ] Display powers on
-
-We will address the placement of the electronics assembly in the enclosure in a future update of this document.
-
----
-# Software Installation Overview
-
-This installation process will transform a brand-new Raspberry Pi into a Multimedica scanner appliance. We break it down into three phases, each with a distinct purpose:
-
-1. We set up the Pi from scratch—flashing its operating system, connecting it to the network, and ensuring it’s ready for software.
-
-2. We install the Multimedica Scanner software onto the Pi. This equips it with the scanner functionality, so it can interact with barcodes, the display, and the cloud—but it’s not yet assigned to a specific station.
-
-3. We customize the scanner by assigning it to a specific station in the clinic. By scanning QR codes, we configure its network, cloud endpoint, and its exact role in the clinic (such as “Nursing Station 1” or “Lab Station”).
-
-Throughout the instructions, we’ll guide you step-by-step, so you’ll know when we’re preparing the Pi, installing the software, or applying the final clinic-specific configuration.
-
-# Phase A – Windows Workstation
-
-## Generate Configuration QR Codes
-
-**Execution Context: [WINDOWS]**
-
-Before preparing the Raspberry Pi, generate the QR codes that will be used to configure the scanner.
-
-Open the Multimedica web application:
+The repository root is the directory containing:
 
 ```text
-http://multimedica.org
+provision-scanner.ps1
+package.json
+bootstrap/
+production/
+tests/
 ```
 
-Log in using your Multimedica user account.
+---
 
-Navigate to:
+## 4. Stop conditions
+
+Stop the procedure and investigate if any of the following occurs:
+
+- the provisioning script reports `RESULT: FAIL`;
+- SSH reports an unexpected host-key change and the Pi was not deliberately reimaged;
+- a password is displayed in clear text or appears in captured output;
+- a required QR is rejected;
+- the scanner USB device or reader is not detected;
+- the physical display does not show `CANDIDATO` during release installation;
+- production health does not pass;
+- the final clinic display or real-patient scan is incorrect.
+
+Do not continue merely because a later step might appear to work. Preserve `provisioning-result.json` and the console output for diagnosis.
+
+---
+
+## 5. Required hardware
+
+- Raspberry Pi 4 Model B
+- 32 GB or larger high-quality microSD card
+- Qualified HDMI portrait display
+- HDMI jumper or cable required by the display
+- Display standoffs and mounting hardware
+- BF SCAN USB barcode scanner
+- Raspberry Pi USB-C power supply
+- Right-angle USB-C cable when required by the enclosure
+- Ethernet cable or Wi-Fi network access
+- Completed scanner enclosure and suitable fasteners
+
+Qualified reference hardware and image details are recorded in [Bootstrap Architecture](bootstrap-architecture.md).
+
+---
+
+## 6. Hardware assembly
+
+Perform assembly with power disconnected.
+
+### 6.1 Mount the display
+
+1. Align the display with the Raspberry Pi GPIO header if the display uses that header mechanically or electrically.
+2. Confirm every pin is aligned before applying pressure.
+3. Install the HDMI jumper between the display and the Pi micro-HDMI port.
+4. Confirm the jumper is fully seated and not under tension.
+5. Install the required standoffs and screws.
+
+The completed assembly must be rigid, with no bent GPIO pins or stressed HDMI connectors.
+
+### 6.2 Connect the scanner
+
+Connect the BF SCAN scanner to a Raspberry Pi USB port. Do not assume the Linux event-device number; the bootstrap reader discovers the device dynamically.
+
+### 6.3 Route cables
+
+The appliance operates in portrait orientation. Route scanner, network, and other external cables through the intended enclosure exit. Use a right-angle USB-C power cable when necessary to avoid enclosure interference.
+
+### 6.4 Hardware check
+
+- [ ] Display firmly mounted
+- [ ] HDMI connection fully seated
+- [ ] Scanner connected by USB
+- [ ] microSD card installed
+- [ ] Network connection available
+- [ ] Power cable fits without stress
+- [ ] No exposed conductor, pin, or board is shorted by the enclosure
+
+---
+
+## 7. Prepare configuration and release materials
+
+Complete this section on the Windows provisioning workstation before installing the Pi.
+
+### 7.1 Obtain the approved repository revision
+
+Use an approved, tested repository revision. Do not perform development changes during a field installation.
+
+From the repository root, confirm the working tree is clean:
+
+```powershell
+git status --short
+```
+
+For an approved installation package rather than a Git checkout, extract it into a local working directory while preserving its folder structure.
+
+### 7.2 Unblock the provisioning script when required
+
+Files downloaded through a browser or received in a ZIP may carry a Windows security mark.
+
+```powershell
+Unblock-File .\provision-scanner.ps1
+```
+
+### 7.3 Prepare the installer configuration
+
+The protected installer configuration contains the QR administrator token used to authorize commissioning QRs.
+
+If an approved `multimedica-installer.json` already exists:
+
+```powershell
+Test-Path .\multimedica-installer.json
+```
+
+Expected:
 
 ```text
-Admin
-  → Sistema de escáner
+True
 ```
 
-### Access Requirements
+If it must be created:
 
-The QR code generator is only available to users with administrative permissions.
+```powershell
+.\provision-scanner.ps1 -CreateInstallerConfig
+```
 
-> ⚠️ **Important**
->
-> If you do not see the **Admin** page or the **Sistema de escáner** section, your account does not currently have the required permissions.
->
-> Contact a member of the clinic leadership team and request access before continuing.
+Follow the hidden token prompt. Keep this file secure and never commit it to Git.
 
-Generate and print the following QR codes.
+### 7.4 Prepare the configuration QRs
 
----
+Generate the authorized QRs from the Multimedica administrative interface:
 
-### WiFi Configuration QR
+- Wi-Fi configuration QR
+- Station configuration QR
+- Cloud configuration QR
+- Identity QR for future diagnostics
 
-Purpose:
+Printed Wi-Fi and Cloud QRs contain credentials. Control and destroy unneeded copies appropriately.
 
-* Configures the scanner's WiFi connection.
+The Identity QR is not currently a required acceptance step because a physical no-response defect remains under investigation.
 
-Contains:
+### 7.5 Obtain the production artifact
 
-* SSID
-* Password
-* Security type
+The installer needs an approved production `.tgz` artifact, its version, and its SHA-256 value.
 
-> 🔒 **Security Note**
->
-> This QR code contains WiFi credentials.
->
-> Store printed copies securely and destroy unused copies.
-
----
-
-### Cloud Configuration QR
-
-Purpose:
-
-* Connects the scanner to Multimedica cloud services.
-
-Contains:
-
-* Cloud endpoint configuration
-* Shared secret
-
-> 🔒 **Security Note**
->
-> This QR code contains production connectivity information.
->
-> Store printed copies securely and destroy unused copies.
-
----
-
-### Station Configuration QR
-
-Purpose:
-
-* Assigns the scanner to a specific clinic station.
-
-Contains:
-
-* Location
-* Station
-* Room ID
-* Device ID
+If the release owner is building a new production release, use a new semantic version. Never rebuild different content under a previously published version.
 
 Example:
 
-```text
-Location: Clínica Alfarero Z3
-Station: Enf
-Room ID: Zone3_nur_room_1
-Device ID: scanner_Zone3_nur_01
+```powershell
+npm run build:production-release -- 1.0.5 .\release-output
 ```
+
+Select the artifact and calculate its local hash:
+
+```powershell
+$artifact = (Resolve-Path .\release-output\multimedica-production-1.0.5.tgz).Path
+$sha = (Get-FileHash $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+
+$artifact
+$sha
+Get-Content .\release-output\multimedica-production-1.0.5.tgz.sha256
+```
+
+The calculated hash must match the sidecar file before installation.
+
+Ordinary field installers should receive an already approved artifact and hash rather than choosing or building a version themselves.
 
 ---
 
-### Identity QR
+## 8. Image the Raspberry Pi
 
-Purpose:
+### 8.1 Approved image
 
-* Displays scanner identity information for installation and troubleshooting.
+Use the qualified Raspberry Pi OS Lite 64-bit image listed in `bootstrap-architecture.md`. Verify the downloaded compressed-image SHA-256 before imaging.
 
-Used to display:
+Do not substitute Raspberry Pi OS Desktop, a 32-bit image, or an unqualified major OS release.
 
-* Device ID
-* Room ID
-* Station ID
-* Hostname
-* IP address
-* Health URL
-* Software version
+### 8.2 Raspberry Pi Imager settings
 
-Installers should keep a printed copy of this QR code.
+In Raspberry Pi Imager:
 
----
+1. Select Raspberry Pi 4.
+2. Select the approved Raspberry Pi OS Lite 64-bit image.
+3. Configure a unique hostname.
+4. Set username:
 
+   ```text
+   multimedica_edge
+   ```
 
+5. Set and securely record the Pi account password.
+6. Enable SSH with password authentication for initial provisioning.
+7. Set the intended locale, keyboard, and timezone.
+8. Optionally configure Wi-Fi. The commissioning QR remains supported even when image-time Wi-Fi is supplied.
 
-These QR codes will be used later during scanner provisioning.
-
-> 💡 **Tip**
->
-> The hostname and the Device ID serve different purposes.
->
-> The hostname identifies the Raspberry Pi on the network.
->
-> The Device ID identifies the scanner appliance within the Multimedica system.
->
-> These values do not need to match, although many deployments choose a naming convention that keeps them similar.
-
-
-## Install Raspberry Pi Imager
-
-Download:
-
-https://www.raspberrypi.com/software/
-
-## Flash Raspberry Pi OS
-
-Select:
-
-- Raspberry Pi 4
-- Raspberry Pi OS Lite (64-bit)
-
-## Configure OS Customization
-
-**Execution Context: [WINDOWS]**
-
-When prompted to edit settings:
-
-### General Settings
-
-#### Hostname
-
-Each scanner appliance must have a unique hostname.
-
-Recommended format:
+Recommended hostname examples:
 
 ```text
-multimedica-<station>-<number>
-```
-
-Examples:
-
-```text
-multimedica-reg-01
-multimedica-nur-01
-multimedica-doc-01
+multimedicascanner1
 multimedica-lab-01
-multimedica-pha-01
+multimedica-reg-01
 ```
-
-For multiple scanners of the same type:
-
-```text
-multimedica-nur-01
-multimedica-nur-02
-multimedica-nur-03
-```
-
-The hostname is used for:
-
-* Initial network discovery
-* SSH access
-* Device identification
-* Troubleshooting
-
-Record the hostname on the deployment worksheet.
-
----
-
-#### Username
-
-```text
-multimedica_edge
-```
-
-Use the same username on all scanner appliances.
-
----
-
-#### Password
-
-Choose a strong password.
-
-Use the same password across the scanner fleet unless organizational policy requires otherwise.
-
-Record the password securely.
-
----
-
-### Deployment Worksheet
 
 Record:
 
 ```text
 Hostname:
-IP Address:
+Pi IP address:
 Location:
 Station:
 Room ID:
 Device ID:
+Production version:
+Installer/date:
 ```
 
-This information will be useful for support and troubleshooting.
+### 8.3 First boot
 
+1. Insert the microSD card.
+2. Connect display, scanner, and network.
+3. Apply power.
+4. Allow the first boot to finish.
+
+From Windows, confirm the Pi is reachable:
+
+```powershell
+ping multimedicascanner1
+```
+
+If name resolution is unavailable, use the Pi IP address in `-PiHost`.
 
 ---
 
-# Phase B – Raspberry Pi
+## 9. Establish provisioning SSH access
 
-## First Boot
-
-Connect:
-
-- Power
-- Display
-- Scanner
-- Network
-
-Power on the device.
-
-## Verify Network Connectivity
-
-[WINDOWS]
+**Windows:**
 
 ```powershell
-ping <hostname>.local
+.\provision-scanner.ps1 `
+  -ConfigureSshAccess `
+  -PiHost multimedica_edge@multimedicascanner1
 ```
 
-## Connect Using SSH
+When asked whether the Pi was reimaged:
 
-[WINDOWS]
+- answer lowercase `yes` for a newly imaged card;
+- answer lowercase `no` only when the existing SSH identity is expected.
 
-```powershell
-ssh multimedica_edge@<hostname>.local
-```
-
-# Clone Repository
-
-**Execution Context: [PI]**
-
-Log into the Raspberry Pi using SSH.
-
-Create the application folder:
-
-```bash
-sudo mkdir -p /opt
-```
-
-Move into the folder:
-
-```bash
-cd /opt
-```
-
-Clone the scanner repository:
-
-```bash
-sudo git clone https://github.com/paullmullen/multimedica-scanner.git
-```
-
-Verify that the repository was downloaded successfully:
-
-```bash
-ls -la /opt
-```
-
-Expected result:
+Enter the Pi account password when SSH requests it. The script installs and verifies a dedicated provisioning public key. Successful output ends with:
 
 ```text
-multimedica-scanner
+Key-based SSH verified; provisioning will not prompt for the Pi password
 ```
 
-Move into the application folder:
+If SSH reports an identity change after answering `no`, stop and verify that this is the intended physical Pi.
 
-```bash
-cd /opt/multimedica-scanner
+---
+
+## 10. Install the bootstrap platform
+
+**Windows:**
+
+```powershell
+.\provision-scanner.ps1 `
+  -Install `
+  -PiHost multimedica_edge@multimedicascanner1 `
+  -InstallerConfig .\multimedica-installer.json `
+  -ResultFile .\provisioning-result.json
 ```
 
-Verify that application files are present:
+At the sudo prompt, enter the Pi password once and press Enter. The password will not appear. Wait after pressing Enter; do not type it again unless another visible prompt appears.
 
-```bash
-ls
-```
+The first installation may take several minutes while operating-system and npm packages are installed.
 
-Expected output should include files similar to:
+The script will:
+
+- check the platform baseline;
+- stage bootstrap files;
+- install dependencies and services;
+- install restricted privileged helpers;
+- start and validate controller, display, and kiosk services;
+- verify the scanner device and reader;
+- reboot the Pi;
+- verify that services recover after reboot.
+
+During installation, the physical screen may show:
 
 ```text
-scanner.js
-package.json
-provision-scanner.ps1
-kiosk-display
-README.md
+Finalizando la instalación
+Espere. No escanee códigos todavía.
 ```
 
-> ⚠️ **Important**
->
-> If the `git clone` command fails, verify:
->
-> * Internet connectivity
-> * DNS resolution
-> * Access to github.com
->
-> Test connectivity with:
->
-> ```bash
-> ping github.com
-> ```
+Do not scan configuration QRs until the installation marker clears and the display requests configuration.
 
+Required console result:
 
-> 💡 **Tip**
->
-> Now you have a working generic Raspberry Pi that can operate on your network. Next, we’ll turn it into a Multimedica scanner by installing the scanner software and services.
+```text
+RESULT: PASS
+```
 
-## Run Provisioning
+---
 
-Provisioning is the process of putting the clinic-specific software on the Raspberry pi.
+## 11. Commission the scanner
 
-[WINDOWS]
+Scan QRs only after bootstrap installation has passed and the display requests configuration.
+
+### 11.1 Wi-Fi QR
+
+**Scanner:** Scan the Wi-Fi QR when Wi-Fi configuration is required.
+
+The Pi applies and verifies the NetworkManager connection before storing it as authoritative. If the QR fails, do not continue on the assumption that image-time Wi-Fi is sufficient; preserve the message and diagnose the failure.
+
+Applying different Wi-Fi credentials may temporarily interrupt SSH or change the Pi address.
+
+### 11.2 Station QR
+
+**Scanner:** Scan the Station QR.
+
+Verify that the display acknowledges the station configuration in Spanish.
+
+### 11.3 Cloud QR
+
+**Scanner:** Scan the Cloud QR.
+
+Verify that the display acknowledges the cloud configuration in Spanish.
+
+When all required configuration is accepted, the display should show:
+
+```text
+Configuración completa
+```
+
+The controller may retain previously valid Station or Cloud configuration on a reinstallation. If it does not request a QR, use `-Verify` to inspect the actual configuration state rather than assuming a scan was ignored.
+
+---
+
+## 12. Verify bootstrap and commissioning
+
+**Windows:**
 
 ```powershell
-.\provision-scanner.ps1 -InstallBasePackages -InstallSudoersPolicy
+.\provision-scanner.ps1 `
+  -Verify `
+  -PiHost multimedica_edge@multimedicascanner1 `
+  -ResultFile .\provisioning-result.json
 ```
 
-## Reboot
+Required observations include:
 
-[PI]
+- configuration complete;
+- display service active;
+- controller service active;
+- kiosk service active;
+- display health endpoint responsive;
+- physical Chromium kiosk active;
+- scanner USB device detected;
+- scanner reader active.
 
-```bash
-sudo reboot
+Required result:
+
+```text
+RESULT: PASS
 ```
-Wait for the Pi to reboot, which may take a minute or two. Once it’s back online, reconnect via SSH.
 
-## Verify Services
-
-[PI]
-
-```bash
-sudo systemctl status multimedica-scanner.service
-sudo systemctl status kiosk-display.service
-```
-
-Expected:
-
-active (running)
-
----
-> 💡 **Tip**
->
-> Now you have a scanner, not just a generic Raspberry Pi.  It's time to turn that generic scanner into a scanner for a specific station.  You're going to use the QR codes you generated earlier to complete this step.
-
-
-# Phase C – Scanner Provisioning
-
-## Configure WiFi
-
-[SCANNER]
-
-Scan the WiFi Configuration QR.
-
-## Configure Cloud Connectivity
-
-[SCANNER]
-
-Scan the Cloud Configuration QR.
-
-## Configure Station Assignment
-
-[SCANNER]
-
-Scan the Station Configuration QR.
-
-## Verify Identity
-
-[SCANNER]
-
-Scan the Identity QR.
-
-Verify:
-
-- Device ID
-- Room ID
-- Station ID
-- Hostname
-- IP Address
-- Health URL
+Do not install production if verification fails.
 
 ---
 
-# Phase D – Validation
+## 13. Install the production release
 
-## Verify Health Endpoint
-
-[WINDOWS]
-
-Open:
-
-http://<scanner-ip>:3001/api/health
-
-## Validate Scanner Operation
-
-Scan a known patient ticket.
-
-Verify:
-
-- Display updates
-- Cloud synchronization succeeds
-- Workflow state changes correctly
-
----
-
-# Updating an Existing Scanner
-
-[WINDOWS]
+Set the artifact path and verify the hash if not already done:
 
 ```powershell
-.\provision-scanner.ps1
+$artifact = (Resolve-Path .\release-output\multimedica-production-1.0.5.tgz).Path
+$sha = (Get-FileHash $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
 ```
+
+Use the artifact’s actual version in all three places below:
+
+```powershell
+.\provision-scanner.ps1 `
+  -InstallRelease `
+  -PiHost multimedica_edge@multimedicascanner1 `
+  -ReleaseVersion 1.0.5 `
+  -ArtifactPath $artifact `
+  -ArtifactSha256 $sha `
+  -ResultFile .\provisioning-result.json
+```
+
+The installer stages and validates the release, starts it as an isolated candidate, and asks:
+
+```text
+Confirm the physical display showed the CANDIDATO state.
+Type lowercase yes to continue:
+```
+
+Inspect the physical Pi display.
+
+- If it visibly shows `CANDIDATO`, type lowercase `yes` and press Enter.
+- If it does not, do not authorize promotion.
+
+A successful installation includes:
+
+```text
+INSTALL_RELEASE_COMPLETE
+RESULT: PASS
+```
+
+The release is not recorded as known-good until production starts through the production service and passes health verification.
 
 ---
 
-# Troubleshooting
+## 14. Final appliance acceptance
 
-## Scanner Not Detected
+### 14.1 Read-only verification
 
-[PI]
+Run `-Verify` again after production installation:
 
-```bash
-journalctl -u multimedica-scanner.service -f
+```powershell
+.\provision-scanner.ps1 `
+  -Verify `
+  -PiHost multimedica_edge@multimedicascanner1 `
+  -ResultFile .\provisioning-result.json
 ```
 
-## Display Not Running
+Confirm `RESULT: PASS` and that production is active and healthy.
 
-[PI]
+### 14.2 Physical clinic state
 
-```bash
-sudo systemctl restart kiosk-display.service
-```
+Confirm that the display:
 
-## Cloud Synchronization Failure
+- uses portrait orientation;
+- fills the intended display area;
+- uses the approved El Alfarero logo, colors, and layout;
+- reports the correct station and clinic state;
+- contains no unexpected English commissioning text.
 
-Verify:
+### 14.3 Real patient scan
 
-- Internet connectivity
-- Cloud QR scanned successfully
-- Endpoint configuration is correct
+Scan one approved real or designated acceptance patient barcode.
+
+Confirm:
+
+- the scan is accepted by production;
+- the expected cloud workflow occurs;
+- the display updates to the expected clinic state;
+- no obsolete “Patient Scan Accepted” overlay appears.
+
+### 14.4 Cold-boot recovery
+
+Perform one controlled power cycle or approved reboot. Allow the Pi to return without operator intervention.
+
+Confirm:
+
+- startup display remains stable rather than scrambled;
+- bootstrap services return;
+- release recovery authorizes the known-good production release;
+- production becomes active;
+- the correct clinic state returns.
+
+Run `-Verify` one final time and retain the result with the installation record.
 
 ---
 
-# Device Replacement
+## 15. Supported maintenance operations
 
-1. Build a new appliance.
-2. Reuse the existing QR packet.
-3. Verify identity screen.
-4. Verify health endpoint.
-5. Test scanner operation.
+### 15.1 Diagnose without changing the Pi
+
+Use:
+
+```powershell
+.\provision-scanner.ps1 -Verify ...
+```
+
+This should be the first action for an uncertain appliance state.
+
+### 15.2 Update approved display resources
+
+Use:
+
+```powershell
+.\provision-scanner.ps1 `
+  -UpdateDisplay `
+  -PiHost multimedica_edge@multimedicascanner1 `
+  -ResultFile .\provisioning-result.json
+```
+
+Enter the Pi sudo password when requested. Do not manually copy display files onto the Pi.
+
+### 15.3 Install new production code
+
+Assign a new production version, build or obtain its approved artifact and hash, and use `-InstallRelease`.
+
+Do not overwrite an installed version directory and do not reuse a version for different artifact contents.
+
+### 15.4 Bootstrap repair
+
+`-Repair` is intended for bootstrap states where release management permits broad repair. It intentionally refuses to overwrite a production-managed appliance when doing so could invalidate release and recovery state.
+
+Do not bypass this refusal with manual root file copies. Escalate for a release-aware bootstrap upgrade or supported narrow update.
 
 ---
 
-# Operational Philosophy
+## 16. Installation record
 
-The appliance is designed to be reproducible from:
+Record at minimum:
 
-- GitHub Production Branch
-- Provisioning Script
-- QR Configuration Packet
+```text
+Installation date:
+Installer:
+Hostname:
+Pi IP address:
+Location:
+Station:
+Room ID:
+Device ID:
+Qualified image:
+Repository revision:
+Production version:
+Production SHA-256:
+Initial Verify result:
+Post-release Verify result:
+Cold-boot Verify result:
+Physical display accepted:
+Real scan accepted:
+Notes:
+```
 
-A replacement appliance should be deployable without source-code modifications.
+Do not record passwords, QR administrator tokens, shared secrets, or Wi-Fi credentials in the installation record.
+
+---
+
+## 17. Completion checklist
+
+- [ ] Qualified hardware assembled correctly
+- [ ] Approved Pi image checksum verified
+- [ ] Pi imaged with correct user and SSH settings
+- [ ] `-ConfigureSshAccess` completed
+- [ ] `-Install` returned `RESULT: PASS`
+- [ ] Installation waiting marker cleared before QR scanning
+- [ ] Required QRs accepted
+- [ ] Display reported `Configuración completa`
+- [ ] Pre-release `-Verify` returned `RESULT: PASS`
+- [ ] Production artifact hash matched
+- [ ] Physical display showed `CANDIDATO`
+- [ ] `-InstallRelease` returned `RESULT: PASS`
+- [ ] Post-release `-Verify` returned `RESULT: PASS`
+- [ ] Correct clinic state displayed
+- [ ] Real patient scan accepted
+- [ ] Cold boot recovered production and stable display
+- [ ] Final `-Verify` returned `RESULT: PASS`
+- [ ] Installation record completed without secrets
