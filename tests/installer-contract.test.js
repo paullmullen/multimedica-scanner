@@ -853,6 +853,21 @@ describe("bootstrap release-management installation", () => {
 });
 
 describe("non-interactive provisioning SSH contract", () => {
+  test("bounds SSH connection and keepalive while detaching noninteractive stdin", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("'ConnectTimeout=10'");
+    expect(source).toContain("'ServerAliveInterval=5'");
+    expect(source).toContain("'ServerAliveCountMax=2'");
+    expect(source).toContain("$script:SshCommon + @('-n', $PiHost, $Cmd)");
+    expect(source).toContain("$script:SshCommon + @('-n', '-o', 'BatchMode=yes'");
+    expect(source).not.toContain("ChannelTimeout=");
+
+    const bootstrap = source.match(/function Invoke-RemoteBootstrapSudo[\s\S]*?\n\}/)[0];
+    const attached = source.match(/function Invoke-InteractiveRemote[\s\S]*?\n\}/)[0];
+    expect(bootstrap).not.toContain("'-n'");
+    expect(attached).not.toContain("'-n'");
+  });
+
   test("all provisioning HTTP probes have bounded connection and response time", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
     const curlLines = source.split(/\r?\n/).filter((line) => line.includes("curl -f"));
@@ -939,13 +954,24 @@ describe("supported display update operation", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
     expect(source).toContain("ParameterSetName = 'UpdateDisplay'");
     expect(source).toContain("Invoke-UpdateDisplay");
-    expect(source).toContain("$script:LastRemoteOutput");
-    expect(source).toContain("'rolled_back'");
+    expect(source).toContain("Invoke-RemoteSudoTty");
+    expect(source).toContain("-FailureLabel 'Remote display update'");
+    expect(source).toContain("$R.display_rollback_performed = $null");
     expect(source).toContain("start-kiosk.sh");
     expect(source).toContain("@('app.js', 'full_logo.png', 'index.html', 'styles.css', 'start-kiosk.sh')");
     expect(source).toContain("bootstrap\\display-update.js");
-    expect(source).toContain("DISPLAY_UPDATE_COMPLETE");
     expect(source).not.toMatch(/Invoke-UpdateDisplay[\s\S]*?Install-Bootstrap/);
+  });
+
+  test("runs display installation through a password-safe attached sudo TTY", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    const update = source.match(/function Invoke-UpdateDisplay[\s\S]*?\n\}/)[0];
+    const sudoTty = source.match(/function Invoke-RemoteSudoTty[\s\S]*?\n\}/)[0];
+    expect(update).toContain("Invoke-RemoteSudoTty");
+    expect(update).not.toContain("Invoke-Remote 'Installing display update'");
+    expect(sudoTty).toContain("@('-tt', $PiHost, $Cmd)");
+    expect(sudoTty).not.toContain("RedirectStandardInput");
+    expect(sudoTty).not.toContain("Read-Host");
   });
 
   test("ships a root updater with atomic swap, health verification, and rollback", () => {

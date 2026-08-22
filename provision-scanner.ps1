@@ -430,13 +430,18 @@ function Initialize-Ssh { param([int]$Port, [switch]$AllowPassword)
     if (Test-Path -LiteralPath $script:ProvisioningKey) {
         $identityArgs = @('-i', $script:ProvisioningKey, '-o', 'IdentitiesOnly=yes')
     }
-    $script:SshCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-p', "$Port") + $identityArgs
-    $script:ScpCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-P', "$Port") + $identityArgs
+    $transportBounds = @(
+        '-o', 'ConnectTimeout=10',
+        '-o', 'ServerAliveInterval=5',
+        '-o', 'ServerAliveCountMax=2'
+    )
+    $script:SshCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-p', "$Port") + $transportBounds + $identityArgs
+    $script:ScpCommon = @('-o', 'StrictHostKeyChecking=accept-new', '-P', "$Port") + $transportBounds + $identityArgs
     if (-not $AllowPassword) {
         if (-not $identityArgs.Count) {
             throw 'Provisioning SSH key not found. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
         }
-        $testArgs = $script:SshCommon + @('-o', 'BatchMode=yes', $PiHost, 'true')
+        $testArgs = $script:SshCommon + @('-n', '-o', 'BatchMode=yes', $PiHost, 'true')
         $previousErrorAction = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
@@ -511,7 +516,7 @@ function Invoke-ConfigureSshAccess {
     & $script:SshExe @installArgs
     if ($LASTEXITCODE -ne 0) { throw 'Failed to install provisioning public key on Pi.' }
 
-    $testArgs = $script:SshCommon + @('-o', 'BatchMode=yes', $PiHost, 'true')
+    $testArgs = $script:SshCommon + @('-n', '-o', 'BatchMode=yes', $PiHost, 'true')
     & $script:SshExe @testArgs
     if ($LASTEXITCODE -ne 0) { throw 'Provisioning public key was installed but verification failed.' }
     Write-Ok 'Key-based SSH verified; provisioning will not prompt for the Pi password'
@@ -520,7 +525,7 @@ function Invoke-ConfigureSshAccess {
 # Run remote command; return exit code; stdout goes to console
 function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail, [switch]$Quiet)
     if ($Desc) { Write-Phase $Desc }
-    $a = $script:SshCommon + @($PiHost, $Cmd)
+    $a = $script:SshCommon + @('-n', $PiHost, $Cmd)
     $previousErrorAction = $ErrorActionPreference
     try {
         # Windows PowerShell promotes native stderr to a terminating
@@ -550,6 +555,17 @@ function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail, 
 # from the operator. Neither the password nor command output is captured by
 # PowerShell.
 function Invoke-RemoteBootstrapSudo { param([string]$Desc, [string]$Cmd)
+    Invoke-RemoteSudoTty -Desc $Desc -Cmd $Cmd -FailureLabel 'Interactive bootstrap command'
+}
+
+# Run a remote sudo command on an attached TTY so sudo reads the password
+# directly from the operator. PowerShell never redirects or captures stdin,
+# which prevents a password from entering diagnostic output or result files.
+function Invoke-RemoteSudoTty { param(
+    [string]$Desc,
+    [string]$Cmd,
+    [string]$FailureLabel = 'Interactive sudo command'
+)
     if ($Desc) { Write-Phase $Desc }
     Write-Host '    At the sudo password prompt, type the Pi password once and press Enter.' -ForegroundColor Yellow
     Write-Host '    The password will not appear. After pressing Enter, wait; do not type it again.' -ForegroundColor Yellow
@@ -557,14 +573,14 @@ function Invoke-RemoteBootstrapSudo { param([string]$Desc, [string]$Cmd)
     & $script:SshExe @a
     $remoteExitCode = $LASTEXITCODE
     if ($remoteExitCode -ne 0) {
-        throw "Interactive bootstrap command failed ($remoteExitCode): $Desc"
+        throw "$FailureLabel failed ($remoteExitCode): $Desc"
     }
 }
 
 # Run remote command; capture and return stdout as string
 function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
     if ($Desc) { Write-Phase $Desc }
-    $a   = $script:SshCommon + @($PiHost, $Cmd)
+    $a   = $script:SshCommon + @('-n', $PiHost, $Cmd)
     $out = & $script:SshExe @a 2>$null
     $script:LastRemoteCaptureExitCode = $LASTEXITCODE
     return ($out -join "`n")  }
@@ -1078,13 +1094,19 @@ function Invoke-UpdateDisplay { param([hashtable]$R)
         }
         $R.install_operation_status = 'attached'
         $R.display_update_status = 'installing'
-        $updateExitCode = Invoke-Remote 'Installing display update' "sudo /usr/bin/node $remote/display-update.js --source $remote/bundle" -AllowFail
-        $output = @($script:LastRemoteOutput) -join "`n"
-        if ($updateExitCode -ne 0 -or $output -notmatch 'DISPLAY_UPDATE_COMPLETE') {
-            $R.display_rollback_performed = ($output -match 'DISPLAY_UPDATE_ROLLED_BACK')
-            $R.display_update_status = if ($R.display_rollback_performed) { 'rolled_back' } else { 'failed' }
+        try {
+            Invoke-RemoteSudoTty `
+                -Desc 'Installing display update' `
+                -Cmd "sudo /usr/bin/node $remote/display-update.js --source $remote/bundle" `
+                -FailureLabel 'Remote display update'
+        } catch {
+            # The updater emits rollback details directly to the attached TTY.
+            # Do not capture or infer them because the same channel carries the
+            # hidden sudo-password conversation.
+            $R.display_rollback_performed = $null
+            $R.display_update_status = 'failed'
             $R.install_operation_status = 'failed'
-            throw 'Remote display update failed.'
+            throw
         }
         $R.display_update_status = 'complete'
         $R.display_rollback_performed = $false
