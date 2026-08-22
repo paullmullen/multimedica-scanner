@@ -853,6 +853,17 @@ describe("bootstrap release-management installation", () => {
 });
 
 describe("non-interactive provisioning SSH contract", () => {
+  test("all provisioning HTTP probes have bounded connection and response time", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    const curlLines = source.split(/\r?\n/).filter((line) => line.includes("curl -f"));
+    expect(curlLines.length).toBeGreaterThan(0);
+    for (const line of curlLines) {
+      expect(line).toContain("--connect-timeout");
+      expect(line).toContain("--max-time");
+    }
+    expect(source).toContain("for ($attempt = 1; $attempt -le 6; $attempt++)");
+  });
+
   test("normal operations cannot fall back to a password prompt", () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
     expect(source).toContain("$script:SshCommon += @('-o', 'BatchMode=yes', '-o', 'NumberOfPasswordPrompts=0')");

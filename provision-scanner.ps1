@@ -812,8 +812,14 @@ function Test-Services { param([hashtable]$Result)
         if ($rc -eq 0) { Write-Ok "$svc active" }
         else { Write-Fail "$svc NOT active"; $Result.errors.Add("$svc not active"); $ok = $false }
     }
-    # Check display health via exit code (curl returns 0 on HTTP 2xx)
-    $rc = Invoke-Remote '' 'curl -fs http://127.0.0.1:3001/api/health -o /dev/null 2>/dev/null' -AllowFail
+    # Check display health via bounded retries. A service restart can accept a
+    # connection during startup without completing the response immediately.
+    $rc = 1
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $rc = Invoke-Remote '' 'curl -fs --connect-timeout 3 --max-time 8 http://127.0.0.1:3001/api/health -o /dev/null 2>/dev/null' -AllowFail -Quiet
+        if ($rc -eq 0) { break }
+        Start-Sleep -Seconds 2
+    }
     if ($rc -eq 0) { Write-Ok 'Display health endpoint OK' }
     else { Write-Warn 'Display health endpoint unreachable'; $Result.warnings.Add('Display health unreachable') }
     # The HTTP endpoint alone does not prove that the physical screen is showing it.
@@ -906,7 +912,7 @@ function Invoke-Install { param([hashtable]$R)
 # ---------------------------------------------------------------------------
 
 function Get-ControllerDeviceStatus {
-    $statusJson = Invoke-RemoteCapture 'Querying device state' 'curl -fs http://127.0.0.1:3000/api/status 2>/dev/null'
+    $statusJson = Invoke-RemoteCapture 'Querying device state' 'curl -fs --connect-timeout 3 --max-time 8 http://127.0.0.1:3000/api/status 2>/dev/null'
     $exitCode = $script:LastRemoteCaptureExitCode
     $responseLength = if ($null -eq $statusJson) { 0 } else { $statusJson.Length }
     if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($statusJson)) {
@@ -1146,7 +1152,7 @@ function Wait-ProductionCandidateHealthy {
     param([hashtable]$R, [string]$CandidateDir)
     $lastStatusLength = 0
     for ($i = 1; $i -le 10; $i++) {
-        $status = Invoke-RemoteCapture '' 'curl -fs http://127.0.0.1:3002/api/status 2>/dev/null || true'
+        $status = Invoke-RemoteCapture '' 'curl -fs --connect-timeout 3 --max-time 8 http://127.0.0.1:3002/api/status 2>/dev/null || true'
         $lastStatusLength = if ($null -eq $status) { 0 } else { $status.Length }
         try {
             $obj = $status | ConvertFrom-Json
@@ -1190,9 +1196,9 @@ function Test-SyntheticRuntimeDisplay {
     }
     $payload = "{`"kind`":`"room`",`"state_id`":`"$stateId`",`"priority`":`"room`",`"display`":{`"mode`":`"room_status`",`"status`":{`"code`":`"available`",`"label`":`"CANDIDATE`"}}}"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
-    $post = Invoke-RemoteCapture 'Posting synthetic candidate state through controller' "printf %s $encoded | base64 -d | curl -fsS -X POST http://127.0.0.1:3000/api/runtime-state -H 'Content-Type: application/json' --data-binary @-"
+    $post = Invoke-RemoteCapture 'Posting synthetic candidate state through controller' "printf %s $encoded | base64 -d | curl -fsS --connect-timeout 3 --max-time 10 -X POST http://127.0.0.1:3000/api/runtime-state -H 'Content-Type: application/json' --data-binary @-"
     if ($post -notmatch '"ok"\s*:\s*true') { throw 'Controller rejected synthetic candidate display state.' }
-    $display = Invoke-RemoteCapture 'Verifying synthetic state on display endpoint' 'curl -fsS http://127.0.0.1:3001/api/state'
+    $display = Invoke-RemoteCapture 'Verifying synthetic state on display endpoint' 'curl -fsS --connect-timeout 3 --max-time 8 http://127.0.0.1:3001/api/state'
     if ($display -notmatch [Regex]::Escape($stateId)) { throw 'Synthetic candidate display state was not visible through the display-state endpoint.' }
     $R.warnings.Add("Slice 1 synthetic display state observed: $stateId")
     Confirm-HardwareObservation -Prompt 'Confirm the physical display showed the CANDIDATO state.'

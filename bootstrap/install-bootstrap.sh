@@ -506,7 +506,7 @@ done
 # Check display health endpoint
 DISPLAY_HEALTH=""
 for _i in 1 2 3 4 5; do
-  DISPLAY_HEALTH="$(curl -fs http://127.0.0.1:3001/api/health 2>/dev/null || true)"
+  DISPLAY_HEALTH="$(curl -fs --connect-timeout 3 --max-time 8 http://127.0.0.1:3001/api/health 2>/dev/null || true)"
   if [[ -n "$DISPLAY_HEALTH" ]]; then break; fi
   sleep 1
 done
