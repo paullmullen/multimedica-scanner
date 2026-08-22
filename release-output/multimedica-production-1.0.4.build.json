@@ -1,0 +1,106 @@
+{
+  "artifact": "multimedica-production-1.0.4.tgz",
+  "files": [
+    {
+      "path": "bootstrap/lib/config-store.js",
+      "sha256": "803e84123cefdd205feecfb8add96600cb102518f16115575380195d99b3d750",
+      "size": 8204
+    },
+    {
+      "path": "bootstrap/lib/secrets-store.js",
+      "sha256": "6667d5dfafb639b065e7ec54315ef4755d6a0558ffd23edb190eb6fd49c15620",
+      "size": 9463
+    },
+    {
+      "path": "bootstrap/lib/state-store.js",
+      "sha256": "43f609abd382117bae76c9c933688370f03fa90ae8a7ae037d90b5cffec5a66c",
+      "size": 5458
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "bb49ce4254c41f9f0b57c800613398970b2e86674118473109052928d4691724",
+      "size": 166500
+    },
+    {
+      "path": "package.json",
+      "sha256": "c9f7ee011963124a2514ec30bfdd24505a3dee8ebc443321e39cdd00bf7086d0",
+      "size": 466
+    },
+    {
+      "path": "production/scan-server.js",
+      "sha256": "68f903c2ed3ae5392b09d771552d918e75f845da5a4b82fd00a645bbc924946b",
+      "size": 10151
+    },
+    {
+      "path": "schemas/config.schema.json",
+      "sha256": "b178377d080e6c8e473a977f2de07151e5fce7916a7ec9163a8b020146602287",
+      "size": 1529
+    },
+    {
+      "path": "schemas/secrets.schema.json",
+      "sha256": "62ac7cfcc701aa39b1f4f99079bf8b8ee781d03b93814793802a6866467d369d",
+      "size": 973
+    }
+  ],
+  "manifest": {
+    "arch": "arm64",
+    "artifact_format_version": 1,
+    "built_at": "1970-01-01T00:00:00.000Z",
+    "candidate_port": 3003,
+    "capability_policy": "capability-qualified",
+    "config_schema_version": 1,
+    "content_sha256": "136382dc9577cac4e853cf49250ffd7b958e5d9f0a97f479e15dd0538c82480c",
+    "entry_point": "production/scan-server.js",
+    "files": [
+      {
+        "path": "bootstrap/lib/config-store.js",
+        "sha256": "803e84123cefdd205feecfb8add96600cb102518f16115575380195d99b3d750",
+        "size": 8204
+      },
+      {
+        "path": "bootstrap/lib/secrets-store.js",
+        "sha256": "6667d5dfafb639b065e7ec54315ef4755d6a0558ffd23edb190eb6fd49c15620",
+        "size": 9463
+      },
+      {
+        "path": "bootstrap/lib/state-store.js",
+        "sha256": "43f609abd382117bae76c9c933688370f03fa90ae8a7ae037d90b5cffec5a66c",
+        "size": 5458
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "bb49ce4254c41f9f0b57c800613398970b2e86674118473109052928d4691724",
+        "size": 166500
+      },
+      {
+        "path": "package.json",
+        "sha256": "c9f7ee011963124a2514ec30bfdd24505a3dee8ebc443321e39cdd00bf7086d0",
+        "size": 466
+      },
+      {
+        "path": "production/scan-server.js",
+        "sha256": "68f903c2ed3ae5392b09d771552d918e75f845da5a4b82fd00a645bbc924946b",
+        "size": 10151
+      },
+      {
+        "path": "schemas/config.schema.json",
+        "sha256": "b178377d080e6c8e473a977f2de07151e5fce7916a7ec9163a8b020146602287",
+        "size": 1529
+      },
+      {
+        "path": "schemas/secrets.schema.json",
+        "sha256": "62ac7cfcc701aa39b1f4f99079bf8b8ee781d03b93814793802a6866467d369d",
+        "size": 973
+      }
+    ],
+    "health_endpoint": "http://127.0.0.1:3002/api/status",
+    "min_bootstrap_version": "1.0.0",
+    "name": "multimedica-production",
+    "node_semver": ">=20.0.0 <21.0.0",
+    "os_id": "debian-13-trixie-arm64",
+    "qr_schema_version": 1,
+    "source_commit": "97e24384b4bfd6da5c2bf53023aa7ff94e5ce746",
+    "version": "1.0.4"
+  },
+  "sha256": "6f85ceaaf184f72f9a3689356927feecdf866184b6958140db0e6dbc7f402ae6"
+}
