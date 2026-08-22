@@ -1,136 +1,64 @@
 "use strict";
 
 /**
- * Wi-Fi Manager — Multimedica Scanner Bootstrap Layer
+ * Wi-Fi Manager - unprivileged controller side.
  *
- * Applies Wi-Fi configuration via nmcli on Linux.
- *
- * SECURITY: the Wi-Fi password is accepted as a parameter and passed
- * directly to nmcli via execFile (no shell expansion).  It is never
- * logged, echoed, or included in error messages.
- *
- * On non-Linux platforms this module throws with a clear message so
- * the controller can skip the apply step during development.
+ * Sends one JSON document to the fixed, root-owned helper over stdin. The
+ * password is never placed in argv, stdout, stderr, or an environment value.
  */
 
-const { execFile } = require("child_process");
+const { spawn } = require("child_process");
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.WIFI_TIMEOUT_MS || 60_000);
-const CMD_TIMEOUT_MS = Number(process.env.WIFI_CMD_TIMEOUT_MS || 30_000);
+const HELPER = "/usr/local/sbin/multimedica-wifi-apply";
+const DEFAULT_TIMEOUT_MS = Number(process.env.WIFI_TIMEOUT_MS || 90_000);
 
-// ---------------------------------------------------------------------------
-// Internal command helpers
-// ---------------------------------------------------------------------------
-
-function _run(cmd, args, timeoutMs) {
+function _runHelper(payload, { spawnImpl = spawn, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: timeoutMs || CMD_TIMEOUT_MS }, (err, stdout, stderr) => {
-      if (err) {
-        reject({ error: err, stdout: stdout || "", stderr: stderr || "" });
-        return;
-      }
-      resolve({ stdout: stdout || "", stderr: stderr || "" });
+    const child = spawnImpl("sudo", ["-n", HELPER], {
+      stdio: ["pipe", "ignore", "pipe"],
     });
+    let settled = false;
+    let safeFailure = "";
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(new Error("Wi-Fi configuration timed out"));
+    }, timeoutMs);
+    if (typeof timer.unref === "function") timer.unref();
+
+    child.stderr.on("data", (chunk) => {
+      const match = chunk.toString().match(
+        /WIFI_APPLY_FAILED:[a-z-]+:[a-z-]+:rollback-(?:not-needed|restored|failed)/
+      );
+      if (match) safeFailure = match[0];
+    });
+    child.on("error", () => finish(new Error("Wi-Fi configuration helper unavailable")));
+    child.on("close", (code) => {
+      if (code === 0) finish();
+      else finish(new Error(safeFailure || "Wi-Fi configuration failed"));
+    });
+
+    // JSON is written only to the helper's stdin. Do not log payload.
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
   });
 }
 
-async function _runAllowFailure(cmd, args) {
-  try {
-    return await _run(cmd, args);
-  } catch (err) {
-    return { failed: true, stdout: err.stdout || "", stderr: err.stderr || "" };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public
-// ---------------------------------------------------------------------------
-
-/**
- * Apply Wi-Fi configuration using nmcli.
- *
- * @param {{ ssid: string, password: string, security?: string }} opts
- * @throws if nmcli commands fail or the platform is not Linux
- */
-async function applyWifiConfig({ ssid, password, security = "wpa-psk" }) {
+async function applyWifiConfig({ ssid, password, security = "wpa-psk" }, deps) {
   if (!ssid) throw new Error("Missing Wi-Fi SSID");
   if (password === undefined) throw new Error("Missing Wi-Fi password field");
-  if (process.platform !== "linux") {
-    throw new Error("Wi-Fi configuration requires Linux/nmcli");
+  if (process.platform !== "linux" && !deps?.allowNonLinux) {
+    throw new Error("Wi-Fi configuration requires Linux/NetworkManager");
   }
-
   console.log("[wifi-manager] configuring SSID:", ssid, "(password not logged)");
-
-  // Delete any existing connection with this SSID
-  const existing = await _runAllowFailure("sudo", [
-    "/usr/bin/nmcli",
-    "-t",
-    "-f",
-    "UUID,NAME,TYPE",
-    "connection",
-    "show",
-  ]);
-  if (!existing.failed && existing.stdout) {
-    const toDelete = existing.stdout
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => {
-        const [uuid, name, type] = l.split(":");
-        return { uuid, name, type };
-      })
-      .filter((c) => c.name === ssid && c.type === "802-11-wireless")
-      .map((c) => c.uuid);
-    for (const uuid of toDelete) {
-      await _runAllowFailure("sudo", ["/usr/bin/nmcli", "connection", "delete", uuid]);
-    }
-  }
-
-  // Add new connection
-  await _run("sudo", [
-    "/usr/bin/nmcli",
-    "connection",
-    "add",
-    "type",
-    "wifi",
-    "ifname",
-    "wlan0",
-    "con-name",
-    ssid,
-    "ssid",
-    ssid,
-  ]);
-
-  // Set security key management
-  const keyMgmt = security === "none" ? "none" : "wpa-psk";
-  await _run("sudo", [
-    "/usr/bin/nmcli",
-    "connection",
-    "modify",
-    ssid,
-    "wifi-sec.key-mgmt",
-    keyMgmt,
-  ]);
-
-  // Set password (never logged; passed via execFile, not shell)
-  if (keyMgmt !== "none" && password) {
-    await _run("sudo", ["/usr/bin/nmcli", "connection", "modify", ssid, "wifi-sec.psk", password]);
-  }
-
-  // Enable autoconnect
-  await _run("sudo", [
-    "/usr/bin/nmcli",
-    "connection",
-    "modify",
-    ssid,
-    "connection.autoconnect",
-    "yes",
-  ]);
-
-  // Bring up the connection
-  await _run("sudo", ["/usr/bin/nmcli", "connection", "up", ssid], DEFAULT_TIMEOUT_MS);
-
+  await _runHelper({ ssid, password, security }, deps);
   console.log("[wifi-manager] Wi-Fi configured for SSID:", ssid);
 }
 
-module.exports = { applyWifiConfig };
+module.exports = { applyWifiConfig, _runHelper, HELPER };

@@ -3,6 +3,8 @@ Description=Multimedica Bootstrap Controller
 Documentation=https://github.com/paullmullen/multimedica-scanner
 After=network.target multimedica-display.service
 Wants=multimedica-display.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -16,8 +18,8 @@ Environment=DISPLAY_URL=http://127.0.0.1:3001
 ExecStart=/usr/bin/node /opt/multimedica-scanner/bootstrap/controller.js
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
+RuntimeDirectory=multimedica-scanner
+RuntimeDirectoryMode=0755
 
 # Logging — journald is authoritative
 StandardOutput=journal

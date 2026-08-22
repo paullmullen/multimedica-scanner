@@ -139,19 +139,20 @@ function createController(deps) {
   async function _handleWifiConfig(result) {
     await _showMsg("applying", `Applying Wi\u2011Fi: ${result.runtime.ssid}`);
 
-    // 1. Persist non-secret fields to config
+    // Apply and verify first. A failed activation must not make commissioning
+    // appear complete or replace the last known-good stored credentials.
+    if (_applyWifi) {
+      await _applyWifi(result.runtime);
+    }
+
+    // Persist only after the root helper has verified the active connection.
     _configStore.writeConfig({
       wifi_ssid: result.runtime.ssid,
       wifi_security: result.runtime.security,
     });
 
-    // 2. Persist password to secrets only — never logged or displayed
+    // Persist password to secrets only - never logged or displayed.
     _secretsStore.writeSecrets({ wifi_password: result.runtime.password });
-
-    // 3. Apply on Linux (or via injected function)
-    if (_applyWifi) {
-      await _applyWifi(result.runtime);
-    }
 
     await _showMsg("success", `Wi\u2011Fi accepted: ${result.runtime.ssid}`);
     await _pushState();

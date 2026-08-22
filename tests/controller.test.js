@@ -166,6 +166,25 @@ describe("handleScan â€” wifi_config", () => {
     expect(msgText).not.toContain("pw");
   });
 
+  test("failed Wi-Fi activation does not mark Wi-Fi configured or replace credentials", async () => {
+    configStore.writeConfig({ wifi_ssid: "KnownGood", wifi_security: "wpa-psk" }, tmpDir);
+    secretsStore.writeSecrets({ qr_admin_token: TEST_TOKEN, wifi_password: "known-good-pass" }, tmpDir);
+    const applyWifi = jest.fn().mockRejectedValue(new Error("Wi-Fi configuration failed"));
+    const { ctrl, display } = makeCtrl(tmpDir, { applyWifi });
+
+    await ctrl.handleScan(
+      qr("wifi_config", { ssid: "Candidate", password: "candidate-pass", security: "wpa-psk" })
+    );
+
+    expect(configStore.readConfig(tmpDir)).toMatchObject({
+      wifi_ssid: "KnownGood",
+      wifi_security: "wpa-psk",
+    });
+    expect(secretsStore.readSecrets(tmpDir).wifi_password).toBe("known-good-pass");
+    expect(display.showMessage.mock.calls.at(-1)[0]).toMatchObject({ kind: "error" });
+    expect(JSON.stringify(display.showMessage.mock.calls)).not.toContain("candidate-pass");
+  });
+
   test("re-scanning wifi replaces ssid but preserves unrelated station fields", async () => {
     const { ctrl } = makeCtrl(tmpDir);
     // First: scan station config

@@ -659,6 +659,11 @@ describe("bootstrap release-management installation", () => {
       path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-release-recovery.service"),
       "utf8"
     );
+  const controllerUnit = () =>
+    fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "systemd", "multimedica-controller.service"),
+      "utf8"
+    );
 
   test("transfers the complete bootstrap and schema closure without the workstation builder", () => {
     const script = provisioningScript();
@@ -703,6 +708,13 @@ describe("bootstrap release-management installation", () => {
     expect(unit).toContain("RuntimeDirectory=multimedica-scanner");
     expect(unit).toContain("RuntimeDirectoryMode=0755");
     expect(unit).toContain("/run/multimedica-scanner");
+  });
+
+  test("controller recreates the shared volatile runtime directory after every boot", () => {
+    const unit = controllerUnit();
+    expect(unit).toContain("RuntimeDirectory=multimedica-scanner");
+    expect(unit).toContain("RuntimeDirectoryMode=0755");
+    expect(unit.indexOf("StartLimitIntervalSec=60")).toBeLessThan(unit.indexOf("[Service]"));
   });
 
   test("does not activate or persist-enable release services during bootstrap install", () => {
@@ -791,6 +803,53 @@ describe("bootstrap release-management installation", () => {
     expect(script).toContain('touch "$RUNTIME_DIR/bootstrap-installing"');
     expect(script).toContain('chmod 0640 "$RUNTIME_DIR/bootstrap-installing"');
   });
+
+  test("installs only the fixed root-owned Wi-Fi helper privilege boundary", () => {
+    const script = installScript();
+    const helper = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "bin", "multimedica-wifi-apply"),
+      "utf8"
+    );
+    const sudoers = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "sudoers", "multimedica-wifi-apply"),
+      "utf8"
+    );
+    expect(script).toContain('WIFI_APPLY_HELPER="/usr/local/sbin/multimedica-wifi-apply"');
+    expect(script).toContain('visudo -cf "$WIFI_SUDOERS_TMP"');
+    expect(sudoers.trim()).toBe(
+      "multimedica_edge ALL=(root) NOPASSWD: /usr/local/sbin/multimedica-wifi-apply"
+    );
+    expect(sudoers).not.toContain("nmcli");
+    expect(helper).toContain('fs.readFileSync(0, "utf8")');
+    expect(helper).toContain('"passwd-file", PASSWD_FILE');
+    expect(helper).not.toContain('"wifi-sec.psk", request.password');
+  });
+
+  test("installs a fixed reboot helper and requires observed down-then-up recovery", () => {
+    const script = installScript();
+    const provisioning = provisioningScript();
+    const helper = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "bin", "multimedica-reboot"),
+      "utf8"
+    );
+    const sudoers = fs.readFileSync(
+      path.join(__dirname, "..", "bootstrap", "sudoers", "multimedica-reboot"),
+      "utf8"
+    );
+    expect(script).toContain('REBOOT_HELPER="/usr/local/sbin/multimedica-reboot"');
+    expect(script).toContain('visudo -cf "$REBOOT_SUDOERS_TMP"');
+    expect(helper).toContain("exec /usr/bin/systemctl reboot");
+    expect(sudoers.trim()).toBe(
+      "multimedica_edge ALL=(root) NOPASSWD: /usr/local/sbin/multimedica-reboot"
+    );
+    expect(provisioning).toContain("sudo -n /usr/local/sbin/multimedica-reboot");
+    expect(provisioning).toContain("$wentOffline = $false");
+    expect(provisioning).toContain("Pi did not go offline after reboot request");
+    expect(provisioning).toContain("Pi went offline");
+    expect(provisioning).toContain("$ErrorActionPreference = 'Continue'");
+    expect(provisioning).toContain("$ErrorActionPreference = $previousErrorAction");
+    expect(provisioning).toContain("Invoke-Remote '' 'echo ok' -AllowFail -Quiet");
+  });
 });
 
 describe("non-interactive provisioning SSH contract", () => {
@@ -807,6 +866,43 @@ describe("non-interactive provisioning SSH contract", () => {
     expect(source).toContain("Was this Pi re-imaged since it was last used from this computer?");
     expect(source).toContain("& $keygen.Source -R $knownHostLookup");
     expect(source).toContain("Previous SSH host key removed");
+  });
+
+  test("clean-image bootstrap alone receives a TTY for one hidden sudo prompt", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("function Invoke-RemoteBootstrapSudo");
+    expect(source).toContain("$script:SshCommon + @('-tt', $PiHost, $Cmd)");
+    expect(source).toContain("type the Pi password once and press Enter");
+    expect(source).toContain("The password will not appear. After pressing Enter, wait; do not type it again.");
+    expect(source).toContain("Invoke-RemoteBootstrapSudo 'Running bootstrap installer'");
+    expect(source).toContain("sudo -p 'Pi sudo password: ' bash");
+    expect(source).not.toContain("$null = Invoke-RemoteBootstrapSudo");
+    expect(source).not.toContain("Invoke-Install     -R $result | Out-Null");
+    expect(source).not.toContain("Invoke-Repair      -R $result | Out-Null");
+    const bootstrapHelper = source.match(
+      /function Invoke-RemoteBootstrapSudo[\s\S]*?\n\}/
+    );
+    expect(bootstrapHelper).not.toBeNull();
+    expect(bootstrapHelper[0]).not.toContain("RedirectStandardInput");
+    expect(bootstrapHelper[0]).not.toContain("2>&1");
+  });
+
+  test("Repair performs and verifies the reboot that clears its installation gate", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    const repair = source.match(/function Invoke-Repair[\s\S]*?\n\}/);
+    expect(repair).not.toBeNull();
+    expect(repair[0]).toContain("Invoke-Reboot -Result $R");
+    expect(repair[0]).toContain("$R.reboot_verified");
+    expect(repair[0]).toContain("Test-Services -Result $R");
+    expect(repair[0]).toContain("Test-Scanner -Result $R");
+  });
+
+  test("stale SSH host keys produce actionable re-image guidance", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "provision-scanner.ps1"), "utf8");
+    expect(source).toContain("REMOTE HOST IDENTIFICATION HAS CHANGED|Offending .* key");
+    expect(source).toContain(
+      "SSH host key changed. Run -ConfigureSshAccess and answer yes to the re-imaged Pi question."
+    );
   });
 });
 

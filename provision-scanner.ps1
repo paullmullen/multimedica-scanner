@@ -437,8 +437,19 @@ function Initialize-Ssh { param([int]$Port, [switch]$AllowPassword)
             throw 'Provisioning SSH key not found. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
         }
         $testArgs = $script:SshCommon + @('-o', 'BatchMode=yes', $PiHost, 'true')
-        & $script:SshExe @testArgs 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        $previousErrorAction = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $keyTestOutput = @(& $script:SshExe @testArgs 2>&1)
+            $keyTestExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+        if ($keyTestExitCode -ne 0) {
+            $keyTestText = ($keyTestOutput -join "`n")
+            if ($keyTestText -match 'REMOTE HOST IDENTIFICATION HAS CHANGED|Offending .* key') {
+                throw 'SSH host key changed. Run -ConfigureSshAccess and answer yes to the re-imaged Pi question.'
+            }
             throw 'Key-based SSH verification failed. Run: .\provision-scanner.ps1 -ConfigureSshAccess -PiHost <user@host>'
         }
         # All normal provisioning operations are non-interactive. Never fall
@@ -507,20 +518,48 @@ function Invoke-ConfigureSshAccess {
 }
 
 # Run remote command; return exit code; stdout goes to console
-function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail)
+function Invoke-Remote { param([string]$Desc, [string]$Cmd, [switch]$AllowFail, [switch]$Quiet)
     if ($Desc) { Write-Phase $Desc }
     $a = $script:SshCommon + @($PiHost, $Cmd)
-    $remoteOutput = @(& $script:SshExe @a 2>&1)
-    $remoteExitCode = $LASTEXITCODE
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        # Windows PowerShell promotes native stderr to a terminating
+        # NativeCommandError when the script-wide preference is Stop. Remote
+        # reachability probes intentionally expect nonzero SSH exits.
+        $ErrorActionPreference = 'Continue'
+        $remoteOutput = @(& $script:SshExe @a 2>&1)
+        $remoteExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
     $script:LastRemoteOutput = @($remoteOutput)
     $script:LastRemoteExitCode = $remoteExitCode
-    foreach ($line in $remoteOutput) { Write-Host $line }
+    if (-not $Quiet) {
+        foreach ($line in $remoteOutput) { Write-Host $line }
+    }
     if (-not $AllowFail -and $remoteExitCode -ne 0) {
         $detail = ($remoteOutput | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } | Select-Object -Last 1)
         if ($detail) { throw "SSH command failed ($remoteExitCode): $Desc -- Remote: $detail" }
         throw "SSH command failed ($remoteExitCode): $Desc"
     }
     return $remoteExitCode }
+
+# Run the one clean-image bootstrap command on an attached remote TTY.
+# SSH authentication remains key-only because SshCommon retains BatchMode=yes;
+# the TTY exists solely so remote sudo can read one hidden password directly
+# from the operator. Neither the password nor command output is captured by
+# PowerShell.
+function Invoke-RemoteBootstrapSudo { param([string]$Desc, [string]$Cmd)
+    if ($Desc) { Write-Phase $Desc }
+    Write-Host '    At the sudo password prompt, type the Pi password once and press Enter.' -ForegroundColor Yellow
+    Write-Host '    The password will not appear. After pressing Enter, wait; do not type it again.' -ForegroundColor Yellow
+    $a = $script:SshCommon + @('-tt', $PiHost, $Cmd)
+    & $script:SshExe @a
+    $remoteExitCode = $LASTEXITCODE
+    if ($remoteExitCode -ne 0) {
+        throw "Interactive bootstrap command failed ($remoteExitCode): $Desc"
+    }
+}
 
 # Run remote command; capture and return stdout as string
 function Invoke-RemoteCapture { param([string]$Desc, [string]$Cmd)
@@ -674,7 +713,7 @@ function Install-Bootstrap { param([hashtable]$Result, [object]$Cfg, [switch]$Is
     $ff = if ($IsRepair -or $Force) { '--force' } else { '' }
     Write-Warn 'The first clean-image bootstrap can take several minutes while OS and npm packages are installed.'
     Write-Warn 'Do not interrupt the installer while package output continues; later reruns should be faster.'
-    $null = Invoke-Remote 'Running bootstrap installer' "sudo bash $tmp/bootstrap/install-bootstrap.sh --src $tmp/bootstrap --secrets $stRemote $ff 2>&1" }
+    Invoke-RemoteBootstrapSudo 'Running bootstrap installer' "sudo -p 'Pi sudo password: ' bash $tmp/bootstrap/install-bootstrap.sh --src $tmp/bootstrap --secrets $stRemote $ff 2>&1" }
 
 # ---------------------------------------------------------------------------
 # Release infrastructure status (read-only, non-secret)
@@ -807,12 +846,24 @@ function Test-Scanner { param([hashtable]$Result)
 
 function Invoke-Reboot { param([hashtable]$Result)
     Write-Phase 'Rebooting Pi (no operator input required)'
-    Invoke-Remote '' 'sudo reboot' -AllowFail | Out-Null
+    Invoke-Remote '' 'sudo -n /usr/local/sbin/multimedica-reboot' -AllowFail | Out-Null
     Write-Host '    The Pi will disconnect temporarily. Do not type a password or scan a QR code.'
-    Write-Host '    Waiting 30 seconds for Pi to reboot...'
-    Start-Sleep -Seconds 30
-    for ($i = 1; $i -le 12; $i++) {
-        $rc = Invoke-Remote '' 'echo ok' -AllowFail
+    Write-Host '    Waiting for the current system to go offline...'
+    Start-Sleep -Seconds 2
+    $wentOffline = $false
+    for ($i = 1; $i -le 15; $i++) {
+        $rc = Invoke-Remote '' 'echo ok' -AllowFail -Quiet
+        if ($rc -ne 0) { $wentOffline = $true; break }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $wentOffline) {
+        $Result.errors.Add('Pi did not go offline after reboot request')
+        return $false
+    }
+    Write-Ok 'Pi went offline'
+    Write-Host '    Waiting for the rebooted Pi to reconnect...'
+    for ($i = 1; $i -le 18; $i++) {
+        $rc = Invoke-Remote '' 'echo ok' -AllowFail -Quiet
         if ($rc -eq 0) { Write-Ok 'Pi reconnected'; return $true }
         Start-Sleep -Seconds 10
     }
@@ -848,7 +899,7 @@ function Invoke-Install { param([hashtable]$R)
                              ($R.scanner_device_detected -eq $true) -and
                              ($R.reboot_verified -ne $false))
     $R.exit_code = if ($R.bootstrap_complete) { 0 } elseif ($R.services_healthy) { 10 } else { 20 }
-    return $R }
+}
 
 # ---------------------------------------------------------------------------
 # Mode: -Verify
@@ -928,10 +979,24 @@ function Invoke-Repair { param([hashtable]$R)
     Install-Bootstrap -Result $R -Cfg $cfg -IsRepair
     $ok = Test-Services -Result $R
     $scannerOk = Test-Scanner -Result $R
-    $R.services_healthy    = $ok
-    $R.bootstrap_complete  = ($ok -and $scannerOk)
+    if (-not $NoReboot -and $ok -and $scannerOk) {
+        $rb = Invoke-Reboot -Result $R
+        if ($rb) {
+            Test-Services -Result $R | Out-Null
+            $scannerAfterReboot = Test-Scanner -Result $R
+            $R.reboot_verified = ($R.services_healthy -and $scannerAfterReboot)
+        } else {
+            $R.reboot_verified = $false
+        }
+    } else {
+        $R.reboot_verified = $null
+        if (-not $ok) { $R.warnings.Add('Skipping reboot: services not healthy') }
+    }
+    $R.bootstrap_complete = (($R.services_healthy -eq $true) -and
+                             ($R.scanner_device_detected -eq $true) -and
+                             ($R.reboot_verified -ne $false))
     $R.exit_code = if ($R.bootstrap_complete) { 0 } else { 20 }
-    return $R }
+}
 
 # ---------------------------------------------------------------------------
 # Mode: -InstallRelease
@@ -1203,10 +1268,10 @@ $result = New-ProvisioningResult $PSCmdlet.ParameterSetName $PiHost
 
 try {
     switch ($PSCmdlet.ParameterSetName) {
-        'Install'         { Invoke-Install     -R $result | Out-Null }
+        'Install'         { Invoke-Install     -R $result }
         'Verify'          { Invoke-Verify      -R $result | Out-Null }
         'Commission'      { Invoke-Commission  -R $result | Out-Null }
-        'Repair'          { Invoke-Repair      -R $result | Out-Null }
+        'Repair'          { Invoke-Repair      -R $result }
         'InstallRelease'  { Invoke-InstallRelease -R $result | Out-Null }
         'UpdateDisplay'   { Invoke-UpdateDisplay -R $result | Out-Null }
         'ValidateProductionCandidate' { Invoke-ValidateProductionCandidate -R $result | Out-Null }

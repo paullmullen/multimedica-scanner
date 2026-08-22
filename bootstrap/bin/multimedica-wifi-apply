@@ -1,0 +1,143 @@
+#!/usr/bin/node
+"use strict";
+
+// Root-only Wi-Fi activation helper. Reads one JSON request from stdin and
+// never accepts credentials through argv or environment variables.
+
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+
+const NMCLI = "/usr/bin/nmcli";
+const IFACE = "wlan0";
+const MANAGED = "multimedica-managed-wifi";
+const CANDIDATE = "multimedica-managed-wifi-candidate";
+const PASSWD_FILE = `/run/multimedica-scanner/.wifi-passwd-${process.pid}`;
+
+function fail(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+function nmcli(args, options = {}) {
+  return execFileSync(NMCLI, args, {
+    encoding: "utf8",
+    timeout: options.timeout || 30_000,
+    stdio: options.stdio || ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function safeReason(error) {
+  const text = String(error?.stderr || "");
+  if (/unknown parameter|invalid extra argument|not understood/i.test(text)) return "arguments";
+  if (/Secrets were required|no secrets|secret.*required/i.test(text)) return "secrets-required";
+  if (/not available|no suitable device|not found/i.test(text)) return "unavailable";
+  if (/timeout|timed out/i.test(text) || error?.killed) return "timeout";
+  return "command-failed";
+}
+
+function allowFailure(args) {
+  try {
+    return { ok: true, stdout: nmcli(args) };
+  } catch {
+    return { ok: false, stdout: "" };
+  }
+}
+
+function validate(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) fail("Invalid request");
+  const keys = Object.keys(request).sort();
+  if (keys.join(",") !== "password,security,ssid") fail("Invalid request fields");
+  if (typeof request.ssid !== "string" || Buffer.byteLength(request.ssid, "utf8") < 1 ||
+      Buffer.byteLength(request.ssid, "utf8") > 32 || /[\0\r\n]/.test(request.ssid)) {
+    fail("Invalid SSID");
+  }
+  if (!['none', 'wpa-psk'].includes(request.security)) fail("Unsupported Wi-Fi security");
+  if (typeof request.password !== "string" || /[\0\r\n]/.test(request.password)) {
+    fail("Invalid Wi-Fi password");
+  }
+  if (request.security === "wpa-psk") {
+    const validPassphrase = request.password.length >= 8 && request.password.length <= 63;
+    const validHexPsk = /^[0-9a-fA-F]{64}$/.test(request.password);
+    if (!validPassphrase && !validHexPsk) fail("Invalid WPA password length");
+  }
+  return request;
+}
+
+if (process.getuid() !== 0) fail("Must run as root");
+
+let raw = "";
+try {
+  raw = fs.readFileSync(0, "utf8");
+  if (Buffer.byteLength(raw, "utf8") > 4096) fail("Request too large");
+} catch {
+  fail("Could not read request");
+}
+
+let request;
+try {
+  request = validate(JSON.parse(raw));
+} catch {
+  fail("Invalid request JSON");
+} finally {
+  raw = "";
+}
+
+let previous = "";
+let stage = "starting";
+let failure = "";
+try {
+  stage = "read-current";
+  previous = allowFailure(["-g", "GENERAL.CONNECTION", "device", "show", IFACE]).stdout;
+  allowFailure(["connection", "delete", "id", CANDIDATE]);
+
+  stage = "profile-create";
+  nmcli([
+    "connection", "add", "type", "wifi", "ifname", IFACE,
+    "con-name", CANDIDATE, "ssid", request.ssid,
+  ]);
+  stage = "profile-configure";
+  nmcli(["connection", "modify", CANDIDATE, "connection.autoconnect", "yes"]);
+
+  const upArgs = ["--wait", "60", "connection", "up", "id", CANDIDATE, "ifname", IFACE];
+  if (request.security === "wpa-psk") {
+    nmcli(["connection", "modify", CANDIDATE, "wifi-sec.key-mgmt", "wpa-psk"]);
+    stage = "credential-file";
+    fs.writeFileSync(
+      PASSWD_FILE,
+      `802-11-wireless-security.psk:${request.password}\n`,
+      { mode: 0o600, flag: "wx" }
+    );
+    upArgs.push("passwd-file", PASSWD_FILE);
+  }
+  stage = "credential-activation";
+  nmcli(upArgs, { timeout: 75_000 });
+
+  stage = "connection-verify";
+  const state = nmcli(["-g", "GENERAL.STATE", "device", "show", IFACE]);
+  const active = nmcli(["-g", "GENERAL.CONNECTION", "device", "show", IFACE]);
+  if (!state.startsWith("100") || active !== CANDIDATE) throw new Error("Activation not verified");
+
+  // The candidate is proven. Remove only our older managed profile, never an
+  // imaging/user profile, and give the candidate the stable managed name.
+  stage = "profile-promote";
+  if (MANAGED !== previous) allowFailure(["connection", "delete", "id", MANAGED]);
+  nmcli(["connection", "modify", CANDIDATE, "connection.id", MANAGED]);
+} catch (error) {
+  const reason = safeReason(error);
+  allowFailure(["connection", "delete", "id", CANDIDATE]);
+  let rollback = "not-needed";
+  if (previous && previous !== "--") {
+    rollback = allowFailure([
+      "--wait", "30", "connection", "up", "id", previous, "ifname", IFACE,
+    ]).ok ? "restored" : "failed";
+  }
+  failure = `WIFI_APPLY_FAILED:${stage}:${reason}:rollback-${rollback}`;
+} finally {
+  request.password = "";
+  try { fs.unlinkSync(PASSWD_FILE); } catch {}
+}
+
+if (failure) {
+  process.stderr.write(`${failure}\n`);
+  process.exitCode = 1;
+}

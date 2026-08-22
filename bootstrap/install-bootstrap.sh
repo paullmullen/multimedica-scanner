@@ -284,6 +284,44 @@ mv -f "$SUDOERS_TMP" /etc/sudoers.d/multimedica-release-install
 chown root:root /etc/sudoers.d/multimedica-release-install
 chmod 0440 /etc/sudoers.d/multimedica-release-install
 
+WIFI_APPLY_HELPER="/usr/local/sbin/multimedica-wifi-apply"
+install -o root -g root -m 0755 \
+  "$BOOTSTRAP_DIR/bin/multimedica-wifi-apply" \
+  "$WIFI_APPLY_HELPER"
+sed -i 's/\r$//' "$WIFI_APPLY_HELPER"
+chown root:root "$WIFI_APPLY_HELPER"
+chmod 0755 "$WIFI_APPLY_HELPER"
+WIFI_SUDOERS_TMP="/etc/sudoers.d/.multimedica-wifi-apply.tmp"
+install -o root -g root -m 0440 \
+  "$BOOTSTRAP_DIR/sudoers/multimedica-wifi-apply" \
+  "$WIFI_SUDOERS_TMP"
+sed -i 's/\r$//' "$WIFI_SUDOERS_TMP"
+chown root:root "$WIFI_SUDOERS_TMP"
+chmod 0440 "$WIFI_SUDOERS_TMP"
+visudo -cf "$WIFI_SUDOERS_TMP" >/dev/null
+mv -f "$WIFI_SUDOERS_TMP" /etc/sudoers.d/multimedica-wifi-apply
+chown root:root /etc/sudoers.d/multimedica-wifi-apply
+chmod 0440 /etc/sudoers.d/multimedica-wifi-apply
+
+REBOOT_HELPER="/usr/local/sbin/multimedica-reboot"
+install -o root -g root -m 0755 \
+  "$BOOTSTRAP_DIR/bin/multimedica-reboot" \
+  "$REBOOT_HELPER"
+sed -i 's/\r$//' "$REBOOT_HELPER"
+chown root:root "$REBOOT_HELPER"
+chmod 0755 "$REBOOT_HELPER"
+REBOOT_SUDOERS_TMP="/etc/sudoers.d/.multimedica-reboot.tmp"
+install -o root -g root -m 0440 \
+  "$BOOTSTRAP_DIR/sudoers/multimedica-reboot" \
+  "$REBOOT_SUDOERS_TMP"
+sed -i 's/\r$//' "$REBOOT_SUDOERS_TMP"
+chown root:root "$REBOOT_SUDOERS_TMP"
+chmod 0440 "$REBOOT_SUDOERS_TMP"
+visudo -cf "$REBOOT_SUDOERS_TMP" >/dev/null
+mv -f "$REBOOT_SUDOERS_TMP" /etc/sudoers.d/multimedica-reboot
+chown root:root /etc/sudoers.d/multimedica-reboot
+chmod 0440 /etc/sudoers.d/multimedica-reboot
+
 # =============================================================================
 # 3. Install npm dependencies
 # =============================================================================
