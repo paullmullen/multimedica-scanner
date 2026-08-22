@@ -28,6 +28,7 @@ const http = require("http");
 const { once } = require("events");
 
 const { createController } = require("../bootstrap/controller");
+const { getStateMessage } = require("../bootstrap/lib/commissioning");
 const configStore = require("../bootstrap/lib/config-store");
 const secretsStore = require("../bootstrap/lib/secrets-store");
 
@@ -420,7 +421,7 @@ describe("handleScan â€” invalid inputs", () => {
       const { ctrl, display } = makeCtrl(tmpDir, { forwardProductionScan });
       await ctrl.handleScan("VISIT:12345");
       const runtime = display.showRuntimeState.mock.calls.at(-1)[0];
-      expect(runtime.overlay.detail).toContain("rescan");
+      expect(runtime.overlay.detail).toContain("escanear");
     }
   });
 
@@ -436,7 +437,7 @@ describe("handleScan â€” invalid inputs", () => {
       await ctrl.handleScan("VISIT:12345");
       expect(display.showRuntimeState).toHaveBeenCalledWith(
         expect.objectContaining({
-          overlay: expect.objectContaining({ detail: expect.stringContaining("rescan") }),
+          overlay: expect.objectContaining({ detail: expect.stringContaining("escanear") }),
         })
       );
     } finally {
@@ -491,6 +492,42 @@ describe("handleScan â€” invalid inputs", () => {
   });
 });
 
+describe("physical display Spanish localization contract", () => {
+  test("commissioning state guidance is Spanish", () => {
+    for (const state of [
+      "starting",
+      "bootstrap_installed",
+      "network_configured",
+      "identity_configured",
+      "cloud_configured",
+      "operational",
+    ]) {
+      const message = getStateMessage(state, ["wifi_config", "station_config", "cloud_config"]);
+      expect(message).not.toMatch(/\b(Ready|Scan|accepted|configured|Station|Cloud|Device|Status)\b/i);
+    }
+  });
+
+  test("controller contains no known English physical-display messages", () => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "bootstrap", "controller.js"), "utf8");
+    for (const text of [
+      "Applying Wi‑Fi",
+      "Wi‑Fi accepted",
+      "Station accepted",
+      "Cloud configuration accepted",
+      "Duplicate scan",
+      "Scan already received",
+      "Scan rejected",
+      "Please check the visit and rescan",
+      "Production unavailable",
+      "Please rescan",
+      "Scanner ready",
+      "Scanner unavailable",
+    ]) {
+      expect(source).not.toContain(text);
+    }
+  });
+});
+
 describe("runtime display coordination", () => {
   test("connection failure shows feedback unavailable overlay and preserves room state", async () => {
     jest.useFakeTimers();
@@ -537,7 +574,7 @@ describe("runtime display coordination", () => {
         kind: "overlay",
         priority: "feedback",
         expires_in_ms: 10000,
-        overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+        overlay: { severity: "error", title: "Servicio no disponible", detail: "Vuelva a escanear." },
       });
       jest.advanceTimersByTime(10000);
       expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
@@ -561,7 +598,7 @@ describe("runtime display coordination", () => {
     await ctrl.handleScan("VISIT:two");
     expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
       priority: "feedback",
-      overlay: { title: "Production unavailable", detail: "Please rescan." },
+      overlay: { title: "Servicio no disponible", detail: "Vuelva a escanear." },
     });
     jest.useRealTimers();
   });
@@ -573,7 +610,7 @@ describe("runtime display coordination", () => {
     await ctrl.handleScan("VISIT:12345");
     expect(display.showRuntimeState.mock.calls.at(-1)[0]).toMatchObject({
       priority: "feedback",
-      overlay: { title: "Production unavailable", detail: "Please rescan." },
+      overlay: { title: "Servicio no disponible", detail: "Vuelva a escanear." },
     });
   });
 
@@ -813,6 +850,11 @@ describe("startStatusServer", () => {
       expect(JSON.stringify(data)).not.toContain(TEST_TOKEN);
       expect(data.config).not.toHaveProperty("shared_secret");
       expect(data.config).not.toHaveProperty("qr_admin_token");
+      expect(data.health).not.toHaveProperty("scanner_connected");
+      expect(data.health.scanner_input_ready).toBe(
+        data.health.scanner_device_detected === true &&
+          data.health.scanner_reader_active === true
+      );
     } finally {
       await closeTestServer(server);
     }

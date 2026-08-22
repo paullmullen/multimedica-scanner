@@ -224,6 +224,36 @@ test("display client maps current runtime states into approved visual modes", ()
   ).toMatchObject({ mode: "overlay", severity: "warning" });
 });
 
+test("display client localizes legacy English controller messages before presentation", () => {
+  const client = require("../bootstrap/public/app");
+  expect(client.localizeDisplayText("Scanner ready. Scan Wi-Fi configuration QR.")).toBe(
+    "Escáner listo. Escanee el QR de configuración de Wi-Fi."
+  );
+  expect(client.localizeDisplayText("Applying Wi‑Fi: ClinicNet")).toBe(
+    "Aplicando Wi-Fi: ClinicNet"
+  );
+  expect(client.localizeDisplayText("Station accepted: lab")).toBe("Estación aceptada: lab");
+  expect(client.localizeDisplayText("Production unavailable")).toBe("Servicio no disponible");
+  expect(client.localizeDisplayText("Please rescan.")).toBe("Vuelva a escanear.");
+  expect(client.localizeDisplayText("WIFI_APPLY_FAILED:credential-file:command-failed")).toBe(
+    "QR rechazado. Verifique el código e inténtelo de nuevo."
+  );
+  expect(
+    client.runtimeView({
+      kind: "overlay",
+      state_id: "legacy-English",
+      overlay: {
+        severity: "error",
+        title: "Scan rejected",
+        detail: "Please check the visit and rescan.",
+      },
+    })
+  ).toMatchObject({
+    title: "Lectura rechazada",
+    detail: "Verifique la visita y vuelva a escanear.",
+  });
+});
+
 test("approved display assets preserve branding and separate candidate styling", () => {
   const publicRoot = path.join(__dirname, "..", "bootstrap", "public");
   const html = fs.readFileSync(path.join(publicRoot, "index.html"), "utf8");

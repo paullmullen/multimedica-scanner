@@ -10,6 +10,40 @@
   var POLL_INTERVAL_MS = 2000;
   var lastRuntime = null;
 
+  var DISPLAY_TRANSLATIONS = {
+    "Cloud configuration accepted": "Configuración de nube aceptada",
+    "Duplicate scan": "Lectura duplicada",
+    "Scan already received.": "Este código ya fue recibido.",
+    "Scan rejected": "Lectura rechazada",
+    "Please check the visit and rescan.": "Verifique la visita y vuelva a escanear.",
+    "Production unavailable": "Servicio no disponible",
+    "Please rescan.": "Vuelva a escanear.",
+    "Configuration error: bootstrap token not installed":
+      "Error de configuración: no se instaló el token de arranque",
+    "Scanner ready. Scan ´Wi-Fi configuration QR.":
+      "Escáner listo. Escanee el QR de configuración de Wi-Fi.",
+    "Scanner ready. Scan Wi-Fi configuration QR.":
+      "Escáner listo. Escanee el QR de configuración de Wi-Fi.",
+    "Scanner unavailable. Check the USB connection.":
+      "Escáner no disponible. Revise la conexión USB.",
+    "Configuration update failed": "No se pudo actualizar la configuración.",
+    "Wi-Fi configuration failed": "No se pudo configurar Wi-Fi.",
+  };
+
+  function localizeDisplayText(value) {
+    var text = String(value || "");
+    if (DISPLAY_TRANSLATIONS[text]) return DISPLAY_TRANSLATIONS[text];
+    if (/^Applying Wi[‑-]Fi:\s*/.test(text))
+      return text.replace(/^Applying Wi[‑-]Fi:/, "Aplicando Wi-Fi:");
+    if (/^Wi[‑-]Fi accepted:\s*/.test(text))
+      return text.replace(/^Wi[‑-]Fi accepted:/, "Wi-Fi aceptado:");
+    if (/^Station accepted:\s*/.test(text))
+      return text.replace(/^Station accepted:/, "Estación aceptada:");
+    if (/^QR rejected:/.test(text) || /^WIFI_APPLY_FAILED:/.test(text))
+      return "QR rechazado. Verifique el código e inténtelo de nuevo.";
+    return text;
+  }
+
   var STATE_LABELS = {
     starting: "Iniciando…",
     bootstrap_installed: "Escanee el QR de Wi‑Fi para comenzar",
@@ -44,8 +78,8 @@
       return {
         mode: "overlay",
         severity: runtime.overlay.severity || "info",
-        title: runtime.overlay.title || "MENSAJE",
-        detail: runtime.overlay.detail || "",
+        title: localizeDisplayText(runtime.overlay.title || "MENSAJE"),
+        detail: localizeDisplayText(runtime.overlay.detail || ""),
       };
     }
     if (runtime.kind !== "room" || !runtime.display) return { mode: "commissioning" };
@@ -113,7 +147,7 @@
         el("commissioning-state").textContent = "Finalizando la instalación";
         el("commissioning-state").className = "commissioning-state state-installing";
       }
-      el("commissioning-message").textContent = message.text || "";
+      el("commissioning-message").textContent = localizeDisplayText(message.text || "");
       el("commissioning-message").className = "commissioning-message msg-" + (message.kind || "info");
       var missing = message.kind === "installing" ? [] : (data.missing_fields || []);
       el("commissioning-missing").innerHTML = missing.map(function (key) {
@@ -220,5 +254,11 @@
     return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  return { runtimeView: runtimeView, statusLabel: statusLabel, roomClass: roomClass, start: start };
+  return {
+    runtimeView: runtimeView,
+    statusLabel: statusLabel,
+    roomClass: roomClass,
+    localizeDisplayText: localizeDisplayText,
+    start: start,
+  };
 });

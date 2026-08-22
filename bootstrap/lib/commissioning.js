@@ -97,9 +97,9 @@ function computeState(config, secrets) {
 // ---------------------------------------------------------------------------
 
 const QR_LABELS = Object.freeze({
-  wifi_config: "Wi-Fi QR",
-  station_config: "station QR",
-  cloud_config: "cloud QR",
+  wifi_config: "QR de Wi-Fi",
+  station_config: "QR de estación",
+  cloud_config: "QR de nube",
 });
 
 /**
@@ -115,23 +115,23 @@ function getStateMessage(state, missing) {
 
   switch (state) {
     case "starting":
-      return "Bootstrap controller starting\u2026";
+      return "Iniciando el controlador\u2026";
     case "bootstrap_installed":
-      return "Ready. Scan Wi\u2011Fi configuration QR to begin.";
+      return "Listo. Escanee el QR de configuración de Wi\u2011Fi para comenzar.";
     case "network_configured":
       return remaining
-        ? `Wi\u2011Fi accepted. Still needed: ${remaining}.`
-        : "Wi\u2011Fi configured.";
+        ? `Wi\u2011Fi aceptado. Aún falta: ${remaining}.`
+        : "Wi\u2011Fi configurado.";
     case "identity_configured":
-      return remaining ? `Station accepted. Still needed: ${remaining}.` : "Station configured.";
+      return remaining ? `Estación aceptada. Aún falta: ${remaining}.` : "Estación configurada.";
     case "cloud_configured":
       return remaining
-        ? `Cloud accepted. Still needed: ${remaining}.`
-        : "All configuration accepted. Ready to install production software.";
+        ? `Nube aceptada. Aún falta: ${remaining}.`
+        : "Configuración completa. Listo para instalar el software de producción.";
     case "operational":
-      return "Device is operational.";
+      return "El dispositivo está operativo.";
     default:
-      return `Status: ${state}`;
+      return `Estado: ${state}`;
   }
 }
 

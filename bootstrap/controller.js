@@ -137,7 +137,7 @@ function createController(deps) {
   }
 
   async function _handleWifiConfig(result) {
-    await _showMsg("applying", `Applying Wi\u2011Fi: ${result.runtime.ssid}`);
+    await _showMsg("applying", `Aplicando Wi\u2011Fi: ${result.runtime.ssid}`);
 
     // Apply and verify first. A failed activation must not make commissioning
     // appear complete or replace the last known-good stored credentials.
@@ -154,7 +154,7 @@ function createController(deps) {
     // Persist password to secrets only - never logged or displayed.
     _secretsStore.writeSecrets({ wifi_password: result.runtime.password });
 
-    await _showMsg("success", `Wi\u2011Fi accepted: ${result.runtime.ssid}`);
+    await _showMsg("success", `Wi\u2011Fi aceptado: ${result.runtime.ssid}`);
     await _pushState();
   }
 
@@ -166,7 +166,7 @@ function createController(deps) {
       device_id: result.applied.DEVICE_ID,
     });
 
-    await _showMsg("success", `Station accepted: ${result.applied.STATION_ID}`);
+    await _showMsg("success", `Estación aceptada: ${result.applied.STATION_ID}`);
     await _pushState();
   }
 
@@ -177,7 +177,7 @@ function createController(deps) {
     // Secret to secrets store only
     _secretsStore.writeSecrets({ shared_secret: result.runtime.SHARED_SECRET });
 
-    await _showMsg("success", "Cloud configuration accepted");
+    await _showMsg("success", "Configuración de nube aceptada");
     await _pushState();
   }
 
@@ -221,7 +221,7 @@ function createController(deps) {
         state_id: `scan-duplicate-${Date.now()}`,
         priority: "feedback",
         expires_in_ms: 5_000,
-        overlay: { severity: "info", title: "Duplicate scan", detail: "Scan already received." },
+        overlay: { severity: "info", title: "Lectura duplicada", detail: "Este código ya fue recibido." },
       });
     } else if (response.disposition === "rejected") {
       await _applyRuntimeState({
@@ -231,8 +231,8 @@ function createController(deps) {
         expires_in_ms: 5_000,
         overlay: {
           severity: "error",
-          title: "Scan rejected",
-          detail: "Please check the visit and rescan.",
+          title: "Lectura rechazada",
+          detail: "Verifique la visita y vuelva a escanear.",
         },
       });
     }
@@ -244,7 +244,7 @@ function createController(deps) {
       state_id: `production-unavailable-${Date.now()}`,
       priority: "feedback",
       expires_in_ms: 10_000,
-      overlay: { severity: "error", title: "Production unavailable", detail: "Please rescan." },
+      overlay: { severity: "error", title: "Servicio no disponible", detail: "Vuelva a escanear." },
     });
   }
 
@@ -262,7 +262,7 @@ function createController(deps) {
 
     if (!_adminToken) {
       console.error("[controller] QR received but admin token not loaded");
-      await _showMsg("error", "Configuration error: bootstrap token not installed");
+      await _showMsg("error", "Error de configuración: no se instaló el token de arranque");
       return;
     }
 
@@ -272,7 +272,7 @@ function createController(deps) {
       // result.error never contains secret values (guaranteed by qr-contract.js)
       const safeErr = result.error || "QR validation failed";
       console.error("[controller] QR rejected:", safeErr);
-      await _showMsg("error", `QR rejected: ${safeErr}`);
+      await _showMsg("error", "QR rechazado. Verifique el código e inténtelo de nuevo.");
       return;
     }
 
@@ -297,7 +297,7 @@ function createController(deps) {
       // Sanitise error text — never include raw values from storage writes
       const safeMsg = _sanitiseError(err);
       console.error("[controller] apply error:", safeMsg);
-      await _showMsg("error", safeMsg);
+      await _showMsg("error", "No se pudo actualizar la configuración.");
     }
   }
 
@@ -317,7 +317,14 @@ function createController(deps) {
       const cfg = _configStore.readConfig();
       const sec = _secretsStore.readSecrets();
       const state = commissioning.computeState(cfg, sec);
-      const snap = health.getSnapshot();
+      const scannerHealth = { ...health.getSnapshot() };
+      // scanner_connected was an ambiguous legacy field: it could be false
+      // even when the USB device and evtest reader were both healthy. Publish
+      // the two component facts plus one precisely defined readiness signal.
+      delete scannerHealth.scanner_connected;
+      scannerHealth.scanner_input_ready =
+        scannerHealth.scanner_device_detected === true &&
+        scannerHealth.scanner_reader_active === true;
 
       res.json({
         ok: true,
@@ -337,7 +344,7 @@ function createController(deps) {
           endpoint_url: cfg?.endpoint_url || null,
           wifi_ssid: cfg?.wifi_ssid || null,
         },
-        health: snap,
+        health: scannerHealth,
       });
     });
 
@@ -550,13 +557,13 @@ async function main() {
                   }
                 : {
                     kind: "info",
-                    text: "Scanner ready. Scan ´Wi-Fi configuration QR.",
+                    text: "Escáner listo. Escanee el QR de configuración de Wi-Fi.",
                   }
             )
             .catch(() => {});
         } else {
           _displayClient
-            .showMessage({ kind: "error", text: "Scanner unavailable. Check the USB connection." })
+            .showMessage({ kind: "error", text: "Escáner no disponible. Revise la conexión USB." })
             .catch(() => {});
         }
       })
