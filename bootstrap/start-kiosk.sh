@@ -13,7 +13,7 @@ echo "==== Kiosk start $(date) ====" >> "$LOG_FILE"
 
 # Wait for the local display server rather than opening Chromium on an error page.
 for _attempt in $(seq 1 30); do
-  if curl -fs http://127.0.0.1:3001/api/health >/dev/null 2>&1; then
+  if curl -fs --connect-timeout 2 --max-time 4 http://127.0.0.1:3001/api/health >/dev/null 2>&1; then
     break
   fi
   if [ "$_attempt" -eq 30 ]; then
@@ -23,11 +23,14 @@ for _attempt in $(seq 1 30); do
   sleep 1
 done
 
-# Keep unstable X/Chromium startup off the physical panel. xsetroot provides
-# a black fallback on displays that do not honor DPMS force-off.
+# Keep startup visually stable without cycling panel power. This display can
+# lose raster synchronization after DPMS force-off/force-on, producing a
+# temporarily scrambled image. Keep the panel powered on with a black X root
+# window until Chromium paints over it.
 xsetroot -solid black >/dev/null 2>&1 || true
-xset +dpms >/dev/null 2>&1 || true
-xset dpms force off >/dev/null 2>&1 || true
+xset s off >/dev/null 2>&1 || true
+xset -dpms >/dev/null 2>&1 || true
+xset s noblank >/dev/null 2>&1 || true
 
 # Optional: hide cursor
 unclutter -idle 0.5 -root >> "$LOG_FILE" 2>&1 &
@@ -55,6 +58,11 @@ echo "Using Chromium: $CHROMIUM_BIN" >> "$LOG_FILE"
   --disable-session-crashed-bubble \
   --disable-infobars \
   --noerrdialogs \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-gpu-rasterization \
+  --disable-accelerated-2d-canvas \
+  --use-angle=swiftshader \
   --disable-features=Translate \
   --disable-restore-session-state \
   --overscroll-history-navigation=0 \
@@ -82,7 +90,7 @@ for _attempt in $(seq 1 30); do
     wait "$CHROMIUM_PID" || true
     exit 1
   fi
-  if curl -fs "$CHROMIUM_READY_URL" >/dev/null 2>&1; then
+  if curl -fs --connect-timeout 2 --max-time 4 "$CHROMIUM_READY_URL" >/dev/null 2>&1; then
     break
   fi
   if [ "$_attempt" -eq 30 ]; then
@@ -92,12 +100,8 @@ for _attempt in $(seq 1 30); do
   sleep 1
 done
 
-# Allow the first kiosk frame to paint before revealing the panel, then keep
-# ordinary screen blanking disabled for appliance operation.
+# Allow the first kiosk frame to paint. The panel has remained powered with a
+# stable black root window throughout startup.
 sleep 1
-xset dpms force on >/dev/null 2>&1 || true
-xset s off
-xset -dpms
-xset s noblank
 
 wait "$CHROMIUM_PID"

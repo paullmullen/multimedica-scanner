@@ -4,6 +4,8 @@ Documentation=https://github.com/paullmullen/multimedica-scanner
 Requires=multimedica-display.service
 After=systemd-user-sessions.service network.target multimedica-display.service
 Conflicts=getty@tty1.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -23,8 +25,6 @@ StandardError=journal
 ExecStart=/usr/bin/xinit /opt/multimedica-scanner/bootstrap/start-kiosk.sh -- :0 vt1 -keeptty -nolisten tcp
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

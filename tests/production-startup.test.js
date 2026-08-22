@@ -241,21 +241,38 @@ describe("privileged production recovery gate", () => {
 });
 
 describe("physical kiosk startup presentation", () => {
-  test("keeps the panel blank until Chromium reports ready", () => {
+  test("keeps a stable black panel until Chromium reports ready without cycling DPMS", () => {
     const source = fs.readFileSync(
       path.join(__dirname, "..", "bootstrap", "start-kiosk.sh"),
       "utf8"
     );
-    const blankAt = source.indexOf("xset dpms force off");
+    const blackAt = source.indexOf("xsetroot -solid black");
     const launchAt = source.indexOf('"$CHROMIUM_BIN"');
-    const readyAt = source.indexOf('curl -fs "$CHROMIUM_READY_URL"');
-    const revealAt = source.indexOf("xset dpms force on");
-    expect(blankAt).toBeGreaterThan(-1);
-    expect(launchAt).toBeGreaterThan(blankAt);
+    const readyAt = source.indexOf('"$CHROMIUM_READY_URL"');
+    expect(blackAt).toBeGreaterThan(-1);
+    expect(launchAt).toBeGreaterThan(blackAt);
     expect(readyAt).toBeGreaterThan(launchAt);
-    expect(revealAt).toBeGreaterThan(readyAt);
     expect(source).toContain("--remote-debugging-address=127.0.0.1");
     expect(source).toContain("--remote-debugging-port=9222");
-    expect(source).toContain("xsetroot -solid black");
+    expect(source).toContain("--connect-timeout 2 --max-time 4");
+    expect(source).toContain("--disable-gpu");
+    expect(source).toContain("--disable-gpu-compositing");
+    expect(source).toContain("--disable-gpu-rasterization");
+    expect(source).toContain("--disable-accelerated-2d-canvas");
+    expect(source).toContain("--use-angle=swiftshader");
+    expect(source).toContain("xset -dpms");
+    expect(source).not.toContain("xset dpms force off");
+    expect(source).not.toContain("xset dpms force on");
+  });
+
+  test("kiosk and display start-limit policy is in the systemd Unit section", () => {
+    for (const name of ["multimedica-kiosk.service", "multimedica-display.service"]) {
+      const source = fs.readFileSync(
+        path.join(__dirname, "..", "bootstrap", "systemd", name),
+        "utf8"
+      );
+      expect(source.indexOf("StartLimitIntervalSec=60")).toBeGreaterThan(-1);
+      expect(source.indexOf("StartLimitIntervalSec=60")).toBeLessThan(source.indexOf("[Service]"));
+    }
   });
 });
