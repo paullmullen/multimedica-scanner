@@ -94,7 +94,9 @@ __________________________________________________________
 Pi password stored in approved secure location:  [ ] Yes
 ```
 
-At the beginning of the provisioning session, enter the recorded values once:
+At the beginning of the provisioning session, copy and paste the complete block below into Windows PowerShell. The commands will ask for the worksheet values and store them for use by later commands.
+
+**Windows PowerShell:**
 
 ```powershell
 $piUser = Read-Host "Enter the Pi username recorded during imaging"
@@ -137,6 +139,15 @@ Do not continue merely because a later step might appear to work. Preserve `prov
 - Ethernet cable or Wi-Fi network access
 - Completed scanner enclosure and suitable fasteners
 
+### Enclosure fabrication option
+
+If a completed enclosure is not available, the installer may fabricate one from the two 3D-printing files included in the repository's `docs` folder:
+
+- [`Enclosure Top.stl`](Enclosure%20Top.stl)
+- [`Enclosure Bottom.stl`](Enclosure%20Bottom.stl)
+
+The files may be printed locally or sent to a commercial 3D-printing service. **PET-G is the recommended filament** because it provides a useful balance of strength, heat resistance, and printability, but PET-G is not mandatory. Another suitable material may be used when the finished enclosure is sufficiently rigid, dimensionally stable, and appropriate for the clinic environment.
+
 Qualified reference hardware and image details are recorded in [Bootstrap Architecture](bootstrap-architecture.md).
 
 ---
@@ -149,10 +160,16 @@ At this stage, the microSD card has probably not yet been imaged with Raspberry 
 
 ### 6.1 Mount the display
 
-1. Align the display with the Raspberry Pi GPIO header if the display uses that header mechanically or electrically.
-2. Confirm every pin is aligned before applying pressure.
-3. Install the HDMI jumper between the display and the Pi micro-HDMI port.
-4. Confirm the jumper is fully seated and not under tension.
+1. Align the display connector with the end of the Raspberry Pi GPIO header exactly as shown. The ends of the two connectors must line up; unused GPIO pins remain visible at the opposite side.
+2. Confirm every receiving position is over the correct pin before applying pressure. Never force the display onto a misaligned header.
+
+![Display connector aligned with the end of the Raspberry Pi GPIO header](images/display-gpio-header-alignment.png)
+
+3. Install the HDMI jumper between the display and the Pi micro-HDMI port in the orientation shown.
+4. Confirm both ends of the jumper are fully seated and that the jumper is not twisted or under tension.
+
+![Proper placement of the display HDMI jumper](images/display-hdmi-jumper-placement.png)
+
 5. Install the required standoffs and screws.
 
 The completed assembly must be rigid, with no bent GPIO pins or stressed HDMI connectors.
@@ -183,7 +200,9 @@ Your Windows computer will be the installation tool used to program and configur
 
 ### 7.1 Install Git for Windows
 
-Download Git for Windows from <https://git-scm.com/download/win> and run the installer. The standard installation options are suitable unless the organization maintains another approved configuration. Close and reopen PowerShell, then verify:
+Download Git for Windows from <https://git-scm.com/download/win> and run the installer. The standard installation options are suitable unless the organization maintains another approved configuration. Close and reopen Windows PowerShell, then run:
+
+**Windows PowerShell:**
 
 ```powershell
 git --version
@@ -193,7 +212,9 @@ The command must return a version. If PowerShell reports that `git` is not recog
 
 ### 7.2 Install Node.js and npm
 
-Download a supported Node.js LTS release from <https://nodejs.org/en/download>. Install Node.js with npm included. Close and reopen PowerShell, then verify:
+Download a supported Node.js LTS release from <https://nodejs.org/en/download>. Install Node.js with npm included. Close and reopen Windows PowerShell, then run:
+
+**Windows PowerShell:**
 
 ```powershell
 node --version
@@ -220,7 +241,9 @@ Download Raspberry Pi Imager from <https://www.raspberrypi.com/software/> and in
 
 The supported installation repository is <https://github.com/paullmullen/multimedica-scanner>.
 
-For a first checkout:
+For a first checkout, run the following in Windows PowerShell:
+
+**Windows PowerShell — first checkout:**
 
 ```powershell
 New-Item -ItemType Directory -Force C:\dev | Out-Null
@@ -229,7 +252,9 @@ git clone https://github.com/paullmullen/multimedica-scanner.git
 Set-Location C:\dev\multimedica-scanner
 ```
 
-For an existing checkout, first confirm that it contains no uncommitted work:
+For an existing checkout, first confirm that it contains no uncommitted work.
+
+**Windows PowerShell — existing checkout:**
 
 ```powershell
 Set-Location C:\dev\multimedica-scanner
@@ -245,7 +270,9 @@ PS C:\dev\multimedica-scanner>
 
 If any filename or status code appears, the result is not clean. Examples include `M`, `D`, or `??` followed by a filename. Stop and seek qualified help; do not discard another developer's work.
 
-Update the approved branch without creating a merge commit:
+Update the approved branch without creating a merge commit.
+
+**Windows PowerShell:**
 
 ```powershell
 git switch main
@@ -258,7 +285,9 @@ Record the displayed commit in the installation record. `git status --short` sho
 
 The second `git status --short` has the same expected result: no output before the prompt. Any filename means stop.
 
-Install the repository's exact Node dependencies:
+Install the repository's exact Node dependencies.
+
+**Windows PowerShell:**
 
 ```powershell
 npm ci
@@ -285,7 +314,9 @@ Your Windows computer is now ready to act as the installation tool. Next, make s
 
 Use an approved, tested repository revision. Do not perform development changes during a field installation.
 
-From the repository root, confirm the working tree is clean:
+From the repository root, confirm the working tree is clean.
+
+**Windows PowerShell:**
 
 ```powershell
 git status --short
@@ -309,7 +340,9 @@ Unblock-File .\provision-scanner.ps1
 
 The protected installer configuration contains the QR administrator token used to authorize commissioning QRs.
 
-If an approved `multimedica-installer.json` already exists:
+If an approved `multimedica-installer.json` already exists, run:
+
+**Windows PowerShell:**
 
 ```powershell
 Test-Path .\multimedica-installer.json
@@ -321,7 +354,9 @@ Expected:
 True
 ```
 
-If it must be created:
+If it must be created, run:
+
+**Windows PowerShell:**
 
 ```powershell
 .\provision-scanner.ps1 -CreateInstallerConfig
@@ -338,11 +373,11 @@ An authorized administrator must sign in at [https://multimedica.org](https://mu
 - Wi-Fi configuration QR
 - Station configuration QR
 - Cloud configuration QR
-- Identity QR
+- **Mostrar Identidad del scanner** QR
 
 Printed Wi-Fi and Cloud QRs contain credentials. Control and destroy unneeded copies appropriately.
 
-The Identity QR is used during final acceptance to show the configured location, room, station, device ID, current IP address, and installed production version.
+Keep the **Mostrar Identidad del scanner** QR for the final acceptance check in Section 15.3 and for future troubleshooting. It displays the configured location, room, station, device ID, current IP address, and installed production version without changing the scanner configuration.
 
 ### 8.5 Obtain the production artifact
 
@@ -526,7 +561,11 @@ Allow both **Writing** and **Verifying** to complete. Do not cancel, remove the 
 
 After Imager reports **Write complete!**, click **FINISH** and remove the automatically ejected microSD card.
 
-Before first boot, insert the newly imaged microSD card into the Pi. Then place the electronics into the enclosure, route the external cables through their intended exits, dress and secure the cables, and confirm that no cable or connector is pinched or strained. Do not apply power until the enclosure assembly and cable check are complete.
+Before first boot, insert the newly imaged microSD card into the slot on the underside of the Pi as shown. Push it fully into place without forcing or bending it.
+
+![Installed microSD card on the underside of the Raspberry Pi](images/microsd-card-installed.png)
+
+Then place the electronics into the enclosure, route the external cables through their intended exits, dress and secure the cables, and confirm that no cable or connector is pinched or strained. Do not apply power until the enclosure assembly and cable check are complete.
 
 ### 9.16 First boot
 
@@ -648,7 +687,7 @@ You now have the bootstrap software installed—high five. **Commissioning** mea
 
 Scan QRs only after bootstrap installation has passed and the display requests configuration.
 
-Three QR codes are used to configure the appliance in this section: Wi-Fi, Station, and Cloud. A fourth QR, **Mostrar Identidad del scanner**, does not change configuration and is not required during these three commissioning scans. Keep it available: it can display the scanner's identity, IP address, and installed version during acceptance or later troubleshooting.
+Three QR codes are used to configure the appliance in this section: Wi-Fi, Station, and Cloud. A fourth QR, **Mostrar Identidad del scanner**, does not change configuration and is not required during these three commissioning scans. Keep it available for the Section 15.3 acceptance check and for later troubleshooting: it can display the scanner's identity, IP address, and installed version.
 
 ### 12.1 Wi-Fi QR
 
@@ -718,7 +757,9 @@ You now have a basic, commissioned scanner appliance with verified scanner input
 
 ## 14. Install the production release
 
-Section 8.5 loaded and validated the repository's approved release. Confirm that those variables are still available in the current PowerShell window:
+Section 8.5 loaded and validated the repository's approved release. Confirm that those variables are still available in the current PowerShell window.
+
+**Windows PowerShell:**
 
 ```powershell
 $releaseVersion
@@ -726,7 +767,9 @@ $artifact
 $sha
 ```
 
-All three commands must display nonblank values. If any is blank, return to section 8.5 and rerun its complete validation block. Then, in the same PowerShell window, run:
+All three commands must display nonblank values. If any is blank, return to section 8.5 and rerun its complete validation block. Then run the following in the same PowerShell window.
+
+**Windows PowerShell:**
 
 ```powershell
 .\provision-scanner.ps1 `
@@ -768,7 +811,9 @@ The approved production release is installed and has passed candidate and first-
 
 ### 15.1 Read-only verification
 
-Run `-Verify` again after production installation:
+Run `-Verify` again after production installation.
+
+**Windows PowerShell:**
 
 ```powershell
 .\provision-scanner.ps1 `
@@ -791,7 +836,7 @@ Confirm that the display:
 
 ### 15.3 Scanner identity QR
 
-Scan the **Mostrar Identidad** QR.
+Scan the **Mostrar Identidad del scanner** QR.
 
 Confirm that a temporary Spanish identity screen appears and shows:
 
@@ -864,7 +909,9 @@ This section is information to keep available for a future service visit. Do not
 
 ### 16.1 Diagnose without changing the Pi
 
-Use:
+Use the following command from the repository root.
+
+**Windows PowerShell:**
 
 ```powershell
 .\provision-scanner.ps1 -Verify ...
@@ -874,7 +921,9 @@ This should be the first action for an uncertain appliance state.
 
 ### 16.2 Update approved display resources
 
-This operation updates the supported display bundle without replacing production. Begin with a clean, current repository checkout as described in section 7.5. From the repository root, run:
+This operation updates the supported display bundle without replacing production. Begin with a clean, current repository checkout as described in section 7.5.
+
+**Windows PowerShell — repository root:**
 
 ```powershell
 .\provision-scanner.ps1 `
@@ -899,7 +948,9 @@ Obtain the approved new production artifact, version, and SHA-256 from the relea
 
 Unless a qualified developer or release owner is actively supervising the work, the installer must deploy only code and artifacts that have already been approved and published through the normal release process. Do not edit source, invent a version, or build an unapproved production release during a field update.
 
-From the repository root:
+From the repository root, run:
+
+**Windows PowerShell:**
 
 ```powershell
 git status --short
@@ -911,7 +962,9 @@ git log -1 --oneline
 
 Each `git status --short` command must produce no output before the next prompt. If either prints any status code or filename, stop and seek qualified help.
 
-The updated repository must include its approved-release pointer, artifact, checksum, and build metadata. Rerun the complete validation block in section 8.5; it will establish `$releaseVersion`, `$artifact`, and `$sha` without asking the installer to select a version. Then run:
+The updated repository must include its approved-release pointer, artifact, checksum, and build metadata. Rerun the complete validation block in section 8.5; it will establish `$releaseVersion`, `$artifact`, and `$sha` without asking the installer to select a version.
+
+**Windows PowerShell:**
 
 ```powershell
 .\provision-scanner.ps1 `
@@ -931,21 +984,27 @@ Do not overwrite an installed version directory and do not reuse a version for d
 
 This subsection is not a field-installer procedure. A qualified developer or release owner builds, tests, and explicitly approves a new version before an ordinary installer receives it.
 
-Build the new version:
+Build the new version.
+
+**Windows PowerShell — release owner only:**
 
 ```powershell
 $newReleaseVersion = Read-Host "Enter the new semantic production version"
 npm run build:production-release -- $newReleaseVersion .\release-output
 ```
 
-Run the required release and regression tests. After technical and operational approval, publish the local pointer:
+Run the required release and regression tests. After technical and operational approval, publish the local pointer.
+
+**Windows PowerShell — release owner only:**
 
 ```powershell
 node .\release\approve-production-release.js $newReleaseVersion
 Get-Content .\release-output\approved-production-release.json
 ```
 
-The approval command fails unless the artifact, checksum sidecar, and build metadata all exist and the artifact hash matches. Review the generated pointer, then stage the complete release set together:
+The approval command fails unless the artifact, checksum sidecar, and build metadata all exist and the artifact hash matches. Review the generated pointer, then stage the complete release set together.
+
+**Windows PowerShell — release owner only:**
 
 ```powershell
 git add `
@@ -1015,7 +1074,7 @@ Do not record passwords, QR administrator tokens, shared secrets, or Wi-Fi crede
 - [ ] `-InstallRelease` returned `RESULT: PASS`
 - [ ] Post-release `-Verify` returned `RESULT: PASS`
 - [ ] Correct clinic state displayed
-- [ ] Identity QR showed the correct IDs, IP address, and production version
+- [ ] **Mostrar Identidad del scanner** QR showed the correct IDs, IP address, and production version
 - [ ] Real patient scan accepted
 - [ ] Cold boot recovered production and stable display
 - [ ] Final `-Verify` returned `RESULT: PASS`
