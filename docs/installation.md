@@ -26,7 +26,7 @@ Patient workflow tickets are printed from the **Anfitrión** page of the Multim�
 1. **Page printer:** Print from Windows to a compatible conventional printer.
 2. **Thermal ticket printer:** Install and configure the separate `local-print-server` application on a Windows computer that can communicate with the thermal printer and is reachable over the clinic network from the users' devices.
 
-The thermal printing path is a separate installation responsibility and is not installed by this scanner-appliance procedure. Before commissioning a clinic that uses thermal tickets, confirm that the Windows print-server computer, `local-print-server`, thermal printer, and relevant network access are available and working. Follow the separate [`local-print-server` installation instructions](https://github.com/paullmullen/local-print-server/blob/main/installation.md).
+The thermal printing path is a separate installation responsibility and is not installed by this scanner-appliance procedure. Before commissioning a clinic that uses thermal tickets, confirm that the Windows print-server computer, `local-print-server`, thermal printer, and relevant network access are available and working. Follow the separate [Multimedica Local Print Server Installation Guide](https://raw.githubusercontent.com/paullmullen/multimedica-local-print-server/main/installation.pdf).
 
 ### 2.1 What this procedure installs on the appliance
 
@@ -982,42 +982,9 @@ Do not overwrite an installed version directory and do not reuse a version for d
 
 ### 16.4 Publish an approved production release — release owner only
 
-This subsection is not a field-installer procedure. A qualified developer or release owner builds, tests, and explicitly approves a new version before an ordinary installer receives it.
+This is not a field-installer procedure. A qualified developer or release owner must build, test, approve, store, commit, and operationally validate each new runtime version before an ordinary installer receives it.
 
-Build the new version.
-
-**Windows PowerShell — release owner only:**
-
-```powershell
-$newReleaseVersion = Read-Host "Enter the new semantic production version"
-npm run build:production-release -- $newReleaseVersion .\release-output
-```
-
-Run the required release and regression tests. After technical and operational approval, publish the local pointer.
-
-**Windows PowerShell — release owner only:**
-
-```powershell
-node .\release\approve-production-release.js $newReleaseVersion
-Get-Content .\release-output\approved-production-release.json
-```
-
-The approval command fails unless the artifact, checksum sidecar, and build metadata all exist and the artifact hash matches. Review the generated pointer, then stage the complete release set together.
-
-**Windows PowerShell — release owner only:**
-
-```powershell
-git add `
-  ".\release-output\multimedica-production-$newReleaseVersion.tgz" `
-  ".\release-output\multimedica-production-$newReleaseVersion.tgz.sha256" `
-  ".\release-output\multimedica-production-$newReleaseVersion.build.json" `
-  .\release-output\approved-production-release.json
-
-git diff --cached --check
-git status --short
-```
-
-Commit and push only after review. The approved pointer and all three referenced files must be present in the same approved repository revision. Never update the pointer to files that have not been committed and published.
+Follow the standalone [Production Release Publication Procedure](production-release-publication.md). It defines version selection, the `npm run build:production-release` packaging command, checksum and approval validation, the four files that must be stored together, Git publication, and controlled scanner acceptance.
 
 ### 16.5 Bootstrap repair
 
