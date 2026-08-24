@@ -25,6 +25,7 @@ const http = require("http");
 const express = require("express");
 const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 
 const { isConfigQr, handleConfigQr } = require("./lib/qr-contract");
 const commissioning = require("./lib/commissioning");
@@ -61,6 +62,8 @@ function createController(deps) {
   const _productionTimeoutMs = (deps && deps.productionTimeoutMs) || PRODUCTION_TIMEOUT_MS;
   const _installedVersionPath =
     (deps && deps.installedVersionPath) || INSTALLED_VERSION_PATH;
+  const _networkInterfaces =
+    (deps && deps.networkInterfaces) || (() => os.networkInterfaces());
   const _forwardProductionScan =
     (deps && deps.forwardProductionScan) ||
     ((scan) => postProductionScan(scan, _productionScanUrl, _productionTimeoutMs));
@@ -152,6 +155,7 @@ function createController(deps) {
         station_id: cfg.station_id || null,
         device_id: cfg.device_id || null,
         production_version: productionVersion,
+        ip_address: _primaryIpv4Address(_networkInterfaces()),
       },
     });
   }
@@ -485,6 +489,7 @@ function _sanitizeRuntimeEnvelope(value) {
       station_id: _boundedString(value.identity.station_id),
       device_id: _boundedString(value.identity.device_id),
       production_version: _boundedString(value.identity.production_version, 64),
+      ip_address: _boundedString(value.identity.ip_address, 64),
     };
     if (!Object.values(identity).some(Boolean)) return null;
     return {
@@ -494,6 +499,26 @@ function _sanitizeRuntimeEnvelope(value) {
       expires_in_ms: value.expires_in_ms,
       identity,
     };
+  }
+  return null;
+}
+
+function _primaryIpv4Address(interfaces) {
+  if (!interfaces || typeof interfaces !== "object") return null;
+  const names = Object.keys(interfaces);
+  const preferred = ["wlan0", "eth0", ...names.sort()].filter(
+    (name, index, values) => values.indexOf(name) === index
+  );
+  for (const name of preferred) {
+    const addresses = Array.isArray(interfaces[name]) ? interfaces[name] : [];
+    const match = addresses.find(
+      (entry) =>
+        entry &&
+        (entry.family === "IPv4" || entry.family === 4) &&
+        !entry.internal &&
+        _boundedString(entry.address, 64)
+    );
+    if (match) return match.address;
   }
   return null;
 }

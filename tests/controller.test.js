@@ -299,7 +299,13 @@ describe("handleScan â€” show_identity", () => {
   test("shows a transient identity screen with production version and no secrets", async () => {
     const installedVersionPath = path.join(tmpDir, "installed-version.json");
     fs.writeFileSync(installedVersionPath, JSON.stringify({ current_version: "1.0.4" }));
-    const { ctrl, display } = makeCtrl(tmpDir, { installedVersionPath });
+    const { ctrl, display } = makeCtrl(tmpDir, {
+      installedVersionPath,
+      networkInterfaces: () => ({
+        eth0: [{ address: "192.168.2.40", family: "IPv4", internal: false }],
+        wlan0: [{ address: "192.168.2.41", family: "IPv4", internal: false }],
+      }),
+    });
     // Pre-populate config with identity fields
     configStore.writeConfig(
       {
@@ -321,7 +327,11 @@ describe("handleScan â€” show_identity", () => {
       kind: "identity",
       priority: "feedback",
       expires_in_ms: 15000,
-      identity: { station_id: "s1", production_version: "1.0.4" },
+      identity: {
+        station_id: "s1",
+        production_version: "1.0.4",
+        ip_address: "192.168.2.41",
+      },
     });
     expect(arg).not.toHaveProperty("shared_secret");
     expect(arg).not.toHaveProperty("qr_admin_token");

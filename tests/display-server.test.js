@@ -232,12 +232,14 @@ test("display client maps current runtime states into approved visual modes", ()
         station_id: "lab",
         device_id: "scanner01",
         production_version: "1.0.4",
+        ip_address: "192.168.2.41",
       },
     })
   ).toMatchObject({
     mode: "identity",
     device: "scanner01",
     productionVersion: "1.0.4",
+    ipAddress: "192.168.2.41",
   });
 });
 

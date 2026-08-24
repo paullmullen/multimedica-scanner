@@ -90,6 +90,7 @@
         station: runtime.identity.station_id || "—",
         device: runtime.identity.device_id || "—",
         productionVersion: runtime.identity.production_version || "No instalada",
+        ipAddress: runtime.identity.ip_address || "No disponible",
       };
     }
     if (runtime.kind !== "room" || !runtime.display) return { mode: "commissioning" };
@@ -199,7 +200,10 @@
       if (view.mode === "identity") {
         el("app").classList.add("overlay-info");
         setText("statusText", "IDENTIDAD\nDEL ESCÁNER");
-        setText("patientName", "Dispositivo: " + view.device + "\nSala: " + view.room);
+        setText(
+          "patientName",
+          "Dispositivo: " + view.device + "\nSala: " + view.room + "\nIP: " + view.ipAddress
+        );
         setText("stationBadge", "ID");
         setText("stationValue", view.station);
         setText("updatedValue", "Producción " + view.productionVersion);

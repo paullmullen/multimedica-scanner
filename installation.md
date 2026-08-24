@@ -26,7 +26,7 @@ Patient workflow tickets are printed from the **Anfitrión** page of the Multim�
 1. **Page printer:** Print from Windows to a compatible conventional printer.
 2. **Thermal ticket printer:** Install and configure the separate `local-print-server` application on a Windows computer that can communicate with the thermal printer and is reachable over the clinic network from the users' devices.
 
-The thermal printing path is a separate installation responsibility and is not installed by this scanner-appliance procedure. Before commissioning a clinic that uses thermal tickets, confirm that the Windows print-server computer, `local-print-server`, thermal printer, and relevant network access are available and working. Follow the separate [`local-print-server` installation instructions](https://github.com/paullmullen/local-print-server/blob/main/installation.md).
+The thermal printing path is a separate installation responsibility and is not installed by this scanner-appliance procedure. Before commissioning a clinic that uses thermal tickets, confirm that the Windows print-server computer, `local-print-server`, thermal printer, and relevant network access are available and working.
 
 ### 2.1 What this procedure installs on the appliance
 
@@ -37,7 +37,16 @@ The completed appliance contains two software layers:
 
 These layers are installed and accepted separately. A completed bootstrap installation does not by itself mean production is installed.
 
-![Two-part scanner installation: bootstrap platform and production release](images/scanner-two-part-installation.svg)
+```mermaid
+flowchart TD
+    A["Clean Raspberry Pi"] --> B{"Two-part installation"}
+    B --> C["1. Bootstrap platform"]
+    B --> D["2. Production release"]
+    C --> E["Display, scanner input, commissioning, release management, and recovery"]
+    E --> F["Configuration QRs and bootstrap verification"]
+    D --> G["Versioned everyday scanner software"]
+    G --> H["Candidate check, promotion, and production verification"]
+```
 
 The bootstrap path establishes and commissions the appliance platform. The production path installs a specific approved release only after the bootstrap platform has passed verification.
 
@@ -83,8 +92,8 @@ Pi hostname:
 __________________________________________________________
 
 
-Pi username (required):
-multimedica_edge
+Pi username:
+__________________________________________________________
 
 
 PiHost value (username@hostname):
@@ -145,8 +154,6 @@ Qualified reference hardware and image details are recorded in [Bootstrap Archit
 
 Perform assembly with power disconnected.
 
-At this stage, the microSD card has probably not yet been imaged with Raspberry Pi OS. Assemble and test-fit the display, Pi, scanner, and cables, but do **not** permanently place the electronics into the enclosure yet. After imaging, the microSD card must be inserted into the Pi. Final enclosure installation, cable routing, and cable dressing are completed after Section 9.15 and before first boot.
-
 ### 6.1 Mount the display
 
 1. Align the display with the Raspberry Pi GPIO header if the display uses that header mechanically or electrically.
@@ -161,9 +168,9 @@ The completed assembly must be rigid, with no bent GPIO pins or stressed HDMI co
 
 Connect the compatible USB barcode/QR scanner to a Raspberry Pi USB port. Do not assume the Linux event-device number; the bootstrap reader discovers the device dynamically.
 
-### 6.3 Plan cable routing
+### 6.3 Route cables
 
-The appliance operates in portrait orientation. Test-fit the scanner, network, and other external cables through the intended enclosure exits. Use a right-angle USB-C power cable when necessary to avoid enclosure interference. Leave the electronics accessible so the imaged microSD card can be inserted later.
+The appliance operates in portrait orientation. Route scanner, network, and other external cables through the intended enclosure exit. Use a right-angle USB-C power cable when necessary to avoid enclosure interference.
 
 ### 6.4 Hardware check
 
@@ -179,7 +186,7 @@ The appliance operates in portrait orientation. Test-fit the scanner, network, a
 
 ## 7. Prepare the Windows provisioning workstation
 
-Your Windows computer will be the installation tool used to program and configure the Multimédica scanner. If you have not prepared it previously, complete every step in this section before imaging the Pi. The Windows computer requires internet access while downloading the tools and installation repository.
+Complete this section before imaging the Pi. The provisioning workstation requires internet access while downloading tools and the repository.
 
 ### 7.1 Install Git for Windows
 
@@ -279,7 +286,7 @@ npm ci
 
 ## 8. Prepare configuration and release materials
 
-Your Windows computer is now ready to act as the installation tool. Next, make sure it has all the Multimédica scanner software, configuration information, QR codes, and production-release files needed to complete the installation. Complete this section before installing software on the Pi.
+Complete this section on the Windows provisioning workstation before installing the Pi.
 
 ### 8.1 Confirm the approved repository revision
 
@@ -297,9 +304,7 @@ For an approved installation package rather than a Git checkout, extract it into
 
 ### 8.2 Unblock the provisioning script when required
 
-Windows may mark software downloaded from the internet as potentially unsafe and prevent it from running. Because this script came from the approved Multimédica repository, remove that Windows block before using it. Only the main provisioning script needs this command.
-
-From **Windows PowerShell** in the repository root, run:
+Files downloaded through a browser or received in a ZIP may carry a Windows security mark.
 
 ```powershell
 Unblock-File .\provision-scanner.ps1
@@ -327,13 +332,11 @@ If it must be created:
 .\provision-scanner.ps1 -CreateInstallerConfig
 ```
 
-Follow the hidden token prompt. Keep this file secure. Do not email it, place it in shared storage, include it in screenshots, or distribute it with ordinary installation files.
+Follow the hidden token prompt. Keep this file secure and never commit it to Git.
 
 ### 8.4 Prepare the configuration QRs
 
-During setup, the scanner needs information about its network connection, clinic assignment, and authorized access to the Multimédica cloud software. Because the scanner has no keyboard, the installer supplies this information by scanning QR codes.
-
-An authorized administrator must sign in at [https://multimedica.org](https://multimedica.org), open the administrative section, and generate or print the QR codes for this scanner. Prepare one of each required code before beginning installation:
+Generate the authorized QRs from the Multimedica administrative interface:
 
 - Wi-Fi configuration QR
 - Station configuration QR
@@ -346,15 +349,6 @@ The Identity QR is used during final acceptance to show the configured location,
 
 ### 8.5 Obtain the production artifact
 
-The final scanner software is supplied as an approved release package in the repository. The release includes:
-
-- a `.tgz` archive containing the production software;
-- a `.sha256` checksum sidecar containing the archive's expected digital fingerprint;
-- a `.build.json` file recording how the release was built; and
-- `approved-production-release.json`, which identifies the version approved for installation.
-
-A SHA-256 hash is a long value calculated from the exact bytes in a file. If a download is incomplete, damaged, or unexpectedly changed, its calculated hash will not match the approved value. The checksum sidecar is a small companion file containing another recorded copy of the expected hash.
-
 The approved repository revision must already contain all four release files:
 
 ```text
@@ -364,11 +358,11 @@ release-output/multimedica-production-<version>.tgz.sha256
 release-output/multimedica-production-<version>.build.json
 ```
 
-The repository already identifies the approved production version; you do not need to choose or type a version number. From **Windows PowerShell** in the repository root, run the complete block below. It finds the approved version, confirms that every required release file is present, and verifies the archive's SHA-256 fingerprint before installation:
+The installer does not choose, type, or infer the approved version. Load it from the committed pointer and validate the complete release set:
 
 ```powershell
 $approvedReleasePath = ".\release-output\approved-production-release.json"
-if (-not (Test-Path $approvedReleasePath)) { throw "The approved-release record is missing from the repository." }
+if (-not (Test-Path $approvedReleasePath)) { throw "Approved-release pointer is missing from the repository." }
 
 $approvedRelease = Get-Content $approvedReleasePath -Raw | ConvertFrom-Json
 $releaseVersion = [string]$approvedRelease.version
@@ -382,24 +376,17 @@ foreach ($requiredFile in @($artifactFile, $checksumFile, $buildMetadataFile)) {
 
 $artifact = (Resolve-Path $artifactFile).Path
 $sha = (Get-FileHash $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
-$approvedSha = ([string]$approvedRelease.sha256).ToLowerInvariant()
-$sidecarSha = ((Get-Content $checksumFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-
-if ($sha -ne $approvedSha) {
+if ($sha -ne ([string]$approvedRelease.sha256).ToLowerInvariant()) {
   throw "Production artifact does not match the approved SHA-256."
-}
-if ($sha -ne $sidecarSha) {
-  throw "Production artifact does not match its checksum sidecar."
 }
 
 $artifact
 $releaseVersion
-"Calculated SHA-256: $sha"
-"Approved SHA-256:   $approvedSha"
-"Sidecar SHA-256:    $sidecarSha"
+$sha
+Get-Content $checksumFile
 ```
 
-The three displayed SHA-256 values must be identical. If the approval record or any required release file is absent—or if the command reports that the values do not match—stop. The repository is not a complete, verified installation package.
+The calculated hash, pointer hash, and checksum sidecar must agree. If the pointer or any referenced file is absent, stop: the repository revision is not a complete deployable release.
 
 ---
 
@@ -478,8 +465,6 @@ Enter the required username exactly:
 multimedica_edge
 ```
 
-The current Multimédica services and installer are configured to run under this specific Pi account. Unlike the Pi hostname, the username is not installer-selectable. Using a different username will cause installation or runtime checks to fail.
-
 Create a strong unique password and enter it in both password fields. Store it in the approved password manager or secure credential record. Do not place it in the installation worksheet, Git, screenshots, or console transcripts.
 
 ### 9.9 Configure initial Wi-Fi access
@@ -526,16 +511,14 @@ Allow both **Writing** and **Verifying** to complete. Do not cancel, remove the 
 
 After Imager reports **Write complete!**, click **FINISH** and remove the automatically ejected microSD card.
 
-Before first boot, insert the newly imaged microSD card into the Pi. Then place the electronics into the enclosure, route the external cables through their intended exits, dress and secure the cables, and confirm that no cable or connector is pinched or strained. Do not apply power until the enclosure assembly and cable check are complete.
-
 ### 9.16 First boot
 
-1. Confirm that the microSD card is fully seated and the enclosure assembly is complete.
-2. Connect the scanner, display, and network as applicable.
+1. Insert the microSD card.
+2. Connect display, scanner, and network.
 3. Apply power.
 4. Allow the first boot to finish.
 
-From **Windows PowerShell**, set the recorded values if they are not already present, then confirm that the Pi is reachable. Paste or enter all four lines in Windows PowerShell. After entering the final `Test-Connection` line, press **Enter** to run it:
+From **Windows PowerShell**, set the recorded values if they are not already present, then confirm that the Pi is reachable:
 
 ```powershell
 $piUser = Read-Host "Enter the Pi username recorded during imaging"
@@ -544,22 +527,18 @@ $piHost = "$piUser@$piHostname"
 Test-Connection -ComputerName $piHostname -Count 2
 ```
 
-If Windows cannot find the Pi using its hostname, obtain the Pi's IP address from the network router or DHCP system. Then run this replacement block in **Windows PowerShell**:
+If name resolution is unavailable, obtain the Pi's address from the router or DHCP system and set:
 
 ```powershell
 $piIp = Read-Host "Enter the Pi IP address"
 $piHost = "$piUser@$piIp"
 ```
 
-### CHECKPOINT — Where you are now
-
-The Pi has a clean operating system, its recorded network identity, and initial SSH access. Multimédica software has not yet been installed.
+> **Where you are now:** The Pi has a clean operating system, its recorded network identity, and initial SSH access. Multimedica software has not yet been installed.
 
 ---
 
 ## 10. Establish provisioning SSH access
-
-The installation software needs to control the new Raspberry Pi remotely so it can copy files and configure the Pi as a Multimédica scanner. **SSH** is the secure remote-control tool that allows the Windows provisioning workstation to run commands on the Pi. This step establishes and verifies that connection for the remaining installation work.
 
 **Windows PowerShell:**
 
@@ -598,7 +577,7 @@ If SSH reports an identity change after answering `no`, stop and verify that thi
 
 At the sudo prompt, enter the Pi password once and press Enter. The password will not appear. Wait after pressing Enter; do not type it again unless another visible prompt appears.
 
-The first installation typically takes **5–10 minutes** while operating-system and Node.js (`npm`) packages are installed. The Windows PowerShell window should continue to show installation progress. Short pauses are normal. If there is no new output for more than about a minute, first look carefully for a visible password or confirmation prompt; do not type blindly. If there is no prompt and the process remains unchanged, preserve the screen and use the troubleshooting guidance.
+The first installation may take several minutes while operating-system and npm packages are installed.
 
 The script will:
 
@@ -610,16 +589,6 @@ The script will:
 - verify the scanner device and reader;
 - reboot the Pi;
 - verify that services recover after reboot.
-
-Near the end, the script should report the reboot sequence. The hostname may appear in the actual output, but the progression should resemble:
-
-```text
-Rebooting Pi (no operator input required)
-The Pi will disconnect temporarily. Do not type a password or scan a QR code.
-Waiting for the current system to go offline...
-OK  Pi went offline
-Waiting for the rebooted Pi to reconnect...
-```
 
 During installation, the physical screen may show:
 
@@ -636,19 +605,13 @@ Required console result:
 RESULT: PASS
 ```
 
-### CHECKPOINT — Where you are now
-
-The operating system and Multimédica bootstrap layer are installed. The appliance can read commissioning QRs, but it is not yet configured for its clinic assignment and production software is not yet installed.
+> **Where you are now:** The operating system and Multimedica bootstrap layer are installed. The appliance can read commissioning QRs, but it is not yet configured for its clinic assignment and production software is not yet installed.
 
 ---
 
 ## 12. Commission the scanner appliance
 
-You now have the bootstrap software installed—high five. **Commissioning** means telling the scanner about its particular clinic assignment: its Wi-Fi credentials, the type of station where it will operate (for example, laboratory or nursing), and how to reach the Multimédica cloud functions securely. Because the scanner does not have a keyboard, you provide this information using the QR codes prepared in Section 8.4.
-
 Scan QRs only after bootstrap installation has passed and the display requests configuration.
-
-Three QR codes are used to configure the appliance in this section: Wi-Fi, Station, and Cloud. A fourth QR, **Mostrar Identidad del scanner**, does not change configuration and is not required during these three commissioning scans. Keep it available: it can display the scanner's identity, IP address, and installed version during acceptance or later troubleshooting.
 
 ### 12.1 Wi-Fi QR
 
@@ -676,7 +639,7 @@ When all required configuration is accepted, the display should show:
 Configuración completa
 ```
 
-The controller may retain previously valid Station or Cloud configuration on a reinstallation. If the display does not request one of those QRs, do not assume that a scan was ignored. Continue to Section 13 and run the complete **Windows PowerShell** `-Verify` command shown there. Its result reports whether the required configuration is actually complete.
+The controller may retain previously valid Station or Cloud configuration on a reinstallation. If it does not request a QR, use `-Verify` to inspect the actual configuration state rather than assuming a scan was ignored.
 
 ---
 
@@ -710,9 +673,7 @@ RESULT: PASS
 
 Do not install production if verification fails.
 
-### CHECKPOINT — Where you are now
-
-You now have a basic, commissioned scanner appliance with verified scanner input, display, kiosk, network, station, and cloud configuration. The final installation step is to load and promote the approved production software.
+> **Where you are now:** You now have a basic, commissioned scanner appliance with verified scanner input, display, kiosk, network, station, and cloud configuration. The final installation step is to load and promote the approved production software.
 
 ---
 
@@ -750,17 +711,16 @@ Inspect the physical Pi display.
 - If it visibly shows `CANDIDATO`, type lowercase `yes` and press Enter.
 - If it does not, do not authorize promotion.
 
-A successful installation ends with:
+A successful installation includes:
 
 ```text
+INSTALL_RELEASE_COMPLETE
 RESULT: PASS
 ```
 
 The release is not recorded as known-good until production starts through the production service and passes health verification.
 
-### CHECKPOINT — Where you are now
-
-The approved production release is installed and has passed candidate and first-activation checks. The display should now look as it will during ordinary clinic use. If the clinic is operating, the station should show its current daily state—for example, available or in use. Complete the physical and operational acceptance checks below before turning the appliance over for use.
+> **Where you are now:** The approved production release is installed and has passed candidate and first-activation checks. Complete the physical and operational acceptance checks below before turning the appliance over for use.
 
 ---
 
@@ -804,19 +764,9 @@ Confirm that a temporary Spanish identity screen appears and shows:
 
 Confirm that it contains no credentials and automatically returns to the clinic display after approximately 15 seconds.
 
-### 15.4 Create and scan a test patient
+### 15.4 Real patient scan
 
-Do not use a real patient for installation acceptance. In the main Multimédica application, create a temporary test patient using the normal clinic procedure. In **Motivo de visita**, enter exactly:
-
-```text
-testing
-```
-
-Use lowercase letters as shown below. Complete the other required patient fields, select the station workflow being tested, and create the patient.
-
-![Test patient with testing entered as Motivo de visita](images/test-patient-motivo-testing.png)
-
-From the **Anfitrión** page, print the test patient's workflow ticket using the clinic's configured page-printer or thermal-printer process. Scan that printed test barcode with the scanner appliance.
+Scan one approved real or designated acceptance patient barcode.
 
 Confirm:
 
@@ -825,20 +775,9 @@ Confirm:
 - the display updates to the expected clinic state;
 - no obsolete “Patient Scan Accepted” overlay appears.
 
-### 15.5 Remove the test patient
+### 15.5 Cold-boot recovery
 
-After the scan test is complete, remove the temporary test patient without affecting real patients:
-
-1. In the Multimédica application, open the patient workflow screen.
-2. Click **Plan de atención de pacientes** in the upper-right corner **five times in quick succession**.
-3. Use the test-cleanup control that appears to clear patients whose **Motivo de visita** is exactly `testing`.
-4. Confirm that the test patient is gone and that no real patient was removed.
-
-This hidden cleanup method is deliberately limited to test patients identified by the lowercase `testing` visit reason.
-
-### 15.6 Cold-boot recovery
-
-Perform one controlled power cycle by unplugging the scanner appliance's power cable, waiting approximately 10 seconds, and plugging it back in. Allow the Pi to return without operator intervention.
+Perform one controlled power cycle or approved reboot. Allow the Pi to return without operator intervention.
 
 Confirm:
 
@@ -850,17 +789,9 @@ Confirm:
 
 Run `-Verify` one final time and retain the result with the installation record.
 
-### INSTALLATION COMPLETE
-
-The scanner appliance is programmed, configured, tested, and ready for normal clinic use. Complete the installation record and completion checklist at the end of this document, then turn the appliance over to the clinic operator.
-
-**Stop here for an ordinary new-scanner installation.** Section 16 is a separate reference procedure for future troubleshooting, display updates, software releases, and repair. It is not part of programming and commissioning a new Pi.
-
 ---
 
-## 16. Separate procedure: future maintenance and updates
-
-This section is information to keep available for a future service visit. Do not perform these operations merely because they appear after the installation steps. Use them only when diagnosing an existing appliance or deploying an approved update.
+## 16. Supported maintenance operations
 
 ### 16.1 Diagnose without changing the Pi
 
@@ -923,7 +854,7 @@ The updated repository must include its approved-release pointer, artifact, chec
   -ResultFile .\provisioning-result.json
 ```
 
-Authorize promotion only when the physical display shows `CANDIDATO`. Require `RESULT: PASS`, then run `-Verify` and repeat the relevant physical acceptance checks.
+Authorize promotion only when the physical display shows `CANDIDATO`. Require `INSTALL_RELEASE_COMPLETE` and `RESULT: PASS`, then run `-Verify` and repeat the relevant physical acceptance checks.
 
 Do not overwrite an installed version directory and do not reuse a version for different artifact contents.
 

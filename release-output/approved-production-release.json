@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "version": "1.0.4",
+  "artifact": "multimedica-production-1.0.4.tgz",
+  "sha256": "6f85ceaaf184f72f9a3689356927feecdf866184b6958140db0e6dbc7f402ae6",
+  "build_metadata": "multimedica-production-1.0.4.build.json",
+  "approved_at": "2026-08-23T00:51:03.238Z"
+}

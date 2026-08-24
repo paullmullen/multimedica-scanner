@@ -109,6 +109,7 @@ function _safeRuntime(v) {
       station_id: _safeString(v.identity.station_id, 128),
       device_id: _safeString(v.identity.device_id, 128),
       production_version: _safeString(v.identity.production_version, 64),
+      ip_address: _safeString(v.identity.ip_address, 64),
     };
     if (!Object.values(identity).some(Boolean)) return null;
     return { kind: "identity", state_id: v.state_id, identity };
