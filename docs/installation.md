@@ -107,6 +107,8 @@ $piHost
 
 Confirm that the displayed `$piHost` combines the correct username and hostname. The remaining PowerShell examples use `$piHost` and `$piHostname`; set them again after opening a new PowerShell window.
 
+The procedure introduces each supported command where it is used. For a compact list of every action switch, parameter, default, and current implementation status, see [Appendix A — `provision-scanner.ps1` command reference](#appendix-a-provision-scannerps1-command-reference).
+
 ---
 
 ## 4. Stop conditions
@@ -1046,3 +1048,99 @@ Do not record passwords, QR administrator tokens, shared secrets, or Wi-Fi crede
 - [ ] Cold boot recovered production and stable display
 - [ ] Final `-Verify` returned `RESULT: PASS`
 - [ ] Installation record completed without secrets
+
+---
+
+## Appendix A. `provision-scanner.ps1` command reference
+
+Run the script from Windows PowerShell in the repository root. Select exactly one action switch for each invocation. Parameters not listed for an action are rejected by PowerShell's parameter-set validation.
+
+This appendix describes the current command interface. The step-by-step sections above remain authoritative for sequencing, prerequisites, stop conditions, and acceptance checks.
+
+### A.1 Action switches
+
+| Action switch | Purpose | Required companion parameters | Current use |
+|---|---|---|---|
+| `-Install` | Install the bootstrap platform and verify services and scanner input. Reboots by default when preliminary checks pass. | `-PiHost` | Supported clean-install workflow |
+| `-Verify` | Query controller state and perform read-only checks of release infrastructure, services, and scanner detection. | `-PiHost` | Supported; preferred first diagnostic |
+| `-Commission` | Run verification and check whether commissioning is complete. | `-PiHost` | Verification-focused; current implementation still reports partial when commissioning is incomplete |
+| `-Repair` | Re-run bootstrap installation in repair mode, then verify and reboot by default. | `-PiHost` | Supported only where release-management safety permits repair |
+| `-InstallRelease` | Validate the local artifact and SHA-256, transfer it to the Pi, run the attached candidate workflow, and promote the approved release. | `-PiHost`, `-ReleaseVersion`, `-ArtifactPath`, `-ArtifactSha256` | Supported production-release workflow |
+| `-RollbackRelease` | Reserved command for selecting an earlier installed release. | `-PiHost`, `-ReleaseVersion` | **Not implemented:** currently returns `RESULT: PARTIAL` and makes no rollback |
+| `-UpdateDisplay` | Transfer and atomically install the allowlisted bootstrap display assets. | `-PiHost` | Supported narrow maintenance workflow |
+| `-ConfigureSshAccess` | Create or reuse the workstation provisioning key, install its public key on the Pi, and verify key-based SSH access. | `-PiHost` | Supported setup utility; does not write `provisioning-result.json` |
+| `-ValidateProductionCandidate` | Temporarily stage production code and run specialized physical display, scanner ownership, real-scan, stop/start, and USB-recovery observations without promotion. | `-PiHost` | Specialized hardware/development validation; not an ordinary installation step |
+| `-CreateInstallerConfig` | Interactively create and protect `multimedica-installer.json` on the Windows workstation. Does not connect to a Pi. | None | Supported local utility |
+
+### A.2 Parameters and modifiers
+
+| Parameter | Meaning | Accepted with | Default / requirement |
+|---|---|---|---|
+| `-PiHost <user@host>` | SSH target combining the Pi username and hostname or IP address. | Every SSH-based action | Required |
+| `-PiPort <number>` | SSH port on the Pi. | Every SSH-based action | `22` |
+| `-InstallerConfig <path>` | Path to the protected installer JSON containing the QR administrator token. | `-Install`, `-Commission`, `-Repair`, `-InstallRelease` | `.\multimedica-installer.json`; currently consumed by install and repair |
+| `-ResultFile <path>` | Destination for structured provisioning evidence. | All result-producing actions | `.\provisioning-result.json` |
+| `-ReleaseVersion <version>` | Semantic production version, such as `1.2.3`. | `-InstallRelease`, `-RollbackRelease`; optional with `-Commission` | Required for install and rollback; the current commission implementation does not consume it |
+| `-ArtifactPath <file>` | Local path to the production `.tgz` artifact. | `-InstallRelease` | Required; must identify a regular file |
+| `-ArtifactSha256 <hash>` | Expected lowercase or uppercase SHA-256 for the artifact. | `-InstallRelease` | Required; exactly 64 hexadecimal characters and must match the local file |
+| `-NoReboot` | Skip the automatic reboot and post-reboot verification. | `-Install`, `-Repair` | Off by default; use only when the procedure explicitly calls for it |
+| `-Force` | Pass the bootstrap installer's force option. Repair mode already performs a forced bootstrap reinstall where permitted. | `-Install`, `-Repair` | Off by default; does not override release-management safety rules |
+| `-WaitForQr` | Reserved commissioning modifier. | `-Commission` | Declared but not consumed by the current implementation |
+| `-FirebaseProjectId <id>` | Retrieve the QR administrator token through Firebase CLI while creating the installer config. If omitted, prompt securely for the token. | `-CreateInstallerConfig` | Optional; project ID must match the script's validation pattern |
+
+**SSH-based actions:** `-Install`, `-Verify`, `-Commission`, `-Repair`, `-InstallRelease`, `-RollbackRelease`, `-UpdateDisplay`, `-ConfigureSshAccess`, and `-ValidateProductionCandidate`.
+
+**Result-producing actions:** all SSH-based actions except `-ConfigureSshAccess`. The local `-CreateInstallerConfig` utility also does not write a provisioning result.
+
+### A.3 Common examples
+
+Create the protected installer configuration:
+
+```powershell
+.\provision-scanner.ps1 -CreateInstallerConfig
+```
+
+Configure SSH access:
+
+```powershell
+.\provision-scanner.ps1 -ConfigureSshAccess -PiHost $piHost
+```
+
+Run read-only verification:
+
+```powershell
+.\provision-scanner.ps1 -Verify -PiHost $piHost
+```
+
+Install the bootstrap platform:
+
+```powershell
+.\provision-scanner.ps1 `
+  -Install `
+  -PiHost $piHost `
+  -InstallerConfig .\multimedica-installer.json `
+  -ResultFile .\provisioning-result.json
+```
+
+Install an approved production release:
+
+```powershell
+.\provision-scanner.ps1 `
+  -InstallRelease `
+  -PiHost $piHost `
+  -ReleaseVersion $releaseVersion `
+  -ArtifactPath $artifact `
+  -ArtifactSha256 $sha `
+  -ResultFile .\provisioning-result.json
+```
+
+### A.4 Result and exit-code meanings
+
+| Console result | Exit code | Meaning |
+|---|---:|---|
+| `RESULT: PASS` | `0` | The selected action completed successfully. Continue only with the next documented step. |
+| `RESULT: PARTIAL` | `10` | The action obtained some useful result but did not establish full success. Stop and review warnings and `provisioning-result.json`. |
+| `RESULT: FAIL` | `20` | The action failed or a required verification did not pass. Stop and investigate before continuing. |
+
+Do not infer overall appliance acceptance from exit code alone. Installation is complete only after the documented software evidence, physical display checks, real scan, and cold-boot recovery all agree.
+
