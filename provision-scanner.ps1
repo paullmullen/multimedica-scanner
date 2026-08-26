@@ -3,18 +3,21 @@
     Multimedica Scanner Bootstrap Provisioning Installer
 
 .DESCRIPTION
-    Seven mutually exclusive action modes:
-        -Install        Install the bootstrap layer (acceptance point A)
-        -Verify         Query and report current device state (read-only)
-        -Commission     Verify commissioning acceptance point B
-        -Repair         Re-run bootstrap installation safely
-        -InstallRelease Install a specific named release artifact    (Milestone 5)
-        -RollbackRelease Roll back to a prior installed release      (Milestone 5)
-        -UpdateDisplay  Atomically update bootstrap display assets
+    Mutually exclusive action modes:
+        -Install                     Install the bootstrap layer (acceptance point A)
+        -Verify                      Query and report current device state (read-only)
+        -Commission                  Check commissioning acceptance point B
+        -Repair                      Re-run bootstrap installation safely
+        -InstallRelease              Install and promote a named release artifact
+        -RollbackRelease             Reserved; currently returns RESULT: PARTIAL
+        -UpdateDisplay               Atomically update bootstrap display assets
+        -ValidateProductionCandidate Run specialized temporary hardware validation
 
-    One SSH setup utility:
+    Utilities:
         -ConfigureSshAccess  Install and verify the workstation's dedicated
                              provisioning public key on the Pi
+        -CreateInstallerConfig
+                             Create the installer configuration interactively
 
 .NOTES
     The QR administrator token is supplied via -InstallerConfig.
