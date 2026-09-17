@@ -1,0 +1,15 @@
+[Unit]
+Description=Initialize a cloned Multimedica scanner image
+Documentation=https://github.com/paullmullen/multimedica-scanner/blob/main/docs/image-deployment.md
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target ssh.service
+Wants=network-pre.target
+ConditionPathExists=/var/lib/multimedica-scanner/image/first-boot-required
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/multimedica-image-firstboot
+
+[Install]
+WantedBy=multi-user.target
