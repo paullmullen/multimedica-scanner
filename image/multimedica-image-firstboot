@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MARKER="/var/lib/multimedica-scanner/image/first-boot-required"
+LOG_TAG="multimedica-image-firstboot"
+
+log() {
+  logger -t "$LOG_TAG" -- "$*"
+  echo "[$LOG_TAG] $*"
+}
+
+[[ $EUID -eq 0 ]] || { echo "Must run as root" >&2; exit 1; }
+[[ -f "$MARKER" ]] || exit 0
+
+# These are appliance-internal housekeeping steps. The field installer does
+# not supply, record, or interact with any of these values.
+log "Creating a unique operating-system identity"
+rm -f /etc/machine-id /var/lib/dbus/machine-id
+systemd-machine-id-setup
+ln -s /etc/machine-id /var/lib/dbus/machine-id
+
+log "Creating unique maintenance host keys"
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A
+
+serial="$(awk -F: '/^Serial[[:space:]]*:/ {gsub(/[[:space:]]/, "", $2); print tolower($2)}' /proc/cpuinfo | tail -1)"
+if [[ "$serial" =~ ^[0-9a-f]+$ ]]; then
+  suffix="${serial: -6}"
+else
+  suffix="$(cut -c1-6 /etc/machine-id)"
+fi
+hostname="multimedica-${suffix}"
+printf '%s\n' "$hostname" >/etc/hostname
+if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+  sed -i -E "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${hostname}/" /etc/hosts
+else
+  printf '127.0.1.1\t%s\n' "$hostname" >>/etc/hosts
+fi
+hostnamectl set-hostname "$hostname"
+
+rm -f "$MARKER"
+systemctl disable multimedica-image-firstboot.service
+log "First-boot initialization complete"

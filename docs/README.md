@@ -6,6 +6,8 @@ This directory contains the active technical and operational documentation for t
 
 | Document | Audience | Purpose |
 |---|---|---|
+| [Prebuilt Image Deployment](image-deployment.md) | Clinic installer | Write the image, scan the three configuration QRs, and perform a test scan |
+| [Image Build and Publication](image-build-and-publication.md) | Release owner | Prepare, capture, validate, and store a reusable scanner image |
 | [Installation Guide](installation.md) | Installer | Build, commission, release, and validate a scanner from a clean Pi image |
 | [Installation Theory of Operation](SCANNER-INSTALLATION-THEORY-OF-OPERATION.md) | Developer and technical owner | Understand the architecture, safety contracts, promotion, rollback, and recovery model |
 | [Architecture Guide](architecture.md) | Developer | Understand scanner routing, cloud authority, display state, and local APIs |

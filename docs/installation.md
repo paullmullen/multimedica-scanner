@@ -11,6 +11,8 @@
 
 This guide describes the supported procedure for turning a clean Raspberry Pi into a commissioned Multimedica scanner with a validated production release.
 
+For an ordinary new appliance, prefer the shorter [prebuilt SD-card image procedure](image-deployment.md). It reduces field installation to writing a verified image, powering on the appliance, scanning three configuration QRs, and performing a test scan. Use this full procedure to create the reference appliance, repair an installation, or diagnose a failed image deployment.
+
 Use the Windows provisioning script for installation and verification. Do not clone the repository onto the Pi, copy individual runtime files manually, or edit files under `/opt/multimedica-scanner` as part of ordinary installation.
 
 ---
@@ -1143,4 +1145,3 @@ Install an approved production release:
 | `RESULT: FAIL` | `20` | The action failed or a required verification did not pass. Stop and investigate before continuing. |
 
 Do not infer overall appliance acceptance from exit code alone. Installation is complete only after the documented software evidence, physical display checks, real scan, and cold-boot recovery all agree.
-
