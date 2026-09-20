@@ -25,7 +25,7 @@ The image does not contain a clinic's Wi-Fi password, station identity, cloud en
 
 - Raspberry Pi 4 scanner appliance
 - 32 GB or larger high-quality microSD card
-- Current `multimedica-scanner-<version>.img.xz` file
+- Current approved scanner image. The first approved image is `mmscanner20260918.img.xz`.
 - Matching `.sha256` checksum file
 - Raspberry Pi Imager on Windows
 - Approved Wi-Fi, station, and cloud configuration QRs
@@ -38,7 +38,7 @@ The image does not contain a clinic's Wi-Fi password, station identity, cloud en
 Keep the image and checksum file in the same folder. In Windows PowerShell, run:
 
 ```powershell
-$image = Get-Item .\multimedica-scanner-*.img.xz
+$image = Get-Item .\mmscanner20260918.img.xz
 $expected = ((Get-Content "$($image.FullName).sha256" -Raw).Trim() -split '\s+')[0]
 $actual = (Get-FileHash $image.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 "Expected: $expected"
@@ -54,9 +54,9 @@ The two values must be identical. Stop if they differ.
 
 1. Open **Raspberry Pi Imager**.
 2. Select **Raspberry Pi 4**.
-3. Choose **Use custom** for the operating system and select the `.img.xz` file.
+3. Click **Choose OS**, choose **Use custom**, and select `mmscanner20260918.img.xz`.
 4. Select the intended microSD card.
-5. Do not apply Raspberry Pi Imager operating-system customization.
+5. If Raspberry Pi Imager offers to apply operating-system customization, choose **No**. The image already contains the required operating-system and scanner configuration.
 6. Click **Write** and approve the erase warning.
 7. Wait for writing and verification to finish successfully.
 8. Eject the card safely.
@@ -76,7 +76,10 @@ Writing the image erases the selected storage device. Verify that the selected d
    1. Wi-Fi
    2. Station
    3. Cloud
-7. Wait for confirmation after each QR before scanning the next.
+7. Wait for the green confirmation overlay after each QR before scanning the next. Each overlay remains visible for approximately five seconds:
+   - **Wi‑Fi configurado**
+   - **Estación configurada**
+   - **Nube configurada**
 8. Scan the designated test-patient barcode and confirm the expected result.
 9. Perform one controlled power cycle and confirm that the scanner returns to normal operation.
 

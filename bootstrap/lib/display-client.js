@@ -114,4 +114,18 @@ async function showRuntimeState(runtime) {
   }
 }
 
-module.exports = { updateState, showMessage, showIdentity, showRuntimeState };
+async function clearRuntimeState() {
+  try {
+    await _post("/api/state", { runtime: null });
+  } catch (err) {
+    console.warn("[display-client] clearRuntimeState failed:", err.message);
+  }
+}
+
+module.exports = {
+  updateState,
+  showMessage,
+  showIdentity,
+  showRuntimeState,
+  clearRuntimeState,
+};

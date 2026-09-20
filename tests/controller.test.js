@@ -59,6 +59,7 @@ function makeCtrl(tmpDir, extraDeps = {}) {
     showMessage: jest.fn().mockResolvedValue(undefined),
     showIdentity: jest.fn().mockResolvedValue(undefined),
     showRuntimeState: jest.fn().mockResolvedValue(undefined),
+    clearRuntimeState: jest.fn().mockResolvedValue(undefined),
     _log: displayLog,
   };
 
@@ -157,7 +158,7 @@ describe("handleScan â€” wifi_config", () => {
     expect(raw).not.toContain("super-secret-wifi-pass");
   });
 
-  test("display receives success message after accepted wifi QR", async () => {
+  test("display receives a success overlay after accepted wifi QR", async () => {
     const { ctrl, display } = makeCtrl(tmpDir);
     await ctrl.handleScan(qr("wifi_config", { ssid: "TestNet", password: "pw" }));
     const successCalls = display.showMessage.mock.calls.filter(([arg]) => arg.kind === "success");
@@ -165,6 +166,13 @@ describe("handleScan â€” wifi_config", () => {
     // Message must not contain the password
     const msgText = successCalls[0][0].text || "";
     expect(msgText).not.toContain("pw");
+    expect(display.showRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "overlay",
+        expires_in_ms: 5000,
+        overlay: expect.objectContaining({ severity: "success", title: "Wi‑Fi configurado" }),
+      })
+    );
   });
 
   test("failed Wi-Fi activation does not mark Wi-Fi configured or replace credentials", async () => {
@@ -231,6 +239,30 @@ describe("handleScan â€” station_config", () => {
     expect(cfg.device_id).toBe("scanner01");
   });
 
+  test("displays a transient station confirmation overlay", async () => {
+    const { ctrl, display } = makeCtrl(tmpDir);
+    await ctrl.handleScan(
+      qr("station_config", {
+        location_id: "loc1",
+        room_id: "room1",
+        station_id: "vitals",
+        device_id: "scanner01",
+      })
+    );
+
+    expect(display.showRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "overlay",
+        expires_in_ms: 5000,
+        overlay: {
+          severity: "success",
+          title: "Estación configurada",
+          detail: "Estación aceptada: vitals",
+        },
+      })
+    );
+  });
+
   test("re-scanning station replaces identity but preserves wifi fields", async () => {
     const { ctrl } = makeCtrl(tmpDir);
     await ctrl.handleScan(qr("wifi_config", { ssid: "Net", password: "pw" }));
@@ -288,6 +320,13 @@ describe("handleScan â€” cloud_config", () => {
     );
     const allText = display.showMessage.mock.calls.map(([arg]) => arg.text || "").join(" ");
     expect(allText).not.toContain("super-secret-123");
+    expect(JSON.stringify(display.showRuntimeState.mock.calls)).not.toContain("super-secret-123");
+    expect(display.showRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "overlay",
+        overlay: expect.objectContaining({ severity: "success", title: "Nube configurada" }),
+      })
+    );
   });
 });
 

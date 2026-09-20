@@ -92,7 +92,7 @@ function createController(deps) {
 
   async function _applyRuntimeState(next) {
     const safe = _sanitizeRuntimeEnvelope(next);
-    if (!safe) return false;
+    if (!safe || typeof _displayClient.showRuntimeState !== "function") return false;
     const priority = safe.priority;
     const order = { commissioning: 4, feedback: 3, network: 2, closed: 1, room: 1 };
 
@@ -111,7 +111,11 @@ function createController(deps) {
       transientTimer = setTimeout(() => {
         transientTimer = null;
         transientPriority = null;
-        if (runtimeState) _displayClient.showRuntimeState(runtimeState).catch(() => {});
+        if (runtimeState) {
+          _displayClient.showRuntimeState(runtimeState).catch(() => {});
+        } else if (typeof _displayClient.clearRuntimeState === "function") {
+          _displayClient.clearRuntimeState().catch(() => {});
+        }
       }, safe.expires_in_ms);
       if (transientTimer && typeof transientTimer.unref === "function") transientTimer.unref();
     }
@@ -178,8 +182,11 @@ function createController(deps) {
     // Persist password to secrets only - never logged or displayed.
     _secretsStore.writeSecrets({ wifi_password: result.runtime.password });
 
-    await _showMsg("success", `Wi\u2011Fi aceptado: ${result.runtime.ssid}`);
     await _pushState();
+    await _showConfigurationAccepted(
+      "Wi‑Fi configurado",
+      `Red aceptada: ${result.runtime.ssid}`
+    );
   }
 
   async function _handleStationConfig(result) {
@@ -190,8 +197,11 @@ function createController(deps) {
       device_id: result.applied.DEVICE_ID,
     });
 
-    await _showMsg("success", `Estación aceptada: ${result.applied.STATION_ID}`);
     await _pushState();
+    await _showConfigurationAccepted(
+      "Estación configurada",
+      `Estación aceptada: ${result.applied.STATION_ID}`
+    );
   }
 
   async function _handleCloudConfig(result) {
@@ -201,8 +211,22 @@ function createController(deps) {
     // Secret to secrets store only
     _secretsStore.writeSecrets({ shared_secret: result.runtime.SHARED_SECRET });
 
-    await _showMsg("success", "Configuración de nube aceptada");
     await _pushState();
+    await _showConfigurationAccepted(
+      "Nube configurada",
+      "La conexión con la nube se guardó correctamente."
+    );
+  }
+
+  async function _showConfigurationAccepted(title, detail) {
+    await _showMsg("success", detail);
+    await _applyRuntimeState({
+      kind: "overlay",
+      state_id: `configuration-accepted-${Date.now()}`,
+      priority: "feedback",
+      expires_in_ms: 5_000,
+      overlay: { severity: "success", title, detail },
+    });
   }
 
   async function _handlePatientScan(rawScan) {
