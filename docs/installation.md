@@ -11,7 +11,15 @@
 
 This guide describes the supported procedure for turning a clean Raspberry Pi into a commissioned Multimedica scanner with a validated production release.
 
-For an ordinary new appliance, prefer the shorter [prebuilt SD-card image procedure](image-deployment.md). It reduces field installation to writing a verified image, powering on the appliance, scanning three configuration QRs, and performing a test scan. Use this full procedure to create the reference appliance, repair an installation, or diagnose a failed image deployment.
+### Choose the right procedure
+
+| Procedure | When to use it |
+| --- | --- |
+| **Build a scanner from scratch** (this guide) | Start with a clean Raspberry Pi OS installation. Use this procedure to build and validate a reference scanner or to rebuild or troubleshoot an appliance that needs full provisioning. |
+| [Deploy a scanner from a prebuilt SD-card image](image-deployment.md) | Use this shorter procedure for routine installations when you have an approved image. Write the image to a microSD card with Raspberry Pi Imager, boot the appliance, scan the three clinic configuration QR codes, and verify operation with a test-patient barcode. |
+| [Build and publish the scanner SD-card image](image-build-and-publication.md) | Use this release-owner procedure to prepare, capture, and publish an image from a reference scanner that has passed physical acceptance with the approved production release. |
+
+The scratch installation produces the validated reference scanner. The image-building procedure turns that reference installation into a reusable SD-card image. Clinic installers use the resulting image to commission additional scanners without repeating the full software provisioning steps.
 
 Use the Windows provisioning script for installation and verification. Do not clone the repository onto the Pi, copy individual runtime files manually, or edit files under `/opt/multimedica-scanner` as part of ordinary installation.
 
